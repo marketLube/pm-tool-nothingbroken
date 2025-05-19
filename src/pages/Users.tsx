@@ -8,6 +8,7 @@ import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
 import ButtonGroup from '../components/ui/ButtonGroup';
 import Checkbox from '../components/ui/Checkbox';
+import DatePicker from '../components/ui/DatePicker';
 import { useData } from '../contexts/DataContext';
 import { useStatus } from '../contexts/StatusContext';
 import { User, Role, TeamType } from '../types';
@@ -29,11 +30,29 @@ const UserModal: React.FC<{
       role: 'employee',
       team: 'creative',
       isActive: true,
-      allowedStatuses: []
+      allowedStatuses: [],
+      joinDate: format(new Date(), 'yyyy-MM-dd')
     }
   );
   
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Reset form data when the user prop changes (for editing different users)
+  React.useEffect(() => {
+    if (user) {
+      setFormData(user);
+    } else {
+      setFormData({
+        name: '',
+        email: '',
+        role: 'employee',
+        team: 'creative',
+        isActive: true,
+        allowedStatuses: [],
+        joinDate: format(new Date(), 'yyyy-MM-dd')
+      });
+    }
+  }, [user]);
   
   // Get statuses for the selected team
   const teamStatuses = useMemo(() => {
@@ -98,6 +117,10 @@ const UserModal: React.FC<{
       newErrors.email = 'Email is invalid';
     }
     
+    if (!formData.joinDate) {
+      newErrors.joinDate = 'Join date is required';
+    }
+    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -116,8 +139,7 @@ const UserModal: React.FC<{
     } else {
       // Add new user
       addUser({
-        ...formData,
-        joinDate: format(new Date(), 'yyyy-MM-dd')
+        ...formData
       } as Omit<User, 'id'>);
     }
     
@@ -188,6 +210,17 @@ const UserModal: React.FC<{
             required
           />
         </div>
+        
+        <DatePicker
+          label="Join Date"
+          name="joinDate"
+          value={formData.joinDate || ''}
+          onChange={handleChange}
+          error={errors.joinDate}
+          fullWidth
+          required
+          max={format(new Date(), 'yyyy-MM-dd')} // Limit to today or earlier
+        />
         
         {/* Status Permissions - only show for non-admin users */}
         {showStatusPermissions && (
