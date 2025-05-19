@@ -40,9 +40,10 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  // For demo purposes, ensure an admin user is always the default
-  // Using the admin user (first user in the users array)
-  const adminUser = users.find(user => user.role === 'admin' && user.isActive) || users[0];
+  // For demo purposes, ensure Althameem is set as the default admin user
+  const adminUser = users.find(user => user.name === 'Althameem' && user.role === 'admin' && user.isActive) || 
+                    users.find(user => user.role === 'admin' && user.isActive) || 
+                    users[0];
   const [currentUser, setCurrentUser] = useState<User | null>(adminUser);
   
   const isAuthenticated = !!currentUser;

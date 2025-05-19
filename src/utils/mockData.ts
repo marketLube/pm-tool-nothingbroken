@@ -70,12 +70,22 @@ export const teams: Team[] = [
 export const users: User[] = [
   {
     id: 'user1',
-    name: 'Admin User',
-    email: 'admin@marketlube.com',
+    name: 'Althameem',
+    email: 'althameem@marketlube.com',
     role: 'admin',
-    team: 'creative', // Admin belongs to both teams, but primary is creative
+    team: 'creative', // Admin belongs to both teams in the UI, but primary is creative
     joinDate: '2023-01-01',
     avatar: 'https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=150',
+    isActive: true
+  },
+  {
+    id: 'user8',
+    name: 'Fidal',
+    email: 'fidal@marketlube.com',
+    role: 'admin',
+    team: 'web', // Admin belongs to both teams in the UI, but primary is web
+    joinDate: '2023-01-15',
+    avatar: 'https://images.pexels.com/photos/2379005/pexels-photo-2379005.jpeg?auto=compress&cs=tinysrgb&w=150',
     isActive: true
   },
   {

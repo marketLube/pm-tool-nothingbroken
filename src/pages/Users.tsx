@@ -273,8 +273,10 @@ const UsersPage: React.FC = () => {
         user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         user.email.toLowerCase().includes(searchQuery.toLowerCase());
         
-      // Apply team filter
-      const matchesTeam = teamFilter === 'all' || user.team === teamFilter;
+      // Apply team filter - always include admin users regardless of their team
+      const matchesTeam = teamFilter === 'all' || 
+                         user.team === teamFilter || 
+                         user.role === 'admin';
       
       return matchesSearch && matchesTeam;
     });
@@ -430,7 +432,10 @@ const UsersPage: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">
                         {user.role === 'admin' ? (
-                          <span className="text-primary-600">Full Access</span>
+                          <span className="text-primary-600 font-semibold flex items-center">
+                            Full Access
+                            <span className="ml-1 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Admin Default</span>
+                          </span>
                         ) : user.allowedStatuses && user.allowedStatuses.length > 0 ? (
                           <span>{user.allowedStatuses.length} Status{user.allowedStatuses.length !== 1 ? 'es' : ''}</span>
                         ) : (
@@ -440,14 +445,16 @@ const UsersPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          icon={Edit}
-                          onClick={() => handleEditUser(user)}
-                        >
-                          Edit
-                        </Button>
+                        {user.role !== 'admin' && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            icon={Edit}
+                            onClick={() => handleEditUser(user)}
+                          >
+                            Edit
+                          </Button>
+                        )}
                         <Button
                           variant={user.isActive ? 'danger' : 'primary'}
                           size="xs"
