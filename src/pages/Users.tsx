@@ -432,10 +432,7 @@ const UsersPage: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">
                         {user.role === 'admin' ? (
-                          <span className="text-primary-600 font-semibold flex items-center">
-                            Full Access
-                            <span className="ml-1 text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">Admin Default</span>
-                          </span>
+                          <span className="text-primary-600">Full Access</span>
                         ) : user.allowedStatuses && user.allowedStatuses.length > 0 ? (
                           <span>{user.allowedStatuses.length} Status{user.allowedStatuses.length !== 1 ? 'es' : ''}</span>
                         ) : (
