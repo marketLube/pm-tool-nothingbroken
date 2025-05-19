@@ -22,7 +22,9 @@ import {
   X,
   Filter,
   Building,
-  ChevronDown
+  ChevronDown,
+  ArrowRight,
+  ArrowLeft
 } from 'lucide-react';
 import { format } from 'date-fns';
 import NewTaskModal from '../../components/tasks/NewTaskModal';
@@ -168,6 +170,20 @@ const CreativeTeam: React.FC = () => {
   
   const filteredTasks = getFilteredTasks();
   
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  };
+  
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  };
+  
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
@@ -203,63 +219,87 @@ const CreativeTeam: React.FC = () => {
         </Button>
       </div>
       
-      {/* Team Performance Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-gradient-to-br from-purple-50 to-indigo-50 border-none shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Total Projects</p>
-                <h3 className="text-2xl font-bold text-gray-900">{totalTasks}</h3>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                <Briefcase className="h-5 w-5 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Team Status Overview - Horizontal Scrollable */}
+      <div className="relative">
+        <div className="mb-3">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center">
+            <PieChart className="h-5 w-5 mr-2 text-purple-600" />
+            Task Status Overview
+          </h2>
+          <p className="text-sm text-gray-500">Scroll to see all statuses in the pipeline</p>
+        </div>
+      
+        <button 
+          onClick={scrollLeft}
+          className="absolute left-0 top-1/2 transform -translate-y-1/2 z-10 bg-white rounded-full p-1.5 shadow-md hover:shadow-lg focus:outline-none border border-gray-200 hover:bg-gray-50 transition-colors"
+          aria-label="Scroll left"
+        >
+          <ArrowLeft className="h-5 w-5 text-purple-600" />
+        </button>
         
-        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-none shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Completed</p>
-                <h3 className="text-2xl font-bold text-gray-900">{completedTasks}</h3>
+        <div 
+          ref={scrollContainerRef}
+          className="flex overflow-x-auto py-3 px-8 scrollbar-hide space-x-4 snap-x"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {teamStatuses.map(status => {
+            const tasksWithStatus = tasksByStatus[status.id] || [];
+            const count = tasksWithStatus.length;
+            
+            return (
+              <div key={status.id} className="snap-start flex-shrink-0 w-52">
+                <Card className="border-none shadow-md h-full" style={{ borderTop: `4px solid ${status.color}` }}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500">{status.name}</p>
+                        <h3 className="text-2xl font-bold text-gray-900">{count}</h3>
+                      </div>
+                      <div 
+                        className="h-10 w-10 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: `${status.color}20` }}
+                      >
+                        {status.id === 'approved' ? (
+                          <CheckCircle className="h-5 w-5" style={{ color: status.color }} />
+                        ) : status.id === 'not_started' ? (
+                          <Clock className="h-5 w-5" style={{ color: status.color }} />
+                        ) : (
+                          <Edit className="h-5 w-5" style={{ color: status.color }} />
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-500">
+                        {count > 0 
+                          ? `${Math.round((count / totalTasks) * 100)}% of total tasks` 
+                          : 'No tasks in this status'}
+                      </p>
+                      {count > 0 && (
+                        <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
+                          <div
+                            className="h-1.5 rounded-full"
+                            style={{ 
+                              width: `${Math.round((count / totalTasks) * 100)}%`,
+                              backgroundColor: status.color
+                            }}
+                          ></div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            );
+          })}
+        </div>
         
-        <Card className="bg-gradient-to-br from-blue-50 to-cyan-50 border-none shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">In Progress</p>
-                <h3 className="text-2xl font-bold text-gray-900">{inProgressTasks}</h3>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <Edit className="h-5 w-5 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="bg-gradient-to-br from-orange-50 to-amber-50 border-none shadow-md">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Completion Rate</p>
-                <h3 className="text-2xl font-bold text-gray-900">{completionRate}%</h3>
-              </div>
-              <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <button 
+          onClick={scrollRight}
+          className="absolute right-0 top-1/2 transform -translate-y-1/2 z-10 bg-white rounded-full p-1.5 shadow-md hover:shadow-lg focus:outline-none border border-gray-200 hover:bg-gray-50 transition-colors"
+          aria-label="Scroll right"
+        >
+          <ArrowRight className="h-5 w-5 text-purple-600" />
+        </button>
       </div>
       
       {/* Main Content - Two Column Layout */}
