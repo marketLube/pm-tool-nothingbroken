@@ -10,6 +10,21 @@ import {
 import { Task } from '../../types';
 import { useData } from '../../contexts/DataContext';
 import { format, isPast, isToday } from 'date-fns';
+import { useStatus } from '../../contexts/StatusContext';
+
+// Import BadgeVariant type
+type BadgeVariant = 
+  | 'default' 
+  | 'primary' 
+  | 'success' 
+  | 'warning' 
+  | 'danger' 
+  | 'info' 
+  | 'purple'
+  | 'indigo'
+  | 'orange'
+  | 'amber'
+  | 'pink';
 
 interface TaskCardProps {
   task: Task;
@@ -23,6 +38,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onClick
 }) => {
   const { getUserById, getClientById } = useData();
+  const { statuses } = useStatus();
   
   const assignee = getUserById(task.assigneeId);
   const client = getClientById(task.clientId);
@@ -36,7 +52,31 @@ const TaskCard: React.FC<TaskCardProps> = ({
   
   // Determine the status and priority colors
   const getStatusColor = () => {
-    // Creative team statuses
+    // Find the matching status for this task
+    const matchingStatus = statuses.find(
+      s => s.id === task.status && s.team === task.team
+    );
+    
+    // If we found a matching status with a color, use its color variant
+    if (matchingStatus) {
+      // Map the color to a variant if needed
+      const colorToVariant: Record<string, BadgeVariant> = {
+        '#94a3b8': 'default',
+        '#6b7280': 'default',
+        '#a78bfa': 'purple',
+        '#8b5cf6': 'indigo',
+        '#3b82f6': 'primary',
+        '#2563eb': 'primary',
+        '#f97316': 'warning',
+        '#fb923c': 'amber',
+        '#ec4899': 'pink',
+        '#22c55e': 'success',
+      };
+      
+      return colorToVariant[matchingStatus.color] || 'default';
+    }
+    
+    // Creative team statuses - fallback
     if (task.team === 'creative') {
       switch (task.status) {
         case 'not_started': return 'default';
@@ -51,7 +91,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
       }
     }
     
-    // Web team statuses
+    // Web team statuses - fallback
     if (task.team === 'web') {
       switch (task.status) {
         case 'proposal_awaiting': return 'default';

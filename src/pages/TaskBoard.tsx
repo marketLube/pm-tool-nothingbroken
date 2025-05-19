@@ -783,14 +783,6 @@ const TaskBoard: React.FC = () => {
         </DragDropContext>
       </div>
       
-      {/* Debug info - always enabled for development */}
-      <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-500">
-        <div>Initialized: {isInitialized ? 'Yes ✅' : 'No ❌'}</div>
-        <div>Columns Ready: {columnsReady ? 'Yes ✅' : 'No ❌'}</div> 
-        <div>Loading: {isLoading ? 'Yes ⏳' : 'No ✓'}</div>
-        <div>Team: {teamFilter}, Tasks: {filteredTasks.length}, Columns: {columns.length}</div>
-      </div>
-      
       {/* Modals */}
       <NewTaskModal
         isOpen={newTaskModalOpen}

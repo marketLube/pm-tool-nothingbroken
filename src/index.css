@@ -68,11 +68,11 @@
   
   .status-card:hover .status-icon {
     @apply scale-110;
-    animation: pulse 2s infinite;
+    animation: pulse 1.5s infinite ease-in-out;
   }
   
   .status-progress {
-    @apply h-1.5 rounded-full transition-all duration-500 ease-out;
+    @apply h-6 rounded-full transition-all duration-500 ease-out;
   }
   
   @keyframes pulse {
@@ -80,7 +80,7 @@
       transform: scale(1);
     }
     50% {
-      transform: scale(1.1);
+      transform: scale(1.05);
     }
     100% {
       transform: scale(1);
@@ -152,5 +152,22 @@
   
   .hover\:scale-105:hover {
     transform: scale(1.05);
+  }
+
+  /* Ensure smooth transitions for all elements */
+  * {
+    transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+
+  /* Smooth snap scrolling for status cards */
+  .snap-x {
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+  }
+
+  .snap-start {
+    scroll-snap-align: start;
   }
 }

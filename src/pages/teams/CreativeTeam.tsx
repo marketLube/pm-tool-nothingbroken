@@ -240,67 +240,77 @@ const CreativeTeam: React.FC = () => {
         <div 
           ref={scrollContainerRef}
           className="flex overflow-x-auto py-3 px-8 scrollbar-hide space-x-4 snap-x"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          style={{ 
+            scrollbarWidth: 'none', 
+            msOverflowStyle: 'none',
+            minHeight: '176px' /* Ensure consistent height even when empty */
+          }}
         >
-          {teamStatuses.map(status => {
-            const tasksWithStatus = tasksByStatus[status.id] || [];
-            const count = tasksWithStatus.length;
-            
-            return (
-              <div key={status.id} className="snap-start flex-shrink-0 w-52">
-                <Card 
-                  className="status-card group h-[160px]"
-                  style={{ 
-                    borderTop: `4px solid ${status.color}`,
-                    background: `linear-gradient(to bottom, ${status.color}15, white)`,
-                    boxShadow: `0 4px 6px -1px ${status.color}10, 0 2px 4px -2px ${status.color}10`
-                  }}
-                >
-                  <CardContent className="p-4 flex flex-col h-full">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="h-10">
-                          <p className="text-sm font-medium text-gray-700 line-clamp-2">{status.name}</p>
+          {teamStatuses.length > 0 ? (
+            teamStatuses.map(status => {
+              const tasksWithStatus = tasksByStatus[status.id] || [];
+              const count = tasksWithStatus.length;
+              
+              return (
+                <div key={status.id} className="snap-start flex-shrink-0 w-52">
+                  <Card 
+                    className="status-card group h-[160px]"
+                    style={{ 
+                      borderTop: `4px solid ${status.color || '#94a3b8'}`,
+                      background: `linear-gradient(to bottom, ${status.color || '#94a3b8'}15, white)`,
+                      boxShadow: `0 4px 6px -1px ${status.color || '#94a3b8'}10, 0 2px 4px -2px ${status.color || '#94a3b8'}10`
+                    }}
+                  >
+                    <CardContent className="p-4 flex flex-col h-full">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="h-10">
+                            <p className="text-sm font-medium text-gray-700 line-clamp-2">{status.name}</p>
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 mt-1">{count}</h3>
                         </div>
-                        <h3 className="text-2xl font-bold text-gray-900 mt-1">{count}</h3>
+                        <div 
+                          className="h-11 w-11 rounded-full flex items-center justify-center shadow-sm transition-transform duration-300 hover:scale-110 status-icon"
+                          style={{ backgroundColor: `${status.color || '#94a3b8'}20` }}
+                        >
+                          {status.id === 'approved' ? (
+                            <CheckCircle className="h-5 w-5" style={{ color: status.color || '#94a3b8' }} />
+                          ) : status.id === 'not_started' ? (
+                            <Clock className="h-5 w-5" style={{ color: status.color || '#94a3b8' }} />
+                          ) : (
+                            <Edit className="h-5 w-5" style={{ color: status.color || '#94a3b8' }} />
+                          )}
+                        </div>
                       </div>
-                      <div 
-                        className="h-11 w-11 rounded-full flex items-center justify-center shadow-sm transition-transform duration-300 hover:scale-110 status-icon"
-                        style={{ backgroundColor: `${status.color}20` }}
-                      >
-                        {status.id === 'approved' ? (
-                          <CheckCircle className="h-5 w-5" style={{ color: status.color }} />
-                        ) : status.id === 'not_started' ? (
-                          <Clock className="h-5 w-5" style={{ color: status.color }} />
-                        ) : (
-                          <Edit className="h-5 w-5" style={{ color: status.color }} />
-                        )}
+                      
+                      <div className="mt-auto pt-3">
+                        <p className="text-xs font-medium text-gray-600 mb-2 h-8">
+                          {count > 0 
+                            ? `${Math.round((count / totalTasks) * 100)}% of total tasks` 
+                            : 'No tasks in this status'}
+                        </p>
+                        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="status-progress"
+                            style={{ 
+                              width: count > 0 && totalTasks > 0 ? `${Math.round((count / totalTasks) * 100)}%` : '0%',
+                              backgroundColor: status.color || '#94a3b8',
+                              boxShadow: count > 0 ? `0 0 4px ${status.color || '#94a3b8'}80` : 'none',
+                              opacity: count > 0 ? 1 : 0.3
+                            }}
+                          ></div>
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="mt-auto pt-3">
-                      <p className="text-xs font-medium text-gray-600 mb-2 h-8">
-                        {count > 0 
-                          ? `${Math.round((count / totalTasks) * 100)}% of total tasks` 
-                          : 'No tasks in this status'}
-                      </p>
-                      <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="status-progress"
-                          style={{ 
-                            width: count > 0 ? `${Math.round((count / totalTasks) * 100)}%` : '0%',
-                            backgroundColor: status.color,
-                            boxShadow: count > 0 ? `0 0 4px ${status.color}80` : 'none',
-                            opacity: count > 0 ? 1 : 0.3
-                          }}
-                        ></div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            );
-          })}
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })
+          ) : (
+            <div className="w-full text-center py-6">
+              <p className="text-gray-500">No statuses configured for this team</p>
+            </div>
+          )}
         </div>
         
         <button 

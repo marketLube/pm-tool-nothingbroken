@@ -1,15 +1,24 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo } from 'react';
 import { Role, TeamType, User } from '../types';
 import { users } from '../utils/mockData';
+import { 
+  getPermissions, 
+  Permission, 
+  hasPermission,
+  ResourceType,
+  ActionType
+} from '../utils/auth/permissions';
 
 interface AuthContextType {
   currentUser: User | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
   isManager: boolean;
+  userTeam: TeamType | null;
+  permissions: Permission[];
+  checkPermission: (resource: ResourceType, action: ActionType, resourceTeam?: TeamType) => boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  userTeam: TeamType | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -17,9 +26,11 @@ const AuthContext = createContext<AuthContextType>({
   isAuthenticated: false,
   isAdmin: false,
   isManager: false,
+  userTeam: null,
+  permissions: [],
+  checkPermission: () => false,
   login: async () => false,
   logout: () => {},
-  userTeam: null
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -29,13 +40,30 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  // For demo purposes, default to an admin user
-  const [currentUser, setCurrentUser] = useState<User | null>(users[0]);
+  // For demo purposes, ensure an admin user is always the default
+  // Using the admin user (first user in the users array)
+  const adminUser = users.find(user => user.role === 'admin' && user.isActive) || users[0];
+  const [currentUser, setCurrentUser] = useState<User | null>(adminUser);
   
   const isAuthenticated = !!currentUser;
   const isAdmin = currentUser?.role === 'admin';
   const isManager = currentUser?.role === 'manager';
   const userTeam = currentUser?.team || null;
+  
+  // Get permissions based on user role
+  const permissions = useMemo(() => {
+    if (!currentUser) return [];
+    return getPermissions(currentUser.role, currentUser.team);
+  }, [currentUser]);
+  
+  // Function to check if user has permission
+  const checkPermission = (
+    resource: ResourceType, 
+    action: ActionType,
+    resourceTeam?: TeamType
+  ): boolean => {
+    return hasPermission(permissions, resource, action, resourceTeam);
+  };
 
   const login = async (email: string, password: string): Promise<boolean> => {
     // In a real app, we would validate against a server
@@ -61,9 +89,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAuthenticated,
         isAdmin,
         isManager,
+        userTeam,
+        permissions,
+        checkPermission,
         login,
-        logout,
-        userTeam
+        logout
       }}
     >
       {children}
