@@ -34,6 +34,7 @@ export interface User {
   joinDate: string;
   avatar?: string;
   isActive: boolean;
+  allowedStatuses?: string[]; // Array of status IDs the user has permission to use
 }
 
 export interface Team {

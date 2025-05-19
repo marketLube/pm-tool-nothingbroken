@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Avatar from '../components/ui/Avatar';
@@ -6,9 +6,12 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Modal from '../components/ui/Modal';
+import ButtonGroup from '../components/ui/ButtonGroup';
+import Checkbox from '../components/ui/Checkbox';
 import { useData } from '../contexts/DataContext';
+import { useStatus } from '../contexts/StatusContext';
 import { User, Role, TeamType } from '../types';
-import { Plus, Edit, Users, Search } from 'lucide-react';
+import { Plus, Edit, Users, Search, Palette, Code } from 'lucide-react';
 import { format } from 'date-fns';
 
 const UserModal: React.FC<{
@@ -17,6 +20,7 @@ const UserModal: React.FC<{
   user?: User;
 }> = ({ isOpen, onClose, user }) => {
   const { addUser, updateUser } = useData();
+  const { statuses, getStatusesByTeam } = useStatus();
   
   const [formData, setFormData] = useState<Partial<User>>(
     user || {
@@ -24,15 +28,32 @@ const UserModal: React.FC<{
       email: '',
       role: 'employee',
       team: 'creative',
-      isActive: true
+      isActive: true,
+      allowedStatuses: []
     }
   );
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   
+  // Get statuses for the selected team
+  const teamStatuses = useMemo(() => {
+    if (!formData.team) return [];
+    return getStatusesByTeam(formData.team as TeamType);
+  }, [formData.team, getStatusesByTeam]);
+  
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // If team changes, reset the allowed statuses
+    if (name === 'team') {
+      setFormData(prev => ({ 
+        ...prev, 
+        [name]: value as TeamType, 
+        allowedStatuses: [] 
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
     
     // Clear error for the field being changed
     if (errors[name]) {
@@ -42,6 +63,26 @@ const UserModal: React.FC<{
         return newErrors;
       });
     }
+  };
+  
+  const handleStatusToggle = (statusId: string) => {
+    setFormData(prev => {
+      const currentStatuses = prev.allowedStatuses || [];
+      
+      if (currentStatuses.includes(statusId)) {
+        // Remove status if already selected
+        return {
+          ...prev,
+          allowedStatuses: currentStatuses.filter(id => id !== statusId)
+        };
+      } else {
+        // Add status if not already selected
+        return {
+          ...prev,
+          allowedStatuses: [...currentStatuses, statusId]
+        };
+      }
+    });
   };
   
   const validate = () => {
@@ -94,6 +135,9 @@ const UserModal: React.FC<{
     { value: 'web', label: 'Web Team' }
   ];
 
+  // Determine if we need to show status permissions (not needed for admins)
+  const showStatusPermissions = formData.role !== 'admin';
+
   return (
     <Modal
       isOpen={isOpen}
@@ -145,6 +189,45 @@ const UserModal: React.FC<{
           />
         </div>
         
+        {/* Status Permissions - only show for non-admin users */}
+        {showStatusPermissions && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {formData.role === 'manager' ? 'Manager Status Permissions' : 'Employee Status Permissions'}
+            </label>
+            <div className="border border-gray-200 rounded-md p-3 max-h-60 overflow-y-auto bg-gray-50">
+              <p className="text-xs text-gray-500 mb-2">
+                Select which statuses this user can access and modify:
+              </p>
+              {teamStatuses.length > 0 ? (
+                <div className="space-y-2">
+                  {teamStatuses.map(status => (
+                    <div key={status.id} className="flex items-center">
+                      <Checkbox
+                        id={`status-${status.id}`}
+                        checked={(formData.allowedStatuses || []).includes(status.id)}
+                        onChange={() => handleStatusToggle(status.id)}
+                      />
+                      <label 
+                        htmlFor={`status-${status.id}`}
+                        className="ml-2 flex items-center text-sm"
+                      >
+                        <div 
+                          className="w-3 h-3 rounded-full mr-2" 
+                          style={{ backgroundColor: status.color }}
+                        />
+                        {status.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No statuses found for the selected team.</p>
+              )}
+            </div>
+          </div>
+        )}
+        
         <div className="flex justify-end space-x-3 pt-4">
           <Button
             variant="secondary"
@@ -170,6 +253,7 @@ const UsersPage: React.FC = () => {
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
+  const [teamFilter, setTeamFilter] = useState<'all' | TeamType>('all');
   
   const handleAddUser = () => {
     setSelectedUser(undefined);
@@ -181,15 +265,27 @@ const UsersPage: React.FC = () => {
     setUserModalOpen(true);
   };
   
-  const filteredUsers = users.filter(user => 
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Apply filters
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      // Apply search filter
+      const matchesSearch = 
+        user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchQuery.toLowerCase());
+        
+      // Apply team filter
+      const matchesTeam = teamFilter === 'all' || user.team === teamFilter;
+      
+      return matchesSearch && matchesTeam;
+    });
+  }, [users, searchQuery, teamFilter]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div></div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">User Management</h1>
+        </div>
         
         <Button
           variant="primary"
@@ -204,10 +300,32 @@ const UsersPage: React.FC = () => {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex flex-col sm:flex-row justify-between gap-4">
-            <CardTitle className="text-lg flex items-center">
-              <Users className="h-5 w-5 mr-2 text-blue-600" />
-              All Users
-            </CardTitle>
+            <div className="flex flex-col space-y-4">
+              <CardTitle className="text-lg flex items-center">
+                <Users className="h-5 w-5 mr-2 text-blue-600" />
+                <span>
+                  {teamFilter === 'all' ? 'All Users' : 
+                   teamFilter === 'creative' ? 'Creative Team Users' : 
+                   'Web Team Users'}
+                </span>
+                <span className="ml-2 text-sm text-gray-500">
+                  ({filteredUsers.length})
+                </span>
+              </CardTitle>
+              
+              {/* Team filter tabs */}
+              <div className="flex space-x-2">
+                <ButtonGroup
+                  options={[
+                    { value: 'all', label: 'All Users' },
+                    { value: 'creative', label: 'Creative Team', icon: Palette },
+                    { value: 'web', label: 'Web Team', icon: Code }
+                  ]}
+                  value={teamFilter}
+                  onChange={(value) => setTeamFilter(value as 'all' | TeamType)}
+                />
+              </div>
+            </div>
             
             <div className="relative max-w-xs">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -246,6 +364,9 @@ const UsersPage: React.FC = () => {
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Permissions
+                  </th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
@@ -282,8 +403,18 @@ const UsersPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500">
-                        {user.team === 'creative' ? 'Creative Team' : 'Web Team'}
+                      <div className="text-sm text-gray-500 flex items-center">
+                        {user.team === 'creative' ? (
+                          <>
+                            <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
+                            Creative Team
+                          </>
+                        ) : (
+                          <>
+                            <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                            Web Team
+                          </>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -295,6 +426,17 @@ const UsersPage: React.FC = () => {
                       >
                         {user.isActive ? 'Active' : 'Inactive'}
                       </Badge>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-500">
+                        {user.role === 'admin' ? (
+                          <span className="text-primary-600">Full Access</span>
+                        ) : user.allowedStatuses && user.allowedStatuses.length > 0 ? (
+                          <span>{user.allowedStatuses.length} Status{user.allowedStatuses.length !== 1 ? 'es' : ''}</span>
+                        ) : (
+                          <span className="text-gray-400">None Set</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
@@ -320,7 +462,7 @@ const UsersPage: React.FC = () => {
                 
                 {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
                       No users found
                     </td>
                   </tr>

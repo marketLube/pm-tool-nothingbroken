@@ -53,7 +53,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Get permissions based on user role
   const permissions = useMemo(() => {
     if (!currentUser) return [];
-    return getPermissions(currentUser.role, currentUser.team);
+    return getPermissions(currentUser.role, currentUser.team, currentUser.allowedStatuses);
   }, [currentUser]);
   
   // Function to check if user has permission
