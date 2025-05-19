@@ -248,15 +248,24 @@ const CreativeTeam: React.FC = () => {
             
             return (
               <div key={status.id} className="snap-start flex-shrink-0 w-52">
-                <Card className="border-none shadow-md h-full" style={{ borderTop: `4px solid ${status.color}` }}>
-                  <CardContent className="p-4">
+                <Card 
+                  className="status-card group h-[160px]"
+                  style={{ 
+                    borderTop: `4px solid ${status.color}`,
+                    background: `linear-gradient(to bottom, ${status.color}15, white)`,
+                    boxShadow: `0 4px 6px -1px ${status.color}10, 0 2px 4px -2px ${status.color}10`
+                  }}
+                >
+                  <CardContent className="p-4 flex flex-col h-full">
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">{status.name}</p>
-                        <h3 className="text-2xl font-bold text-gray-900">{count}</h3>
+                      <div className="flex-1">
+                        <div className="h-10">
+                          <p className="text-sm font-medium text-gray-700 line-clamp-2">{status.name}</p>
+                        </div>
+                        <h3 className="text-2xl font-bold text-gray-900 mt-1">{count}</h3>
                       </div>
                       <div 
-                        className="h-10 w-10 rounded-full flex items-center justify-center"
+                        className="h-11 w-11 rounded-full flex items-center justify-center shadow-sm transition-transform duration-300 hover:scale-110 status-icon"
                         style={{ backgroundColor: `${status.color}20` }}
                       >
                         {status.id === 'approved' ? (
@@ -268,23 +277,24 @@ const CreativeTeam: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500">
+                    
+                    <div className="mt-auto pt-3">
+                      <p className="text-xs font-medium text-gray-600 mb-2 h-8">
                         {count > 0 
                           ? `${Math.round((count / totalTasks) * 100)}% of total tasks` 
                           : 'No tasks in this status'}
                       </p>
-                      {count > 0 && (
-                        <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
-                          <div
-                            className="h-1.5 rounded-full"
-                            style={{ 
-                              width: `${Math.round((count / totalTasks) * 100)}%`,
-                              backgroundColor: status.color
-                            }}
-                          ></div>
-                        </div>
-                      )}
+                      <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="status-progress"
+                          style={{ 
+                            width: count > 0 ? `${Math.round((count / totalTasks) * 100)}%` : '0%',
+                            backgroundColor: status.color,
+                            boxShadow: count > 0 ? `0 0 4px ${status.color}80` : 'none',
+                            opacity: count > 0 ? 1 : 0.3
+                          }}
+                        ></div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -302,10 +312,10 @@ const CreativeTeam: React.FC = () => {
         </button>
       </div>
       
-      {/* Main Content - Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Team Members & Projects by Client */}
-        <div className="lg:col-span-1 space-y-6">
+            {/* Main Content - Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Left Column - Team Members */}
+        <div className="lg:col-span-1">
           {/* Team Members */}
           <Card className="shadow-md">
             <CardHeader className="pb-2 border-b border-gray-100">
@@ -356,48 +366,10 @@ const CreativeTeam: React.FC = () => {
               </ul>
             </CardContent>
           </Card>
-          
-          {/* Projects by Client */}
-          <Card className="shadow-md">
-            <CardHeader className="pb-2 border-b border-gray-100">
-              <CardTitle className="text-lg font-bold flex items-center text-gray-900">
-                <Briefcase className="h-5 w-5 mr-2 text-purple-600" />
-                Projects by Client
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ul className="divide-y divide-gray-100">
-                {tasksByClient.map(({ client, clientId, tasks, activeTasks, completedTasks }) => (
-                  <li 
-                    key={client?.id} 
-                    className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer ${
-                      selectedClient === clientId ? 'bg-purple-50' : ''
-                    }`}
-                    onClick={() => handleClientClick(clientId)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate hover:text-purple-700">{client?.name}</p>
-                        <p className="text-xs text-gray-500 truncate">{client?.industry}</p>
-                      </div>
-                      <div className="flex space-x-2">
-                        <span className="inline-flex items-center bg-blue-50 px-2.5 py-0.5 rounded-full text-xs font-medium text-blue-700">
-                          {activeTasks} Active
-                        </span>
-                        <span className="inline-flex items-center bg-green-50 px-2.5 py-0.5 rounded-full text-xs font-medium text-green-700">
-                          {completedTasks} Done
-                        </span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
         </div>
         
         {/* Right Column - Current Projects */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <Card className="shadow-md">
             <CardHeader className="pb-2 border-b border-gray-100">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
