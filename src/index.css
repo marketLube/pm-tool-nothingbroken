@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Poppins', sans-serif;
+  }
+  
+  h1 {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  
+  h2 {
+    @apply text-xl font-medium tracking-tight;
+  }
+  
+  h3 {
+    @apply text-lg font-medium;
+  }
+  
+  small {
+    @apply text-sm font-normal;
+  }
+}
+
+@layer components {
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-gray-900 mb-1;
+  }
+  
+  .section-title {
+    @apply text-lg font-medium text-gray-800 mb-2;
+  }
+  
+  .card-title {
+    @apply text-base font-semibold text-gray-800;
+  }
+  
+  .btn-text {
+    @apply text-sm font-medium;
+  }
+  
+  .caption-text {
+    @apply text-xs text-gray-500 font-normal;
+  }
+  
+  .label-text {
+    @apply text-sm font-medium text-gray-700;
+  }
+}
+
+@layer utilities {
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .hide-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
+  /* Animation utilities */
+  .animate-tap {
+    @apply transition-all duration-300 transform active:scale-95;
+  }
+  
+  .animate-hover-rise {
+    @apply transition-all duration-300 transform hover:-translate-y-1;
+  }
+  
+  .animate-fade-in {
+    @apply transition-opacity duration-300 opacity-0 group-hover:opacity-100;
+  }
+  
+  .animate-slide-in {
+    @apply transition-all duration-300 transform translate-y-[-100%] group-hover:translate-y-0;
+  }
+
+  .active\:scale-98:active {
+    transform: scale(0.98);
+  }
+  
+  .hover\:scale-105:hover {
+    transform: scale(1.05);
+  }
+}
