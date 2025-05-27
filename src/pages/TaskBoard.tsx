@@ -76,12 +76,8 @@ const TaskBoard: React.FC = () => {
   );
   
   const filteredClients = useMemo(() => 
-    clients.filter(client => {
-      return allTasks.some(task => 
-        task.clientId === client.id && task.team === teamFilter
-      );
-    }),
-    [clients, allTasks, teamFilter]
+    clients.filter(client => client.team === teamFilter),
+    [clients, teamFilter]
   );
   
   // Current team status columns

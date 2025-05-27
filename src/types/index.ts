@@ -103,3 +103,69 @@ export interface Analytics {
   reportSubmission: number;
   overdueTasksCount: number;
 }
+
+// Enhanced types for the new Report & Analytics module
+export interface DailyWorkEntry {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD format
+  checkInTime?: string; // HH:MM format
+  checkOutTime?: string; // HH:MM format
+  isAbsent: boolean;
+  assignedTasks: string[]; // Array of task IDs
+  completedTasks: string[]; // Array of task IDs
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskCompletion {
+  id: string;
+  taskId: string;
+  userId: string;
+  completedAt: string;
+  notes?: string;
+}
+
+export interface DailyReport {
+  id: string;
+  userId: string;
+  date: string;
+  workEntry: DailyWorkEntry;
+  tasks: {
+    assigned: Task[];
+    completed: Task[];
+  };
+  totalHours?: number;
+  productivity?: number;
+}
+
+export interface WeeklyAnalytics {
+  userId: string;
+  userName: string;
+  team: TeamType;
+  weekStart: string;
+  weekEnd: string;
+  totalDays: number;
+  presentDays: number;
+  absentDays: number;
+  totalTasksAssigned: number;
+  totalTasksCompleted: number;
+  completionRate: number;
+  averageHoursPerDay: number;
+  dailyReports: DailyReport[];
+}
+
+export interface TeamAnalyticsData {
+  teamId: TeamType;
+  teamName: string;
+  period: {
+    start: string;
+    end: string;
+  };
+  totalMembers: number;
+  activeMembers: number;
+  teamCompletionRate: number;
+  totalTasksAssigned: number;
+  totalTasksCompleted: number;
+  memberAnalytics: WeeklyAnalytics[];
+}

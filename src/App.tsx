@@ -15,6 +15,7 @@ import CreativeTeam from './pages/teams/CreativeTeam';
 import WebTeam from './pages/teams/WebTeam';
 import Reports from './pages/Reports';
 import Analytics from './pages/Analytics';
+import ReportsAnalytics from './pages/ReportsAnalytics';
 import Users from './pages/Users';
 import Clients from './pages/Clients';
 import Settings from './pages/Settings';
@@ -136,6 +137,9 @@ function App() {
                   
                   {/* Client Management - Accessible to all authenticated users */}
                   <Route path="clients" element={<Clients />} />
+                  
+                  {/* Reports & Analytics - Accessible to all authenticated users */}
+                  <Route path="reports-analytics" element={<ReportsAnalytics />} />
                   
                   {/* Settings - Admin only */}
                   <Route 

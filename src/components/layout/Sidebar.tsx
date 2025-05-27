@@ -14,7 +14,8 @@ import {
   ChevronDown,
   ChevronRight,
   Briefcase,
-  Building
+  Building,
+  BarChart3
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
@@ -75,6 +76,12 @@ const Sidebar: React.FC = () => {
       name: 'Clients',
       path: '/clients',
       icon: Building,
+      show: true
+    },
+    {
+      name: 'Reports & Analytics',
+      path: '/reports-analytics',
+      icon: BarChart3,
       show: true
     },
     {

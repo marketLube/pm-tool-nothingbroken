@@ -249,7 +249,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
     } else {
       // Create "Unassigned" client for this team
       const unassignedClientData = {
-        id: `unassigned-${clientTeam}`,
+        id: uuidv4(), // Use proper UUID instead of string
         name: 'Unassigned',
         industry: '',
         contact_person: '',

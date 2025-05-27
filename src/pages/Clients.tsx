@@ -5,7 +5,7 @@ import { useData } from '../contexts/DataContext';
 import { Plus, Edit2, Check, X, Building, Mail, Phone, User, Calendar, Palette, Code, Trash2, MoreVertical } from 'lucide-react';
 import NewClientModal from '../components/clients/NewClientModal';
 import { TeamType } from '../types';
-import { testAdminConnection, supabaseAdmin } from '../utils/supabase';
+
 
 const Clients: React.FC = () => {
   const { getClientsByTeam, updateClient, deleteClient, tasks } = useData();
@@ -66,66 +66,7 @@ const Clients: React.FC = () => {
     setEditingClientName('');
   };
 
-  const testDatabaseConnection = async () => {
-    try {
-      console.log('Testing database connection...');
-      const isConnected = await testAdminConnection();
-      console.log('Database connection result:', isConnected);
-      alert(isConnected ? 'Database connection successful!' : 'Database connection failed!');
-    } catch (error) {
-      console.error('Database connection test error:', error);
-      alert('Database connection test failed!');
-    }
-  };
 
-  const debugClientData = async () => {
-    try {
-      console.log('=== CLIENT DATA DEBUG ===');
-      
-      // Get clients from database
-      const { data: dbClients, error } = await supabaseAdmin
-        .from('clients')
-        .select('*');
-      
-      if (error) {
-        console.error('Error fetching clients from database:', error);
-        return;
-      }
-      
-      console.log('Clients in database:', dbClients.length);
-      dbClients.forEach(client => {
-        console.log(`DB Client: ${client.name} (${client.team}) - ID: ${client.id}`);
-      });
-      
-      // Get clients from local state
-      const localClients = [...creativeClients, ...webClients];
-      console.log('Clients in local state:', localClients.length);
-      localClients.forEach(client => {
-        console.log(`Local Client: ${client.name} (${client.team}) - ID: ${client.id}`);
-      });
-      
-      // Find mismatches
-      const dbIds = new Set(dbClients.map(c => c.id));
-      const localIds = new Set(localClients.map(c => c.id));
-      
-      const onlyInDb = dbClients.filter(c => !localIds.has(c.id));
-      const onlyInLocal = localClients.filter(c => !dbIds.has(c.id));
-      
-      if (onlyInDb.length > 0) {
-        console.log('Clients only in database:', onlyInDb);
-      }
-      
-      if (onlyInLocal.length > 0) {
-        console.log('Clients only in local state:', onlyInLocal);
-      }
-      
-      alert(`DB: ${dbClients.length} clients, Local: ${localClients.length} clients. Check console for details.`);
-      
-    } catch (error) {
-      console.error('Debug error:', error);
-      alert('Debug failed! Check console.');
-    }
-  };
 
   const handleDeleteClient = async (clientId: string, clientName: string) => {
     // Count tasks assigned to this client
@@ -175,20 +116,6 @@ const Clients: React.FC = () => {
             <p className="text-gray-600">Manage your client information by team</p>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={testDatabaseConnection}
-              className="text-sm"
-            >
-              Test DB
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={debugClientData}
-              className="text-sm"
-            >
-              Debug Data
-            </Button>
             <Button
               variant="primary"
               icon={Plus}
