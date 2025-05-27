@@ -2,19 +2,21 @@ import React, { useState } from 'react';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
-import { Client } from '../../types';
+import { Client, TeamType } from '../../types';
 import { useData } from '../../contexts/DataContext';
 
 interface NewClientModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialData?: Partial<Client>;
+  team?: TeamType;
 }
 
 const NewClientModal: React.FC<NewClientModalProps> = ({
   isOpen,
   onClose,
-  initialData
+  initialData,
+  team = 'creative'
 }) => {
   const { addClient, updateClient } = useData();
   
@@ -24,7 +26,8 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
       industry: '',
       contactPerson: '',
       email: '',
-      phone: ''
+      phone: '',
+      team: team
     }
   );
   
@@ -51,13 +54,8 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
       newErrors.name = 'Client name is required';
     }
     
-    if (!formData.contactPerson?.trim()) {
-      newErrors.contactPerson = 'Contact person is required';
-    }
-    
-    if (!formData.email?.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+    // Email validation only if an email is provided
+    if (formData.email?.trim() && !/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
     
@@ -65,24 +63,41 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
     return Object.keys(newErrors).length === 0;
   };
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validate()) return;
     
-    if (initialData?.id) {
-      // Update existing client
-      updateClient({
-        ...formData,
-        id: initialData.id,
-        dateAdded: initialData.dateAdded || new Date().toISOString().split('T')[0]
-      } as Client);
-    } else {
-      // Add new client
-      addClient(formData as Omit<Client, 'id' | 'dateAdded'>);
+    try {
+      console.log('NewClientModal: Submitting client data:', formData);
+      
+      if (initialData?.id) {
+        // Update existing client
+        await updateClient({
+          ...formData,
+          id: initialData.id,
+          dateAdded: initialData.dateAdded || new Date().toISOString().split('T')[0],
+          team: formData.team || team
+        } as Client);
+        console.log('NewClientModal: Client updated successfully');
+      } else {
+        // Add new client
+        const newClient = await addClient({
+          ...formData,
+          team: team
+        } as Omit<Client, 'id' | 'dateAdded'>);
+        console.log('NewClientModal: Client added successfully:', newClient);
+      }
+      
+      onClose();
+    } catch (error) {
+      console.error('NewClientModal: Error saving client:', error);
+      // Add error handling here - could show an error message to the user
+      setErrors(prev => ({
+        ...prev,
+        submit: 'Error saving client. Please try again.'
+      }));
     }
-    
-    onClose();
   };
 
   return (
@@ -116,9 +131,7 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
           name="contactPerson"
           value={formData.contactPerson || ''}
           onChange={handleChange}
-          error={errors.contactPerson}
           fullWidth
-          required
         />
         
         <Input
@@ -129,7 +142,6 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
           onChange={handleChange}
           error={errors.email}
           fullWidth
-          required
         />
         
         <Input
@@ -141,6 +153,11 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
         />
         
         <div className="flex justify-end space-x-3 pt-4">
+          {errors.submit && (
+            <div className="text-red-600 text-sm mr-auto self-center">
+              {errors.submit}
+            </div>
+          )}
           <Button
             variant="secondary"
             onClick={onClose}

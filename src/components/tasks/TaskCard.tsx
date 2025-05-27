@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '../ui/Card';
 import Badge from '../ui/Badge';
 import Avatar from '../ui/Avatar';
+import Button from '../ui/Button';
 import { 
   AlertTriangle, 
   Calendar,
-  Edit
+  Edit,
+  Trash2,
+  MoreVertical
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useData } from '../../contexts/DataContext';
@@ -30,15 +33,37 @@ interface TaskCardProps {
   task: Task;
   isDragging?: boolean;
   onClick?: () => void;
+  onDelete?: (taskId: string) => void;
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({ 
   task, 
   isDragging = false,
-  onClick
+  onClick,
+  onDelete
 }) => {
-  const { getUserById, getClientById } = useData();
+  const { getUserById, getClientById, deleteTask } = useData();
   const { statuses } = useStatus();
+  const [showActions, setShowActions] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close action menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target as Node)) {
+        setShowActions(false);
+      }
+    };
+
+    if (showActions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showActions]);
   
   const assignee = getUserById(task.assigneeId);
   const client = getClientById(task.clientId);
@@ -137,11 +162,38 @@ const TaskCard: React.FC<TaskCardProps> = ({
     }
   };
 
+  // Handle delete task
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    
+    if (window.confirm(`Are you sure you want to delete the task "${task.title}"? This action cannot be undone.`)) {
+      setIsDeleting(true);
+      try {
+        await deleteTask(task.id);
+        if (onDelete) {
+          onDelete(task.id);
+        }
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        alert('Failed to delete task. Please try again.');
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
+  // Handle card click
+  const handleCardClick = () => {
+    if (onClick) {
+      onClick();
+    }
+  };
+
   return (
     <Card 
-      className={`group mb-3 ${isDragging ? 'opacity-60' : ''} cursor-pointer animate-hover-rise animate-tap relative overflow-hidden border-l-[6px] h-full shadow-sm hover:shadow-md transition-shadow duration-200`}
+      className={`group mb-3 ${isDragging ? 'opacity-60' : ''} ${isDeleting ? 'opacity-50' : ''} cursor-pointer animate-hover-rise animate-tap relative overflow-hidden border-l-[6px] h-full shadow-sm hover:shadow-md transition-all duration-200`}
       style={{ borderLeftColor: getPriorityBorderColor() }}
-      onClick={onClick}
+      onClick={handleCardClick}
       hover
     >
       {/* Client Name Banner at top */}
@@ -151,9 +203,45 @@ const TaskCard: React.FC<TaskCardProps> = ({
         </div>
       </div>
       
-      {/* Edit indicator - visible on hover with animation */}
-      <div className="absolute top-0 right-0 bg-blue-500 p-1 rounded-bl-md opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <Edit className="h-3 w-3 text-white" />
+      {/* Action menu - visible on hover */}
+      <div className="task-actions absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        <div className="relative" ref={actionMenuRef}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 bg-white/90 hover:bg-white shadow-sm border border-gray-200"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowActions(!showActions);
+            }}
+          >
+            <MoreVertical className="h-3 w-3 text-gray-600" />
+          </Button>
+          
+          {showActions && (
+            <div className="absolute top-7 right-0 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50 min-w-[120px]">
+              <button
+                className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowActions(false);
+                  if (onClick) onClick();
+                }}
+              >
+                <Edit className="h-3 w-3 mr-2" />
+                Edit Task
+              </button>
+              <button
+                className="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                <Trash2 className="h-3 w-3 mr-2" />
+                {isDeleting ? 'Deleting...' : 'Delete Task'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       
       <CardContent className="p-4 pt-8 flex flex-col h-full">

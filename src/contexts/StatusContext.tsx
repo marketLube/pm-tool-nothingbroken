@@ -1,19 +1,11 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { TeamType } from '../types';
-
-export interface Status {
-  id: string;
-  name: string;
-  team: TeamType;
-  color: string;
-  order: number;
-}
+import { TeamType, Status, StatusCode } from '../types';
 
 interface StatusContextType {
   statuses: Status[];
-  addStatus: (status: Omit<Status, 'id'>) => void;
-  updateStatus: (id: string, status: Partial<Status>) => void;
-  deleteStatus: (id: string) => void;
+  addStatus: (status: Omit<Status, 'id'> & { id?: StatusCode }) => void;
+  updateStatus: (id: StatusCode, status: Partial<Status>) => void;
+  deleteStatus: (id: StatusCode) => void;
   getStatusesByTeam: (team: TeamType) => Status[];
 }
 
@@ -58,21 +50,21 @@ interface StatusProviderProps {
 export const StatusProvider: React.FC<StatusProviderProps> = ({ children }) => {
   const [statuses, setStatuses] = useState<Status[]>(defaultStatuses);
 
-  const addStatus = (status: Omit<Status, 'id'>) => {
+  const addStatus = (status: Omit<Status, 'id'> & { id?: StatusCode }) => {
     const newStatus: Status = {
       ...status,
-      id: `status_${Date.now()}`,
+      id: status.id || `custom_${Date.now()}` as StatusCode,
     };
     setStatuses([...statuses, newStatus]);
   };
 
-  const updateStatus = (id: string, updatedFields: Partial<Status>) => {
+  const updateStatus = (id: StatusCode, updatedFields: Partial<Status>) => {
     setStatuses(statuses.map(status => 
       status.id === id ? { ...status, ...updatedFields } : status
     ));
   };
 
-  const deleteStatus = (id: string) => {
+  const deleteStatus = (id: StatusCode) => {
     setStatuses(statuses.filter(status => status.id !== id));
   };
 

@@ -3,11 +3,14 @@ import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../compone
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import Button from '../components/ui/Button';
+import UserProfileSettings from '../components/UserProfileSettings';
+import BiometricSettings from '../components/settings/BiometricSettings';
 import { useData } from '../contexts/DataContext';
-import { Settings as SettingsIcon, Bell, UserCog, Shield } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { Settings as SettingsIcon, Bell, Shield } from 'lucide-react';
 
 const Settings: React.FC = () => {
-  const { teams, updateTeam, getUserById } = useData();
+  const { isAdmin } = useAuth();
   
   // Mock settings state
   const [appSettings, setAppSettings] = useState({
@@ -25,17 +28,6 @@ const Settings: React.FC = () => {
     }));
   };
   
-  const handleTeamUpdate = (teamId: string, field: string, value: string) => {
-    const team = teams.find(t => t.id === teamId);
-    
-    if (team) {
-      updateTeam({
-        ...team,
-        [field]: value
-      });
-    }
-  };
-  
   const logoutOptions = [
     { value: '30', label: '30 minutes' },
     { value: '60', label: '1 hour' },
@@ -44,8 +36,25 @@ const Settings: React.FC = () => {
     { value: '0', label: 'Never' }
   ];
 
+  // Regular users see profile and biometric settings
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <UserProfileSettings />
+        <BiometricSettings />
+      </div>
+    );
+  }
+
+  // Admin users see full settings
   return (
     <div className="space-y-6">
+      {/* User Profile Settings */}
+      <UserProfileSettings />
+      
+      {/* Biometric Settings */}
+      <BiometricSettings />
+      
       {/* App Settings */}
       <Card>
         <CardHeader className="pb-2">
@@ -141,69 +150,6 @@ const Settings: React.FC = () => {
         </CardContent>
         <CardFooter className="border-t border-gray-200 flex justify-end pt-4">
           <Button variant="primary">Save Settings</Button>
-        </CardFooter>
-      </Card>
-      
-      {/* Team Settings */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg flex items-center">
-            <UserCog className="h-5 w-5 mr-2 text-blue-600" />
-            Team Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            {teams.map((team) => {
-              const manager = getUserById(team.managerId);
-              
-              return (
-                <div key={team.id} className="bg-gray-50 p-4 rounded-md">
-                  <h3 className="font-medium text-gray-900 mb-3">{team.name}</h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Input
-                      label="Team Name"
-                      value={team.name}
-                      onChange={(e) => handleTeamUpdate(team.id, 'name', e.target.value)}
-                      fullWidth
-                    />
-                    
-                    <Select
-                      label="Team Manager"
-                      options={[
-                        { value: manager?.id || '', label: manager?.name || 'Select manager...' },
-                        ...useData().getUsersByTeam(team.id)
-                          .filter(user => user.role !== 'admin' && user.id !== manager?.id)
-                          .map(user => ({
-                            value: user.id,
-                            label: user.name
-                          }))
-                      ]}
-                      value={team.managerId}
-                      onChange={(e) => handleTeamUpdate(team.id, 'managerId', e.target.value)}
-                      fullWidth
-                    />
-                  </div>
-                  
-                  <div className="mt-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Team Description
-                    </label>
-                    <textarea
-                      value={team.description}
-                      onChange={(e) => handleTeamUpdate(team.id, 'description', e.target.value)}
-                      rows={2}
-                      className="block w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-        <CardFooter className="border-t border-gray-200 flex justify-end pt-4">
-          <Button variant="primary">Save Team Settings</Button>
         </CardFooter>
       </Card>
     </div>

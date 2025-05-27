@@ -13,7 +13,8 @@ import {
   Tag,
   ChevronDown,
   ChevronRight,
-  Briefcase
+  Briefcase,
+  Building
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
@@ -46,10 +47,11 @@ const Sidebar: React.FC = () => {
     
     if (path === '/') return 'Dashboard';
     if (path === '/tasks') return 'Task Board';
-    if (path === '/status') return 'Status Management';
+    if (path === '/status') return 'Status';
     if (path === '/teams/creative') return 'Creative Team';
     if (path === '/teams/web') return 'Web Team';
     if (path === '/users') return 'Users Management';
+    if (path === '/clients') return 'Clients';
     if (path === '/settings') return 'Settings';
     
     return 'marketlube';
@@ -70,7 +72,13 @@ const Sidebar: React.FC = () => {
       show: true
     },
     {
-      name: 'Status Management',
+      name: 'Clients',
+      path: '/clients',
+      icon: Building,
+      show: true
+    },
+    {
+      name: 'Status',
       path: '/status',
       icon: Tag,
       show: isAdmin
@@ -85,7 +93,7 @@ const Sidebar: React.FC = () => {
       name: 'Settings',
       path: '/settings',
       icon: Settings,
-      show: isAdmin
+      show: true
     }
   ];
 
@@ -136,36 +144,36 @@ const Sidebar: React.FC = () => {
   const currentTextColor = isTeamItem && (currentItem as any).textColor ? (currentItem as any).textColor : "text-primary-600";
 
   return (
-    <div className="h-screen fixed left-0 top-0 w-52 bg-white border-r border-gray-200 flex flex-col z-10 shadow-sm">
-      <div className="p-4 flex items-center border-b border-gray-200">
-        <PanelLeft className="h-5 w-5 text-primary-600 mr-2" />
-        <h1 className="text-lg font-semibold tracking-tight text-primary-800 relative group">
-          <span className="relative">
+    <div className="h-screen fixed left-0 top-0 w-60 bg-white border-r border-gray-100 flex flex-col z-10 shadow-lg transition-all duration-300 ease-in-out">
+      <div className="p-5 flex items-center border-b border-gray-100">
+        <PanelLeft className="h-5 w-5 text-blue-600 mr-2" />
+        <h1 className="text-xl font-bold tracking-tight text-gray-900 relative group">
+          <span className="relative bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             marketlube
-            <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-blue-500 transition-all duration-300 group-hover:w-full"></span>
+            <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 group-hover:w-full"></span>
           </span>
         </h1>
       </div>
       
-      <nav className="flex-1 px-2 py-4 overflow-y-auto">
-        <div className="mb-4 px-2">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-gray-500">Menu</h2>
+      <nav className="flex-1 px-3 py-5 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+        <div className="mb-5 px-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Menu</h2>
         </div>
-        <ul className="space-y-1">
+        <ul className="space-y-2">
           {filteredNavItems.map((item) => (
             <li key={item.path}>
               <Link
                 to={item.path}
                 className={clsx(
-                  'flex items-center px-3 py-2.5 rounded-md text-sm font-medium transition-all',
+                  'flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out transform hover:translate-x-1',
                   isActive(item.path)
-                    ? 'bg-primary-50 text-primary-700 shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-primary-600'
+                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 shadow-sm border-l-4 border-blue-500'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-blue-600'
                 )}
               >
                 <item.icon className={clsx(
-                  'h-4 w-4 mr-3',
-                  isActive(item.path) ? 'text-primary-600' : 'text-gray-500'
+                  'h-5 w-5 mr-3 transition-all duration-200',
+                  isActive(item.path) ? 'text-blue-600' : 'text-gray-500'
                 )} />
                 {item.name}
               </Link>
@@ -175,65 +183,65 @@ const Sidebar: React.FC = () => {
         
         {/* Teams Section - Collapsible */}
         {filteredTeamItems.length > 0 && (
-          <div className="mt-6">
+          <div className="mt-8">
             <div 
               className={clsx(
-                'flex items-center justify-between px-2 py-2 rounded-md cursor-pointer transition-colors',
-                isTeamActive() ? 'bg-gray-100' : 'hover:bg-gray-50'
+                'flex items-center justify-between px-4 py-3 rounded-lg cursor-pointer transition-all duration-200',
+                isTeamActive() ? 'bg-gray-100 shadow-sm' : 'hover:bg-gray-50'
               )}
               onClick={() => setTeamsExpanded(!teamsExpanded)}
             >
               <div className="flex items-center">
-                <Briefcase className="h-4 w-4 text-gray-500 mr-2" />
-                <h2 className="text-sm font-medium text-gray-700">Teams</h2>
+                <Briefcase className="h-5 w-5 text-gray-600 mr-3" />
+                <h2 className="text-sm font-medium text-gray-800">Teams</h2>
               </div>
-              {teamsExpanded ? 
-                <ChevronDown className="h-4 w-4 text-gray-500" /> : 
-                <ChevronRight className="h-4 w-4 text-gray-500" />
-              }
+              <div className="transition-transform duration-300 ease-in-out transform">
+                {teamsExpanded ? 
+                  <ChevronDown className="h-4 w-4 text-gray-500" /> : 
+                  <ChevronRight className="h-4 w-4 text-gray-500" />
+                }
+              </div>
             </div>
             
-            {teamsExpanded && (
-              <ul className="mt-1 space-y-1 pl-3">
-                {filteredTeamItems.map((team) => (
-                  <li key={team.path}>
-                    <Link
-                      to={team.path}
-                      className={clsx(
-                        'flex items-center px-3 py-2.5 rounded-md text-sm font-medium transition-all',
-                        isActive(team.path)
-                          ? `${team.bgColor} ${team.textColor} shadow-sm`
-                          : 'text-gray-600 hover:bg-gray-50 hover:text-primary-600'
-                      )}
-                    >
-                      <div className={clsx(
-                        'flex justify-center items-center h-6 w-6 rounded-full bg-gradient-to-r',
-                        team.color,
-                        'mr-2'
-                      )}>
-                        <team.icon className="h-3.5 w-3.5 text-white" />
-                      </div>
-                      <div className="flex-1">{team.name.split(' ')[0]}</div>
-                      {team.activeTasks > 0 && (
-                        <span className="bg-gray-200 text-gray-800 text-xs font-medium rounded-full px-2 py-0.5 ml-2">
-                          {team.activeTasks}
-                        </span>
-                      )}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <div className={`mt-2 space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${teamsExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+              {filteredTeamItems.map((team) => (
+                <li key={team.path} className="list-none pl-3">
+                  <Link
+                    to={team.path}
+                    className={clsx(
+                      'flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out transform hover:translate-x-1',
+                      isActive(team.path)
+                        ? `${team.bgColor} ${team.textColor} shadow-sm border-l-4 border-${team.textColor.split('-')[1]}-500`
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-primary-600'
+                    )}
+                  >
+                    <div className={clsx(
+                      'flex justify-center items-center h-7 w-7 rounded-full bg-gradient-to-r',
+                      team.color,
+                      'mr-3 shadow-sm'
+                    )}>
+                      <team.icon className="h-4 w-4 text-white" />
+                    </div>
+                    <div className="flex-1">{team.name.split(' ')[0]}</div>
+                    {team.activeTasks > 0 && (
+                      <span className="bg-white text-gray-800 text-xs font-semibold rounded-full px-2 py-1 ml-2 shadow-sm border border-gray-100">
+                        {team.activeTasks}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </div>
           </div>
         )}
       </nav>
       
-      <div className="p-2 border-t border-gray-200">
+      <div className="p-4 border-t border-gray-100">
         <button
           onClick={logout}
-          className="flex items-center px-3 py-2.5 w-full text-left rounded-md text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-danger-600 transition-colors"
+          className="flex items-center px-4 py-3 w-full text-left rounded-lg text-sm font-medium text-gray-600 hover:bg-red-50 hover:text-red-600 transition-all duration-200 ease-in-out transform hover:translate-x-1"
         >
-          <LogOut className="h-4 w-4 mr-3 text-gray-500" />
+          <LogOut className="h-5 w-5 mr-3 text-gray-500" />
           Sign Out
         </button>
       </div>

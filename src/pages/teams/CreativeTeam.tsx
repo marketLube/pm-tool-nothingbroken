@@ -31,7 +31,7 @@ import NewTaskModal from '../../components/tasks/NewTaskModal';
 import { Task, User } from '../../types';
 
 const CreativeTeam: React.FC = () => {
-  const { getUsersByTeam, getTasksByTeam, getTasksByUser, getReportsByUser, clients, getClientById } = useData();
+  const { getUsersByTeam, getTasksByTeam, getTasksByUser, getReportsByUser, getClientsByTeam, getClientById } = useData();
   const { getStatusesByTeam } = useStatus();
   
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
@@ -42,22 +42,7 @@ const CreativeTeam: React.FC = () => {
   const teamMembers = getUsersByTeam('creative');
   const teamTasks = getTasksByTeam('creative');
   const teamStatuses = getStatusesByTeam('creative');
-  
-  // Get list of unique clients with active tasks for this team
-  const teamClients = Array.from(
-    new Set(
-      teamTasks
-        .filter(task => task.status !== 'approved')
-        .map(task => task.clientId)
-    )
-  ).map(clientId => ({
-    id: clientId,
-    ...getClientById(clientId)
-  })).sort((a, b) => {
-    const nameA = a.name || '';
-    const nameB = b.name || '';
-    return nameA.localeCompare(nameB);
-  });
+  const teamClients = getClientsByTeam('creative');
   
   // Group tasks by status
   const tasksByStatus = teamStatuses.reduce((acc, status) => {
@@ -133,6 +118,12 @@ const CreativeTeam: React.FC = () => {
   // Toggle client dropdown
   const toggleClientDropdown = () => {
     setClientDropdownOpen(!clientDropdownOpen);
+  };
+
+  // Handle task deletion
+  const handleTaskDelete = (taskId: string) => {
+    // The task will be automatically removed from the UI via the DataContext
+    // No additional action needed here as the context will update the state
   };
   
   // Team performance stats
@@ -463,7 +454,11 @@ const CreativeTeam: React.FC = () => {
               {filteredTasks.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredTasks.map(task => (
-                    <TaskCard key={task.id} task={task} />
+                    <TaskCard 
+                      key={task.id} 
+                      task={task} 
+                      onDelete={handleTaskDelete}
+                    />
                   ))}
                 </div>
               ) : (

@@ -1,10 +1,13 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
+import { useStatus } from '../contexts/StatusContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import TaskCard from '../components/tasks/TaskCard';
 import { Layers, PaintBucket, LayoutList, CheckCircle, Clock, AlertTriangle, CalendarClock, AlertCircle } from 'lucide-react';
 import Avatar from '../components/ui/Avatar';
+import { Status, StatusCode, TeamType } from '../types';
+import { canAccessStatus } from '../utils/auth/permissions';
 
 interface TeamStatsCardProps {
   title: string;
@@ -13,6 +16,8 @@ interface TeamStatsCardProps {
   icon: React.ReactNode;
   bgColor: string;
   textColor: string;
+  gradientFrom?: string;
+  gradientTo?: string;
 }
 
 const TeamStatsCard: React.FC<TeamStatsCardProps> = ({
@@ -21,17 +26,29 @@ const TeamStatsCard: React.FC<TeamStatsCardProps> = ({
   description,
   icon,
   bgColor,
-  textColor
+  textColor,
+  gradientFrom,
+  gradientTo
 }) => {
+  // Dynamic gradient background
+  const gradientBg = gradientFrom && gradientTo 
+    ? `bg-gradient-to-r from-${gradientFrom} to-${gradientTo}` 
+    : bgColor.replace('border-', 'bg-');
+  
   return (
-    <Card className={`flex-shrink-0 w-60 border ${bgColor} bg-opacity-10`}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className={`text-sm font-medium ${textColor}`}>{title}</CardTitle>
-        <div className={`${textColor}`}>{icon}</div>
+    <Card className={`flex-shrink-0 w-64 overflow-hidden transform transition-all duration-200 hover:shadow-md hover:-translate-y-1 border border-gray-100`}>
+      <div className={`absolute top-0 left-0 w-1 h-full ${gradientBg}`}></div>
+      <CardHeader className="pb-2 flex flex-row items-center justify-between">
+        <CardTitle className={`text-sm font-semibold ${textColor}`}>{title}</CardTitle>
+        <div className={`flex items-center justify-center h-8 w-8 rounded-full ${gradientBg} text-white shadow-sm`}>
+          {icon}
+        </div>
       </CardHeader>
       <CardContent>
-        <div className={`text-2xl font-bold ${textColor}`}>{value}</div>
-        <p className="text-xs text-gray-600 mt-1">{description}</p>
+        <div className="flex flex-col space-y-1">
+          <div className={`text-3xl font-bold ${textColor}`}>{value}</div>
+          <p className="text-xs text-gray-500">{description}</p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -40,10 +57,15 @@ const TeamStatsCard: React.FC<TeamStatsCardProps> = ({
 const Dashboard: React.FC = () => {
   const { isAdmin, userTeam, currentUser } = useAuth();
   const { tasks, getTasksByTeam } = useData();
+  const { statuses, getStatusesByTeam } = useStatus();
   
   // Get tasks for each team
   const creativeTasks = getTasksByTeam('creative');
   const webTasks = getTasksByTeam('web');
+  
+  // Get statuses for each team
+  const creativeStatuses = getStatusesByTeam('creative');
+  const webStatuses = getStatusesByTeam('web');
   
   // Filter tasks based on role for display
   const displayCreativeTasks = isAdmin || userTeam === 'creative' 
@@ -54,8 +76,8 @@ const Dashboard: React.FC = () => {
     ? webTasks.filter(task => task.status !== 'completed')
     : [];
 
-  // Get Creative team stats with actual statuses
-  const creativeTotal = creativeTasks.length;
+  // Get Creative team stats with actual statuses (excluding completed tasks)
+  const creativeTotal = creativeTasks.filter(task => task.status !== 'approved').length;
   
   // Creative team - group by actual status categories
   const creativeCompleted = creativeTasks.filter(task => task.status === 'approved').length;
@@ -88,8 +110,8 @@ const Dashboard: React.FC = () => {
     new Date(task.dueDate) <= nextWeek
   ).length;
 
-  // Get Web team stats with actual statuses
-  const webTotal = webTasks.length;
+  // Get Web team stats with actual statuses (excluding completed tasks)
+  const webTotal = webTasks.filter(task => task.status !== 'completed').length;
   
   // Web team - group by actual status categories
   const webCompleted = webTasks.filter(task => task.status === 'completed').length;
@@ -120,246 +142,208 @@ const Dashboard: React.FC = () => {
     new Date(task.dueDate) <= nextWeek
   ).length;
 
-  // Creative team detailed status counts
-  const creativeScripting = creativeTasks.filter(task => task.status === 'scripting').length;
-  const creativeScriptConfirmed = creativeTasks.filter(task => task.status === 'script_confirmed').length;
-  const creativeShootPending = creativeTasks.filter(task => task.status === 'shoot_pending').length;
-  const creativeShootFinished = creativeTasks.filter(task => task.status === 'shoot_finished').length;
-  const creativeEditPending = creativeTasks.filter(task => task.status === 'edit_pending').length;
-  const creativeClientApproval = creativeTasks.filter(task => task.status === 'client_approval').length;
+  // Function to check if user has access to a status
+  const hasAccessToStatus = (status: Status): boolean => {
+    if (!currentUser) return false;
+    if (isAdmin) return true;
+    if (status.team !== userTeam) return false;
+    
+    // For non-admin users, check specific status permissions
+    return currentUser.allowedStatuses?.includes(status.id) || false;
+  };
 
-  // Web team detailed status counts
-  const webProposalAwaiting = webTasks.filter(task => task.status === 'proposal_awaiting').length;
-  const webUiStarted = webTasks.filter(task => task.status === 'ui_started').length;
-  const webUiFinished = webTasks.filter(task => task.status === 'ui_finished').length;
-  const webDevStarted = webTasks.filter(task => task.status === 'development_started').length;
-  const webDevFinished = webTasks.filter(task => task.status === 'development_finished').length;
-  const webTesting = webTasks.filter(task => task.status === 'testing').length;
-  const webHandedOver = webTasks.filter(task => task.status === 'handed_over').length;
-  const webClientReviewing = webTasks.filter(task => task.status === 'client_reviewing').length;
+  // Filter status cards to only show ones the user has access to
+  const filteredCreativeStatuses = creativeStatuses.filter(hasAccessToStatus);
+  const filteredWebStatuses = webStatuses.filter(hasAccessToStatus);
+
+  // Only show team sections that the user has access to
+  const showCreativeTeam = isAdmin || userTeam === 'creative';
+  const showWebTeam = isAdmin || userTeam === 'web';
+
+  // Handle task deletion
+  const handleTaskDelete = (taskId: string) => {
+    // The task will be automatically removed from the UI via the DataContext
+    // No additional action needed here as the context will update the state
+  };
 
   return (
     <div className="space-y-6">
       {/* Creative Team Statistics */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between flex-wrap">
-          <div className="flex items-center">
-            <PaintBucket className="h-5 w-5 text-purple-600 mr-2" />
-            <h2 className="text-lg font-medium text-gray-800">Creative Team</h2>
+      {showCreativeTeam && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between flex-wrap">
+            <div className="flex items-center">
+              <PaintBucket className="h-5 w-5 text-purple-600 mr-2" />
+              <h2 className="text-lg font-medium text-gray-800">Creative Team</h2>
+            </div>
+            <div className="flex space-x-3">
+              {creativeOverdueTasks > 0 && (
+                <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
+                  <AlertCircle className="h-3.5 w-3.5 mr-1" />
+                  <span>{creativeOverdueTasks} overdue</span>
+                </div>
+              )}
+              {creativeUpcomingTasks > 0 && (
+                <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
+                  <CalendarClock className="h-3.5 w-3.5 mr-1" />
+                  <span>{creativeUpcomingTasks} upcoming</span>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex space-x-3">
-            {creativeOverdueTasks > 0 && (
-              <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
-                <AlertCircle className="h-3.5 w-3.5 mr-1" />
-                <span>{creativeOverdueTasks} overdue</span>
-              </div>
-            )}
-            {creativeUpcomingTasks > 0 && (
-              <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
-                <CalendarClock className="h-3.5 w-3.5 mr-1" />
-                <span>{creativeUpcomingTasks} upcoming</span>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="overflow-x-auto pb-2">
-          <div className="flex space-x-4 min-w-min">
-            <TeamStatsCard
-              title="Total Tasks"
-              value={creativeTotal}
-              description="All creative team tasks"
-              icon={<Layers className="h-5 w-5" />}
-              bgColor="border-purple-100"
-              textColor="text-purple-700"
-            />
-            <TeamStatsCard
-              title="Not Started"
-              value={creativeNotStarted}
-              description={`${Math.round((creativeNotStarted / Math.max(creativeTotal, 1)) * 100)}% of total tasks`}
-              icon={<AlertTriangle className="h-5 w-5" />}
-              bgColor="border-gray-100"
-              textColor="text-gray-700"
-            />
-            <TeamStatsCard
-              title="Scripting"
-              value={creativeScripting}
-              description="Scripts in progress"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-purple-100"
-              textColor="text-purple-700"
-            />
-            <TeamStatsCard
-              title="Script Confirmed"
-              value={creativeScriptConfirmed}
-              description="Ready for production"
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-indigo-100"
-              textColor="text-indigo-700"
-            />
-            <TeamStatsCard
-              title="Shoot Pending"
-              value={creativeShootPending}
-              description="Awaiting shoot"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-orange-100"
-              textColor="text-orange-700"
-            />
-            <TeamStatsCard
-              title="Shoot Finished"
-              value={creativeShootFinished}
-              description="Shoot completed"
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-amber-100"
-              textColor="text-amber-700"
-            />
-            <TeamStatsCard
-              title="Edit Pending"
-              value={creativeEditPending}
-              description="In post-production"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-blue-100"
-              textColor="text-blue-700"
-            />
-            <TeamStatsCard
-              title="Client Approval"
-              value={creativeClientApproval}
-              description="Awaiting client feedback"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-pink-100"
-              textColor="text-pink-700"
-            />
-            <TeamStatsCard
-              title="Approved"
-              value={creativeCompleted}
-              description={`${creativeCompletionRate}% completion rate`}
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-green-100"
-              textColor="text-green-700"
-            />
+          <div className="overflow-x-auto pb-2">
+            <div className="flex space-x-4 p-1 min-w-min">
+              <TeamStatsCard
+                title="Total Tasks"
+                value={creativeTotal}
+                description="Active creative team tasks"
+                icon={<Layers className="h-5 w-5" />}
+                bgColor="border-purple-100"
+                textColor="text-purple-700"
+                gradientFrom="purple-500"
+                gradientTo="pink-500"
+              />
+              
+              {/* Only show status cards the user has access to */}
+              {filteredCreativeStatuses.map(status => {
+                const tasksInStatus = creativeTasks.filter(task => task.status === status.id).length;
+                const percentage = creativeTotal > 0 ? Math.round((tasksInStatus / creativeTotal) * 100) : 0;
+                
+                let icon = <Clock className="h-5 w-5" />;
+                let cardBgColor = 'border-purple-100';
+                let cardTextColor = 'text-purple-700';
+                let gradientFrom = 'purple-500';
+                let gradientTo = 'pink-500';
+                
+                // Set icons and colors based on status
+                if (status.id === 'approved' || status.id === 'completed') {
+                  icon = <CheckCircle className="h-5 w-5" />;
+                  cardBgColor = 'border-green-100';
+                  cardTextColor = 'text-green-700';
+                  gradientFrom = 'green-500';
+                  gradientTo = 'emerald-500';
+                } else if (status.id === 'not_started' || status.id === 'proposal_awaiting') {
+                  icon = <AlertTriangle className="h-5 w-5" />;
+                  cardBgColor = 'border-gray-100';
+                  cardTextColor = 'text-gray-700';
+                  gradientFrom = 'gray-400';
+                  gradientTo = 'gray-500';
+                }
+                
+                const title = status.name
+                  .split('_')
+                  .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                  .join(' ');
+                
+                return (
+                  <TeamStatsCard
+                    key={status.id}
+                    title={title}
+                    value={tasksInStatus}
+                    description={`${percentage}% of total tasks`}
+                    icon={icon}
+                    bgColor={cardBgColor}
+                    textColor={cardTextColor}
+                    gradientFrom={gradientFrom}
+                    gradientTo={gradientTo}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       
       {/* Web Team Statistics */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between flex-wrap">
-          <div className="flex items-center">
-            <LayoutList className="h-5 w-5 text-blue-600 mr-2" />
-            <h2 className="text-lg font-medium text-gray-800">Web Team</h2>
+      {showWebTeam && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between flex-wrap">
+            <div className="flex items-center">
+              <LayoutList className="h-5 w-5 text-blue-600 mr-2" />
+              <h2 className="text-lg font-medium text-gray-800">Web Team</h2>
+            </div>
+            <div className="flex space-x-3">
+              {webOverdueTasks > 0 && (
+                <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
+                  <AlertCircle className="h-3.5 w-3.5 mr-1" />
+                  <span>{webOverdueTasks} overdue</span>
+                </div>
+              )}
+              {webUpcomingTasks > 0 && (
+                <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
+                  <CalendarClock className="h-3.5 w-3.5 mr-1" />
+                  <span>{webUpcomingTasks} upcoming</span>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex space-x-3">
-            {webOverdueTasks > 0 && (
-              <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
-                <AlertCircle className="h-3.5 w-3.5 mr-1" />
-                <span>{webOverdueTasks} overdue</span>
-              </div>
-            )}
-            {webUpcomingTasks > 0 && (
-              <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
-                <CalendarClock className="h-3.5 w-3.5 mr-1" />
-                <span>{webUpcomingTasks} upcoming</span>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="overflow-x-auto pb-2">
-          <div className="flex space-x-4 min-w-min">
-            <TeamStatsCard
-              title="Total Tasks"
-              value={webTotal}
-              description="All web team tasks"
-              icon={<Layers className="h-5 w-5" />}
-              bgColor="border-blue-100"
-              textColor="text-blue-700"
-            />
-            <TeamStatsCard
-              title="Proposal Awaiting"
-              value={webProposalAwaiting}
-              description="Needs proposal"
-              icon={<AlertTriangle className="h-5 w-5" />}
-              bgColor="border-gray-100"
-              textColor="text-gray-700"
-            />
-            <TeamStatsCard
-              title="Not Started"
-              value={webTasks.filter(task => task.status === 'not_started').length}
-              description="Yet to begin"
-              icon={<AlertTriangle className="h-5 w-5" />}
-              bgColor="border-gray-100"
-              textColor="text-gray-700"
-            />
-            <TeamStatsCard
-              title="UI Started"
-              value={webUiStarted}
-              description="Design in progress"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-purple-100"
-              textColor="text-purple-700"
-            />
-            <TeamStatsCard
-              title="UI Finished"
-              value={webUiFinished}
-              description="Design completed"
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-indigo-100"
-              textColor="text-indigo-700"
-            />
-            <TeamStatsCard
-              title="Development Started"
-              value={webDevStarted}
-              description="In development"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-blue-100"
-              textColor="text-blue-700"
-            />
-            <TeamStatsCard
-              title="Development Finished"
-              value={webDevFinished}
-              description="Development completed"
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-cyan-100"
-              textColor="text-cyan-700"
-            />
-            <TeamStatsCard
-              title="Testing"
-              value={webTesting}
-              description="QA in progress"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-orange-100"
-              textColor="text-orange-700"
-            />
-            <TeamStatsCard
-              title="Handed Over"
-              value={webHandedOver}
-              description="Ready for review"
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-amber-100"
-              textColor="text-amber-700"
-            />
-            <TeamStatsCard
-              title="Client Reviewing"
-              value={webClientReviewing}
-              description="Client feedback stage"
-              icon={<Clock className="h-5 w-5" />}
-              bgColor="border-pink-100"
-              textColor="text-pink-700"
-            />
-            <TeamStatsCard
-              title="Completed"
-              value={webCompleted}
-              description={`${webCompletionRate}% completion rate`}
-              icon={<CheckCircle className="h-5 w-5" />}
-              bgColor="border-green-100"
-              textColor="text-green-700"
-            />
+          <div className="overflow-x-auto pb-2">
+            <div className="flex space-x-4 p-1 min-w-min">
+              <TeamStatsCard
+                title="Total Tasks"
+                value={webTotal}
+                description="Active web team tasks"
+                icon={<Layers className="h-5 w-5" />}
+                bgColor="border-blue-100"
+                textColor="text-blue-700"
+                gradientFrom="blue-500"
+                gradientTo="cyan-500"
+              />
+
+              {/* Only show status cards the user has access to */}
+              {filteredWebStatuses.map(status => {
+                const tasksInStatus = webTasks.filter(task => task.status === status.id).length;
+                const percentage = webTotal > 0 ? Math.round((tasksInStatus / webTotal) * 100) : 0;
+                
+                let icon = <Clock className="h-5 w-5" />;
+                let cardBgColor = 'border-blue-100';
+                let cardTextColor = 'text-blue-700';
+                let gradientFrom = 'blue-500';
+                let gradientTo = 'cyan-500';
+                
+                // Set icons and colors based on status
+                if (status.id === 'approved' || status.id === 'completed') {
+                  icon = <CheckCircle className="h-5 w-5" />;
+                  cardBgColor = 'border-green-100';
+                  cardTextColor = 'text-green-700';
+                  gradientFrom = 'green-500';
+                  gradientTo = 'emerald-500';
+                } else if (status.id === 'not_started' || status.id === 'proposal_awaiting') {
+                  icon = <AlertTriangle className="h-5 w-5" />;
+                  cardBgColor = 'border-gray-100';
+                  cardTextColor = 'text-gray-700';
+                  gradientFrom = 'gray-400';
+                  gradientTo = 'gray-500';
+                }
+                
+                const title = status.name
+                  .split('_')
+                  .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                  .join(' ');
+                
+                return (
+                  <TeamStatsCard
+                    key={status.id}
+                    title={title}
+                    value={tasksInStatus}
+                    description={`${percentage}% of total tasks`}
+                    icon={icon}
+                    bgColor={cardBgColor}
+                    textColor={cardTextColor}
+                    gradientFrom={gradientFrom}
+                    gradientTo={gradientTo}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
       
       {/* Team Tasks */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Creative Team Tasks */}
-        {(isAdmin || userTeam === 'creative') && (
+        {showCreativeTeam && (
           <div>
           <Card className="h-full">
             <CardHeader className="pb-2">
@@ -376,6 +360,7 @@ const Dashboard: React.FC = () => {
                     <TaskCard
                       key={task.id}
                       task={task}
+                      onDelete={handleTaskDelete}
                     />
                   ))}
                 </div>
@@ -391,7 +376,7 @@ const Dashboard: React.FC = () => {
         )}
         
         {/* Web Team Tasks */}
-        {(isAdmin || userTeam === 'web') && (
+        {showWebTeam && (
           <div>
             <Card className="h-full">
               <CardHeader className="pb-2">
@@ -408,6 +393,7 @@ const Dashboard: React.FC = () => {
                         <TaskCard
                           key={task.id}
                           task={task}
+                          onDelete={handleTaskDelete}
                         />
                       ))}
                     </div>
@@ -415,8 +401,8 @@ const Dashboard: React.FC = () => {
                     <div className="py-8 text-center text-gray-500">
                       <p>No active tasks found</p>
                     </div>
-          )}
-        </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

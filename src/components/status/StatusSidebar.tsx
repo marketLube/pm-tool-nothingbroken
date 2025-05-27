@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { useStatus, Status } from '../../contexts/StatusContext';
+import { useStatus } from '../../contexts/StatusContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../ui/Card';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import { Plus, Trash2, GripVertical } from 'lucide-react';
-import { TeamType } from '../../types';
+import { TeamType, Status, StatusCode } from '../../types';
 
 interface StatusFormData {
   name: string;

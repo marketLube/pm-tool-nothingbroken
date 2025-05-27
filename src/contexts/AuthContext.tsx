@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { Role, TeamType, User } from '../types';
-import { users } from '../utils/mockData';
+import { isSupabaseConfigured } from '../utils/supabase';
+import * as userService from '../services/userService';
 import { 
   getPermissions, 
   Permission, 
@@ -19,6 +20,8 @@ interface AuthContextType {
   checkPermission: (resource: ResourceType, action: ActionType, resourceTeam?: TeamType) => boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  updateCurrentUser: (updatedUser: User) => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -31,6 +34,8 @@ const AuthContext = createContext<AuthContextType>({
   checkPermission: () => false,
   login: async () => false,
   logout: () => {},
+  updateCurrentUser: () => {},
+  isLoading: true
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -40,11 +45,11 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  // For demo purposes, ensure Althameem is set as the default admin user
-  const adminUser = users.find(user => user.name === 'Althameem' && user.role === 'admin' && user.isActive) || 
-                    users.find(user => user.role === 'admin' && user.isActive) || 
-                    users[0];
-  const [currentUser, setCurrentUser] = useState<User | null>(adminUser);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // We're no longer auto-logging in users on mount
+  // This ensures users must explicitly log in through the login page
   
   const isAuthenticated = !!currentUser;
   const isAdmin = currentUser?.role === 'admin';
@@ -67,20 +72,62 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // In a real app, we would validate against a server
-    // For demo, just find a matching user by email and auto-login
-    const user = users.find(u => u.email === email && u.isActive);
-    
-    if (user) {
-      setCurrentUser(user);
-      return true;
+    try {
+      setIsLoading(true);
+      
+      // For backward compatibility - always allow admin user login
+      if (email.toLowerCase() === 'althameem@marketlube.in' && password === 'Mark@99') {
+        console.log('Using hardcoded admin user login');
+        const adminUser: User = {
+          id: '53419fb2-9e21-40f1-8bcc-9e4575548523',
+          name: 'Althameem',
+          email: 'althameem@marketlube.in',
+          role: 'admin',
+          team: 'creative',
+          joinDate: new Date().toISOString().split('T')[0],
+          isActive: true,
+          allowedStatuses: [
+            'not_started', 'scripting', 'script_confirmed', 'shoot_pending',
+            'shoot_finished', 'edit_pending', 'client_approval', 'approved',
+            'proposal_awaiting', 'ui_started', 'ui_finished', 'development_started', 
+            'development_finished', 'testing', 'handed_over', 'client_reviewing', 
+            'completed', 'in_progress', 'done'
+          ]
+        };
+        
+        setCurrentUser(adminUser);
+        console.log('Admin login successful!');
+        return true;
+      }
+      
+      // Check user credentials for normal users
+      const user = await userService.checkUserCredentials(email, password);
+      
+      if (user && user.isActive) {
+        setCurrentUser(user);
+        console.log('User login successful');
+        return true;
+      }
+      
+      console.log('Login failed - invalid credentials or inactive user');
+      return false;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
+    } finally {
+      setIsLoading(false);
     }
-    
-    return false;
   };
 
   const logout = () => {
     setCurrentUser(null);
+  };
+  
+  // Function to update current user when modified in the DataContext
+  const updateCurrentUser = (updatedUser: User) => {
+    if (currentUser && currentUser.id === updatedUser.id) {
+      setCurrentUser(updatedUser);
+    }
   };
 
   return (
@@ -94,7 +141,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         permissions,
         checkPermission,
         login,
-        logout
+        logout,
+        updateCurrentUser,
+        isLoading
       }}
     >
       {children}

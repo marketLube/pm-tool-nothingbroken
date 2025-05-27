@@ -102,29 +102,29 @@ export const getPermissions = (
       { resource: 'status', action: 'edit', team: userTeam },
     ];
   } else {
-    // Employee has limited permissions
+  // Employee has limited permissions
     permissions = [
-      // Task permissions
-      { resource: 'task', action: 'view', team: userTeam },
-      { resource: 'task', action: 'create', team: userTeam },
-      { resource: 'task', action: 'edit', team: userTeam },
-      
-      // User permissions
-      { resource: 'user', action: 'view', team: userTeam },
-      
-      // Client permissions
-      { resource: 'client', action: 'view', team: 'all' },
-      
-      // Report permissions
-      { resource: 'report', action: 'view', team: userTeam },
-      { resource: 'report', action: 'create', team: userTeam },
-      
-      // Team permissions
-      { resource: 'team', action: 'view', team: userTeam },
-      
+    // Task permissions
+    { resource: 'task', action: 'view', team: userTeam },
+    { resource: 'task', action: 'create', team: userTeam },
+    { resource: 'task', action: 'edit', team: userTeam },
+    
+    // User permissions
+    { resource: 'user', action: 'view', team: userTeam },
+    
+    // Client permissions
+    { resource: 'client', action: 'view', team: 'all' },
+    
+    // Report permissions
+    { resource: 'report', action: 'view', team: userTeam },
+    { resource: 'report', action: 'create', team: userTeam },
+    
+    // Team permissions
+    { resource: 'team', action: 'view', team: userTeam },
+    
       // Status permissions - base permissions
-      { resource: 'status', action: 'view', team: userTeam },
-    ];
+    { resource: 'status', action: 'view', team: userTeam },
+  ];
   }
   
   // Add specific status permissions for non-admin users

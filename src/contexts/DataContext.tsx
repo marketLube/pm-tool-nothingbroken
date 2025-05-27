@@ -1,14 +1,12 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { Client, Report, Task, Team, TeamType, User } from '../types';
-import { 
-  clients as initialClients,
-  tasks as initialTasks,
-  teams as initialTeams,
-  users as initialUsers,
-  reports as initialReports,
-  analytics as initialAnalytics
-} from '../utils/mockData';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { Client, Report, Task, Team, TeamType, User, StatusCode } from '../types';
+import { isSupabaseConfigured } from '../utils/supabase';
+import * as userService from '../services/userService';
+import * as taskService from '../services/taskService';
+import * as clientService from '../services/clientService';
+import * as statusService from '../services/statusService';
 import { format } from 'date-fns';
+import { useAuth } from './AuthContext';
 
 interface DataContextType {
   // Data
@@ -29,36 +27,38 @@ interface DataContextType {
       overdueTasksCount: number;
     };
   };
+  isLoading: boolean;
 
   // User actions
-  addUser: (user: Omit<User, 'id'>) => void;
-  updateUser: (user: User) => void;
-  toggleUserStatus: (userId: string) => void;
+  addUser: (user: Omit<User, 'id'>) => Promise<void>;
+  updateUser: (user: User) => Promise<void>;
+  toggleUserStatus: (userId: string) => Promise<User>;
 
   // Task actions
-  addTask: (task: Omit<Task, 'id' | 'createdAt'>) => void;
-  updateTask: (task: Task) => void;
-  updateTaskStatus: (taskId: string, status: Task['status']) => void;
-  deleteTask: (taskId: string) => void;
+  addTask: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
+  updateTask: (task: Task) => Promise<void>;
+  updateTaskStatus: (taskId: string, status: StatusCode) => Promise<void>;
+  deleteTask: (taskId: string) => Promise<void>;
 
   // Client actions
-  addClient: (client: Omit<Client, 'id' | 'dateAdded'>) => void;
-  updateClient: (client: Client) => void;
-  deleteClient: (clientId: string) => void;
+  addClient: (client: Omit<Client, 'id' | 'dateAdded'>) => Promise<Client>;
+  updateClient: (client: Client) => Promise<void>;
+  deleteClient: (clientId: string) => Promise<void>;
 
   // Report actions
-  addReport: (report: Omit<Report, 'id'>) => void;
-  updateReport: (report: Report) => void;
-  approveReport: (reportId: string, approved: boolean, feedback?: string) => void;
-  submitReport: (userId: string, reportData: Omit<Report, 'id' | 'userId' | 'submitted' | 'approved'>) => void;
+  addReport: (report: Omit<Report, 'id'>) => Promise<void>;
+  updateReport: (report: Report) => Promise<void>;
+  approveReport: (reportId: string, approved: boolean, feedback?: string) => Promise<void>;
+  submitReport: (userId: string, reportData: Omit<Report, 'id' | 'userId' | 'submitted' | 'approved'>) => Promise<void>;
 
   // Team actions
-  updateTeam: (team: Team) => void;
+  updateTeam: (team: Team) => Promise<void>;
 
   // Helper methods
   getTasksByUser: (userId: string) => Task[];
   getTasksByTeam: (teamId: TeamType) => Task[];
   getUsersByTeam: (teamId: TeamType) => User[];
+  getClientsByTeam: (teamId: TeamType) => Client[];
   getReportsByUser: (userId: string) => Report[];
   getReportsByDate: (date: string) => Report[];
   getUserById: (userId: string) => User | undefined;
@@ -82,319 +82,367 @@ interface DataProviderProps {
 }
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>(initialUsers);
-  const [teams, setTeams] = useState<Team[]>(initialTeams);
-  const [clients, setClients] = useState<Client[]>(initialClients);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [reports, setReports] = useState<Report[]>(initialReports);
-  const [analytics, setAnalytics] = useState(initialAnalytics);
+  const { isAuthenticated, currentUser } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Default analytics
+  const [analytics, setAnalytics] = useState({
+    creative: {
+      taskCompletion: 0,
+      reportSubmission: 0,
+      overdueTasksCount: 0
+    },
+    web: {
+      taskCompletion: 0,
+      reportSubmission: 0,
+      overdueTasksCount: 0
+    }
+  });
+
+  // Load data when user is authenticated
+  useEffect(() => {
+    // Only load data if the user is authenticated
+    if (!isAuthenticated) {
+      return;
+    }
+    
+    const loadData = async () => {
+      if (!isSupabaseConfigured()) {
+        console.error('Supabase is not configured. Unable to load data.');
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        // Load users
+        const usersData = await userService.getUsers();
+        setUsers(usersData);
+
+        // Load clients
+        const clientsData = await clientService.getClients();
+        setClients(clientsData);
+
+        // Load tasks
+        const tasksData = await taskService.getTasks();
+        setTasks(tasksData);
+
+        // Set up teams
+        const creativeTeamMembers = usersData.filter(u => u.team === 'creative');
+        const webTeamMembers = usersData.filter(u => u.team === 'web');
+        
+        const teamsData: Team[] = [
+          {
+            id: 'creative',
+            name: 'Creative Team',
+            managerId: creativeTeamMembers.find(u => u.role === 'manager')?.id || '',
+            description: 'Handles all design and creative aspects of projects',
+            memberCount: creativeTeamMembers.length
+          },
+          {
+            id: 'web',
+            name: 'Coding (Web) Team',
+            managerId: webTeamMembers.find(u => u.role === 'manager')?.id || '',
+            description: 'Develops and maintains web applications',
+            memberCount: webTeamMembers.length
+          }
+        ];
+        
+        setTeams(teamsData);
+        
+        // Calculate analytics
+        updateTaskAnalytics(tasksData);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [isAuthenticated]); // Reload when authentication state changes
 
   // User actions
-  const addUser = (user: Omit<User, 'id'>) => {
-    const newUser: User = {
-      ...user,
-      id: `user${users.length + 1}`,
-    };
-    setUsers([...users, newUser]);
-    
-    // Update team member count
-    updateTeamMemberCount(user.team, 1);
-  };
-
-  const updateUser = (updatedUser: User) => {
-    const oldUser = users.find(u => u.id === updatedUser.id);
-    
-    setUsers(users.map(user => 
-      user.id === updatedUser.id ? updatedUser : user
-    ));
-    
-    // Update team member count if team changed
-    if (oldUser && oldUser.team !== updatedUser.team) {
-      updateTeamMemberCount(oldUser.team, -1);
-      updateTeamMemberCount(updatedUser.team, 1);
+  const addUser = async (user: Omit<User, 'id'>) => {
+    try {
+      console.log('Creating user in Supabase:', {
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        team: user.team,
+        password: user.password ? 'password provided' : 'no password',
+        allowedStatuses: user.allowedStatuses?.length || 0
+      });
+      
+      const newUser = await userService.createUser(user);
+      console.log('User created successfully with ID:', newUser.id);
+      
+      setUsers([...users, newUser]);
+      updateTeamMemberCount(user.team, 1);
+    } catch (error) {
+      console.error('Error adding user:', error);
+      throw error; // Re-throw to let the caller handle it
     }
   };
 
-  const toggleUserStatus = (userId: string) => {
-    setUsers(users.map(user => 
-      user.id === userId ? {...user, isActive: !user.isActive} : user
-    ));
+  const updateUser = async (updatedUser: User) => {
+    try {
+      const oldUser = users.find(u => u.id === updatedUser.id);
+      const updated = await userService.updateUser(updatedUser);
+      
+      setUsers(users.map(user => 
+        user.id === updatedUser.id ? updated : user
+      ));
+      
+      // Update team member count if team changed
+      if (oldUser && oldUser.team !== updatedUser.team) {
+        updateTeamMemberCount(oldUser.team, -1);
+        updateTeamMemberCount(updatedUser.team, 1);
+      }
+    } catch (error) {
+      console.error('Error updating user:', error);
+    }
+  };
+
+  const toggleUserStatus = async (userId: string) => {
+    try {
+      console.log(`Starting to toggle status for user: ${userId}`);
+      const updated = await userService.toggleUserStatus(userId);
+      console.log(`Successfully toggled status for user ${userId} in service, updating state`);
+      
+      setUsers(users.map(user => 
+        user.id === userId ? updated : user
+      ));
+      
+      console.log(`State updated for user ${userId}`);
+      return updated;
+    } catch (error) {
+      console.error('Error toggling user status:', error);
+      // Re-throw to allow the UI to handle the error
+      throw error;
+    }
   };
 
   // Task actions
-  const addTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
-    const newTask: Task = {
-      ...task,
-      id: `task${tasks.length + 1}`,
-      createdAt: format(new Date(), 'yyyy-MM-dd'),
-    };
-    setTasks([...tasks, newTask]);
-    
-    // Update analytics
-    updateTaskAnalytics();
-  };
-
-  const updateTask = (updatedTask: Task) => {
-    setTasks(tasks.map(task => 
-      task.id === updatedTask.id ? updatedTask : task
-    ));
-    
-    // Update analytics
-    updateTaskAnalytics();
-  };
-
-  const updateTaskStatus = (taskId: string, status: Task['status']) => {
-    // Find the task to update
-    const taskToUpdate = tasks.find(task => task.id === taskId);
-    
-    if (taskToUpdate) {
-      console.log(`Updating task ${taskId} status from ${taskToUpdate.status} to ${status}`);
-      
-      try {
-        // Validate that the status is a valid string (should match one of the Status union types)
-        if (typeof status === 'string') {
-          // Check if the status is valid for the task's team
-          const isValidStatusForTeam = (status: string, team: TeamType): boolean => {
-            // This validation ensures the status matches the team
-            // Creative team statuses
-            const creativeStatuses = [
-              'not_started', 'scripting', 'script_confirmed', 'shoot_pending',
-              'shoot_finished', 'edit_pending', 'client_approval', 'approved'
-            ];
-            
-            // Web team statuses
-            const webStatuses = [
-              'proposal_awaiting', 'not_started', 'ui_started', 'ui_finished',
-              'development_started', 'development_finished', 'testing',
-              'handed_over', 'client_reviewing', 'completed', 'in_progress', 'done'
-            ];
-            
-            // Common statuses (legacy support)
-            const commonStatuses = ['in_progress', 'done'];
-            
-            let isValid = false;
-            
-            if (team === 'creative') {
-              // For creative team, allow creative-specific statuses + common statuses
-              isValid = creativeStatuses.includes(status) || commonStatuses.includes(status);
-            } else if (team === 'web') {
-              // For web team, allow web-specific statuses + common statuses
-              isValid = webStatuses.includes(status) || commonStatuses.includes(status);
-            }
-            
-            console.log(`Validating status "${status}" for team "${team}": ${isValid ? 'VALID' : 'INVALID'}`);
-            return isValid;
-          };
-          
-          // Ensure the status is valid for the task's team
-          if (isValidStatusForTeam(status, taskToUpdate.team)) {
-            // Create a new array with the updated task
-            const updatedTasks = tasks.map(task => 
-              task.id === taskId 
-                ? { ...task, status } 
-                : task
-            );
-            
-            // Update state with the new array
-            setTasks(updatedTasks);
-            
-            // Update analytics
-            updateTaskAnalytics();
-            
-            console.log(`Successfully updated task ${taskId} to status: ${status}`);
-          } else {
-            console.error(`Status "${status}" is not valid for ${taskToUpdate.team} team`);
-          }
-        } else {
-          console.error(`Invalid status type: ${typeof status}`, status);
-        }
-      } catch (error) {
-        console.error(`Error updating task status: ${error}`);
-      }
-    } else {
-      console.error(`Task with ID ${taskId} not found`);
+  const addTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
+    try {
+      const newTask = await taskService.createTask(task);
+      setTasks([...tasks, newTask]);
+      updateTaskAnalytics();
+    } catch (error) {
+      console.error('Error adding task:', error);
     }
   };
 
-  const deleteTask = (taskId: string) => {
-    setTasks(tasks.filter(task => task.id !== taskId));
-    
-    // Update analytics
-    updateTaskAnalytics();
+  const updateTask = async (updatedTask: Task) => {
+    try {
+      const updated = await taskService.updateTask(updatedTask);
+      setTasks(tasks.map(task => 
+        task.id === updatedTask.id ? updated : task
+      ));
+      updateTaskAnalytics();
+    } catch (error) {
+      console.error('Error updating task:', error);
+    }
+  };
+
+  const updateTaskStatus = async (taskId: string, status: StatusCode) => {
+    try {
+      const updated = await taskService.updateTaskStatus(taskId, status);
+      setTasks(tasks.map(task => 
+        task.id === taskId ? updated : task
+      ));
+      updateTaskAnalytics();
+    } catch (error) {
+      console.error('Error updating task status:', error);
+    }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    try {
+      await taskService.deleteTask(taskId);
+      setTasks(tasks.filter(task => task.id !== taskId));
+      updateTaskAnalytics();
+    } catch (error) {
+      console.error('Error deleting task:', error);
+    }
   };
 
   // Client actions
-  const addClient = (client: Omit<Client, 'id' | 'dateAdded'>) => {
-    const newClient: Client = {
-      ...client,
-      id: `client${clients.length + 1}`,
-      dateAdded: format(new Date(), 'yyyy-MM-dd'),
-    };
-    setClients([...clients, newClient]);
-  };
-
-  const updateClient = (updatedClient: Client) => {
-    setClients(clients.map(client => 
-      client.id === updatedClient.id ? updatedClient : client
-    ));
-  };
-
-  const deleteClient = (clientId: string) => {
-    // Check if client has active tasks
-    const clientHasTasks = tasks.some(task => task.clientId === clientId);
-    
-    if (!clientHasTasks) {
-      setClients(clients.filter(client => client.id !== clientId));
-    } else {
-      // In a real app, we might show an error or confirmation message
-      console.error("Cannot delete client with active tasks");
+  const addClient = async (client: Omit<Client, 'id' | 'dateAdded'>) => {
+    try {
+      console.log('DataContext: Adding client:', client);
+      const newClient = await clientService.createClient(client);
+      console.log('DataContext: Client added successfully:', newClient);
+      setClients([...clients, newClient]);
+      return newClient; // Return the new client for confirmation
+    } catch (error) {
+      console.error('DataContext: Error adding client:', error);
+      // You might want to show a notification here
+      throw error; // Re-throw to allow component to handle error
     }
   };
 
-  // Report actions
-  const addReport = (report: Omit<Report, 'id'>) => {
+  const updateClient = async (client: Client) => {
+    try {
+      const updated = await clientService.updateClient(client);
+      setClients(clients.map(c => 
+        c.id === client.id ? updated : c
+      ));
+    } catch (error) {
+      console.error('Error updating client:', error);
+    }
+  };
+
+  const deleteClient = async (clientId: string) => {
+    try {
+      console.log('DataContext: Attempting to delete client:', clientId);
+      console.log('DataContext: Current clients before deletion:', clients.map(c => ({ id: c.id, name: c.name })));
+      
+      // Check if client exists in local state
+      const clientExists = clients.find(c => c.id === clientId);
+      if (!clientExists) {
+        console.warn('DataContext: Client not found in local state, but proceeding with deletion');
+      } else {
+        console.log('DataContext: Found client in local state:', clientExists.name);
+      }
+      
+      await clientService.deleteClient(clientId);
+      console.log('DataContext: Client deleted from database successfully');
+      
+      // Force refresh clients from database to ensure we have the latest data
+      const refreshedClients = await clientService.getClients();
+      setClients(refreshedClients);
+      console.log('DataContext: Clients refreshed from database:', refreshedClients.map(c => ({ id: c.id, name: c.name })));
+      
+      // Also refresh tasks to reflect any reassignments
+      const updatedTasks = await taskService.getTasks();
+      setTasks(updatedTasks);
+      console.log('DataContext: Tasks refreshed after client deletion');
+      
+    } catch (error) {
+      console.error('DataContext: Error deleting client:', error);
+      
+      // Provide more specific error messages
+      if (error && typeof error === 'object' && 'message' in error) {
+        throw new Error(`Failed to delete client: ${error.message}`);
+      } else {
+        throw new Error('Failed to delete client: Unknown error occurred');
+      }
+    }
+  };
+
+  // Team actions
+  const updateTeam = async (team: Team) => {
+    setTeams(teams.map(t => 
+      t.id === team.id ? team : t
+    ));
+  };
+
+  // Update team member count helper
+  const updateTeamMemberCount = (teamId: TeamType, change: number) => {
+    setTeams(teams.map(team => 
+      team.id === teamId 
+        ? { ...team, memberCount: team.memberCount + change } 
+        : team
+    ));
+  };
+
+  // Report actions (keeping simpler implementation for now)
+  const addReport = async (report: Omit<Report, 'id'>) => {
     const newReport: Report = {
       ...report,
       id: `report${reports.length + 1}`,
     };
     setReports([...reports, newReport]);
-    
-    // Update analytics
-    updateReportAnalytics();
   };
 
-  const updateReport = (updatedReport: Report) => {
-    setReports(reports.map(report => 
-      report.id === updatedReport.id ? updatedReport : report
+  const updateReport = async (report: Report) => {
+    setReports(reports.map(r => 
+      r.id === report.id ? report : r
     ));
-    
-    // Update analytics
-    updateReportAnalytics();
   };
 
-  const approveReport = (reportId: string, approved: boolean, feedback?: string) => {
+  const approveReport = async (reportId: string, approved: boolean, feedback?: string) => {
     setReports(reports.map(report => 
       report.id === reportId 
-        ? {...report, approved, feedback} 
+        ? { ...report, approved, feedback: feedback || report.feedback } 
         : report
     ));
-    
-    // Update analytics
-    updateReportAnalytics();
   };
 
-  const submitReport = (userId: string, reportData: Omit<Report, 'id' | 'userId' | 'submitted' | 'approved'>) => {
+  const submitReport = async (
+    userId: string, 
+    reportData: Omit<Report, 'id' | 'userId' | 'submitted' | 'approved'>
+  ) => {
     const newReport: Report = {
+      ...reportData,
       id: `report${reports.length + 1}`,
       userId,
       submitted: true,
       approved: null,
-      ...reportData
     };
     
     setReports([...reports, newReport]);
+  };
+
+  // Analytics calculation
+  const updateTaskAnalytics = (currentTasks = tasks) => {
+    // Process tasks to calculate the completion percentage
+    const creativeTeamTasks = currentTasks.filter(task => task.team === 'creative');
+    const webTeamTasks = currentTasks.filter(task => task.team === 'web');
+    
+    const creativeCompletedTasks = creativeTeamTasks.filter(
+      task => task.status === 'approved' || task.status === 'done'
+    ).length;
+    const webCompletedTasks = webTeamTasks.filter(
+      task => task.status === 'completed' || task.status === 'done'
+    ).length;
+    
+    const today = new Date();
+    const todayFormatted = format(today, 'yyyy-MM-dd');
+    
+    const creativeOverdue = creativeTeamTasks.filter(
+      task => task.dueDate < todayFormatted && 
+      task.status !== 'approved' && 
+      task.status !== 'done'
+    ).length;
+    
+    const webOverdue = webTeamTasks.filter(
+      task => task.dueDate < todayFormatted && 
+      task.status !== 'completed' && 
+      task.status !== 'done'
+    ).length;
+    
+    // Calculate completion percentages 
+    const creativeCompletion = creativeTeamTasks.length > 0 
+      ? Math.round((creativeCompletedTasks / creativeTeamTasks.length) * 100)
+      : 0;
+      
+    const webCompletion = webTeamTasks.length > 0
+      ? Math.round((webCompletedTasks / webTeamTasks.length) * 100)
+      : 0;
     
     // Update analytics
-    updateReportAnalytics();
-  };
-
-  // Team actions
-  const updateTeam = (updatedTeam: Team) => {
-    setTeams(teams.map(team => 
-      team.id === updatedTeam.id ? updatedTeam : team
-    ));
-  };
-
-  // Helper functions
-  const updateTeamMemberCount = (teamId: TeamType, change: number) => {
-    setTeams(teams.map(team => 
-      team.id === teamId 
-        ? {...team, memberCount: team.memberCount + change} 
-        : team
-    ));
-  };
-
-  const updateTaskAnalytics = () => {
-    // Calculate task completion rates for each team
-    const creativeTeamTasks = tasks.filter(task => task.team === 'creative');
-    const webTeamTasks = tasks.filter(task => task.team === 'web');
-    
-    const creativeCompletionRate = creativeTeamTasks.length 
-      ? (creativeTeamTasks.filter(task => task.status === 'done').length / creativeTeamTasks.length) * 100 
-      : 0;
-      
-    const webCompletionRate = webTeamTasks.length 
-      ? (webTeamTasks.filter(task => task.status === 'done').length / webTeamTasks.length) * 100 
-      : 0;
-    
-    // Count overdue tasks
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const creativeOverdueTasks = creativeTeamTasks.filter(
-      task => task.status !== 'done' && task.dueDate < today
-    ).length;
-    
-    const webOverdueTasks = webTeamTasks.filter(
-      task => task.status !== 'done' && task.dueDate < today
-    ).length;
-    
-    setAnalytics(prev => ({
+    setAnalytics({
       creative: {
-        ...prev.creative,
-        taskCompletion: Math.round(creativeCompletionRate),
-        overdueTasksCount: creativeOverdueTasks
+        taskCompletion: creativeCompletion,
+        reportSubmission: 0, // Will implement if we add report tracking
+        overdueTasksCount: creativeOverdue
       },
       web: {
-        ...prev.web,
-        taskCompletion: Math.round(webCompletionRate),
-        overdueTasksCount: webOverdueTasks
+        taskCompletion: webCompletion,
+        reportSubmission: 0, // Will implement if we add report tracking
+        overdueTasksCount: webOverdue
       }
-    }));
+    });
   };
 
-  const updateReportAnalytics = () => {
-    // Calculate report submission rates for each team
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
-    
-    const creativeMemberIds = users
-      .filter(user => user.team === 'creative' && user.role !== 'admin')
-      .map(user => user.id);
-      
-    const webMemberIds = users
-      .filter(user => user.team === 'web' && user.role !== 'admin')
-      .map(user => user.id);
-    
-    const creativeReports = reports.filter(
-      report => creativeMemberIds.includes(report.userId) && 
-      (report.date === today || report.date === yesterday)
-    );
-    
-    const webReports = reports.filter(
-      report => webMemberIds.includes(report.userId) && 
-      (report.date === today || report.date === yesterday)
-    );
-    
-    const creativeSubmissionRate = creativeMemberIds.length 
-      ? (creativeReports.filter(report => report.submitted).length / creativeMemberIds.length) * 100 
-      : 0;
-      
-    const webSubmissionRate = webMemberIds.length 
-      ? (webReports.filter(report => report.submitted).length / webMemberIds.length) * 100 
-      : 0;
-    
-    setAnalytics(prev => ({
-      creative: {
-        ...prev.creative,
-        reportSubmission: Math.round(creativeSubmissionRate)
-      },
-      web: {
-        ...prev.web,
-        reportSubmission: Math.round(webSubmissionRate)
-      }
-    }));
-  };
-
-  // Helper methods for querying data
+  // Helper methods
   const getTasksByUser = (userId: string) => {
     return tasks.filter(task => task.assigneeId === userId);
   };
@@ -405,6 +453,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const getUsersByTeam = (teamId: TeamType) => {
     return users.filter(user => user.team === teamId || user.role === 'admin');
+  };
+
+  const getClientsByTeam = (teamId: TeamType) => {
+    return clients.filter(client => client.team === teamId);
   };
 
   const getReportsByUser = (userId: string) => {
@@ -440,6 +492,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         tasks,
         reports,
         analytics,
+        isLoading,
         addUser,
         updateUser,
         toggleUserStatus,
@@ -458,6 +511,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         getTasksByUser,
         getTasksByTeam,
         getUsersByTeam,
+        getClientsByTeam,
         getReportsByUser,
         getReportsByDate,
         getUserById,

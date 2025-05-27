@@ -1,4 +1,4 @@
-export type Status = 
+export type StatusCode = 
   // Creative team statuses
   | 'not_started' 
   | 'scripting' 
@@ -21,6 +21,18 @@ export type Status =
   // Legacy web team statuses (keeping for backward compatibility)
   | 'in_progress' 
   | 'done';
+
+export interface Status {
+  id: StatusCode;
+  name: string;
+  team: TeamType;
+  color: string;
+  order: number;
+}
+
+// Legacy compatibility type for places where we're still using status as a string
+export type StatusString = StatusCode;
+
 export type Priority = 'low' | 'medium' | 'high';
 export type TeamType = 'creative' | 'web';
 export type Role = 'admin' | 'manager' | 'employee';
@@ -35,6 +47,7 @@ export interface User {
   avatar?: string;
   isActive: boolean;
   allowedStatuses?: string[]; // Array of status IDs the user has permission to use
+  password?: string; // Password for the user (only used for login)
 }
 
 export interface Team {
@@ -53,13 +66,14 @@ export interface Client {
   email: string;
   phone: string;
   dateAdded: string;
+  team: TeamType;
 }
 
 export interface Task {
   id: string;
   title: string;
   description: string;
-  status: Status;
+  status: StatusCode;
   priority: Priority;
   assigneeId: string;
   clientId: string;

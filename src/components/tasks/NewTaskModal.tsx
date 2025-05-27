@@ -7,7 +7,7 @@ import { useData } from '../../contexts/DataContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useStatus } from '../../contexts/StatusContext';
 import { Task, Priority, TeamType, Status } from '../../types';
-import { Plus, ChevronDown, ArrowRight } from 'lucide-react';
+import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 
 interface NewTaskModalProps {
@@ -21,7 +21,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   onClose,
   initialData
 }) => {
-  const { clients, users, addTask, updateTask } = useData();
+  const { clients, users, addTask, updateTask, deleteTask } = useData();
   const { currentUser } = useAuth();
   const { getStatusesByTeam, statuses } = useStatus();
   
@@ -60,6 +60,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   }, [initialData, currentUser?.team]);
   
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Get team-specific statuses
   const teamStatuses = getStatusesByTeam(formData.team as TeamType || 'creative');
@@ -69,10 +70,23 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     if (teamStatuses.length > 0 && !initialData?.id && !formData.status) {
       setFormData(prev => ({
         ...prev,
-        status: teamStatuses[0].id as Status
+        status: teamStatuses[0].id
       }));
     }
   }, [formData.team, teamStatuses, initialData, formData.status]);
+
+  // Clear client selection if current client doesn't belong to the selected team
+  useEffect(() => {
+    if (formData.clientId && formData.team) {
+      const currentClient = clients.find(client => client.id === formData.clientId);
+      if (currentClient && currentClient.team !== formData.team) {
+        setFormData(prev => ({
+          ...prev,
+          clientId: ''
+        }));
+      }
+    }
+  }, [formData.team, formData.clientId, clients]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -93,10 +107,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     
     if (!formData.title?.trim()) {
       newErrors.title = 'Title is required';
-    }
-    
-    if (!formData.clientId) {
-      newErrors.clientId = 'Client is required';
     }
     
     if (!formData.assigneeId) {
@@ -142,6 +152,25 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const handleCloseNewClientModal = () => {
     setNewClientModalOpen(false);
   };
+
+  const handleDelete = async () => {
+    if (!initialData?.id) return;
+    
+    if (window.confirm(`Are you sure you want to delete the task "${formData.title}"? This action cannot be undone.`)) {
+      setIsDeleting(true);
+      try {
+        await deleteTask(initialData.id);
+        onClose();
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        alert('Failed to delete task. Please try again.');
+      } finally {
+        setIsDeleting(false);
+      }
+    }
+  };
+
+
   
   // Filter users based on team selection
   const teamUsers = users.filter(user => 
@@ -165,7 +194,12 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     { value: 'web', label: 'Web Team' }
   ];
   
-  const clientOptions = clients.map(client => ({
+  // Filter clients based on team selection
+  const teamClients = clients.filter(client => 
+    client.team === formData.team
+  );
+  
+  const clientOptions = teamClients.map(client => ({
     value: client.id,
     label: client.name
   }));
@@ -235,7 +269,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                     value={formData.clientId || ''}
                     onChange={handleChange}
                     className={`block w-full pl-3 pr-10 py-2.5 text-base rounded-md border appearance-none transition-all duration-200 ${errors.clientId ? 'border-red-300 focus:ring-red-400 focus:border-red-500' : 'border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'} bg-white focus:outline-none focus:ring-2 focus:shadow-sm sm:text-sm`}
-                    required
                   >
                     <option value="">Select a client...</option>
                     {clientOptions.map((option) => (
@@ -263,6 +296,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   New
                 </Button>
               </div>
+
             </div>
             
             <Select
@@ -387,24 +421,43 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
             </div>
           </div>
           
-          <div className="flex justify-end space-x-3 pt-4">
-            <Button
-              variant="secondary"
-              onClick={onClose}
-              type="button"
-              className="bg-white text-blue-600 border border-blue-300 hover:bg-blue-50 hover:text-blue-800 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
-            >
-              <span className="font-medium text-sm">Cancel</span>
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              className="bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
-            >
-              <span className="font-medium text-sm">
-                {initialData?.id ? 'Update Task' : 'Create Task'}
-              </span>
-            </Button>
+          <div className="flex justify-between items-center pt-4">
+            {/* Delete button - only show when editing existing task */}
+            {initialData?.id && (
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                type="button"
+                disabled={isDeleting}
+                icon={Trash2}
+                className="bg-red-600 text-white hover:bg-red-700 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
+              >
+                <span className="font-medium text-sm">
+                  {isDeleting ? 'Deleting...' : 'Delete Task'}
+                </span>
+              </Button>
+            )}
+            
+            {/* Cancel and Submit buttons */}
+            <div className="flex space-x-3 ml-auto">
+              <Button
+                variant="secondary"
+                onClick={onClose}
+                type="button"
+                className="bg-white text-blue-600 border border-blue-300 hover:bg-blue-50 hover:text-blue-800 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
+              >
+                <span className="font-medium text-sm">Cancel</span>
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                className="bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
+              >
+                <span className="font-medium text-sm">
+                  {initialData?.id ? 'Update Task' : 'Create Task'}
+                </span>
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>
@@ -412,6 +465,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
       <NewClientModal
         isOpen={newClientModalOpen}
         onClose={handleCloseNewClientModal}
+        team={formData.team as TeamType || 'creative'}
       />
     </>
   );

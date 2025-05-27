@@ -92,34 +92,18 @@ const EmployeeTasksModal: React.FC<EmployeeTasksModalProps> = ({ isOpen, onClose
 };
 
 const WebTeam: React.FC = () => {
-  const { getUsersByTeam, getTasksByTeam, getTasksByUser, getReportsByUser, clients, getClientById } = useData();
+  const { getUsersByTeam, getTasksByTeam, getTasksByUser, getReportsByUser, getClientsByTeam, getClientById } = useData();
   const { getStatusesByTeam } = useStatus();
   
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
-  const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
   
   const teamMembers = getUsersByTeam('web');
   const teamTasks = getTasksByTeam('web');
   const teamStatuses = getStatusesByTeam('web');
-  
-  // Get list of unique clients with active tasks for this team
-  const teamClients = Array.from(
-    new Set(
-      teamTasks
-        .filter(task => task.status !== 'completed')
-        .map(task => task.clientId)
-    )
-  ).map(clientId => ({
-    id: clientId,
-    ...getClientById(clientId)
-  })).sort((a, b) => {
-    const nameA = a.name || '';
-    const nameB = b.name || '';
-    return nameA.localeCompare(nameB);
-  });
+  const teamClients = getClientsByTeam('web');
   
   // Group tasks by status
   const tasksByStatus = teamStatuses.reduce((acc, status) => {
@@ -196,10 +180,11 @@ const WebTeam: React.FC = () => {
   const toggleClientDropdown = () => {
     setClientDropdownOpen(!clientDropdownOpen);
   };
-  
-  // Toggle employee dropdown
-  const toggleEmployeeDropdown = () => {
-    setEmployeeDropdownOpen(!employeeDropdownOpen);
+
+  // Handle task deletion
+  const handleTaskDelete = (taskId: string) => {
+    // The task will be automatically removed from the UI via the DataContext
+    // No additional action needed here as the context will update the state
   };
   
   // Team performance stats
@@ -259,24 +244,7 @@ const WebTeam: React.FC = () => {
     }
   };
   
-  // Handle delete task
-  const handleDeleteTask = (taskId: string) => {
-    <PermissionGuard
-      resource="task"
-      action="delete"
-      resourceTeam="web"
-    >
-      {(hasPermission) => {
-        if (hasPermission) {
-          if (window.confirm('Are you sure you want to delete this task?')) {
-            deleteTask(taskId);
-          }
-        } else {
-          alert('You do not have permission to delete tasks.');
-        }
-      }}
-    </PermissionGuard>
-  };
+
   
   return (
     <div className="space-y-6">
@@ -481,109 +449,93 @@ const WebTeam: React.FC = () => {
         {/* Right Column - Current Projects */}
         <div className="lg:col-span-3">
           <Card className="shadow-md">
-            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-              <CardTitle className="text-lg font-semibold">Current Projects</CardTitle>
-              <div className="flex space-x-2">
-                {/* Client Dropdown */}
-                <div className="relative">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={toggleClientDropdown}
-                    className="flex items-center justify-center px-3 py-2 rounded-md bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 hover:border-blue-300 shadow-sm hover:shadow"
-                  >
-                    <div className="flex items-center space-x-1.5">
-                      <Building className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-700">
-                        {selectedClient ? getClientById(selectedClient)?.name : 'All Clients'}
-                      </span>
-                      <ChevronDown className="h-3.5 w-3.5 text-blue-600" />
-                    </div>
-                  </Button>
+            <CardHeader className="pb-2 border-b border-gray-100">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <CardTitle className="text-lg font-bold flex items-center text-gray-900">
+                  <Code className="h-5 w-5 mr-2 text-blue-600" />
+                  {selectedEmployee ? (
+                    <span>{selectedEmployee.name}'s Projects</span>
+                  ) : selectedClient ? (
+                    <span>{getClientById(selectedClient)?.name}'s Projects</span>
+                  ) : (
+                    <span>Current Projects</span>
+                  )}
+                </CardTitle>
+                
+                <div className="flex items-center gap-3">
+                  {/* Client Dropdown */}
+                  <div className="relative">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={toggleClientDropdown}
+                      className="flex items-center justify-center px-3 py-2 rounded-md bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 hover:border-blue-300 shadow-sm hover:shadow"
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <Building className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-700">
+                          {selectedClient ? getClientById(selectedClient)?.name : 'All Clients'}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 text-blue-500" />
+                      </div>
+                    </Button>
+                    
+                    {clientDropdownOpen && (
+                      <div className="absolute z-10 mt-1 right-0 w-56 bg-white rounded-md shadow-lg py-1 border border-gray-200">
+                        <div className="py-1">
+                          <button
+                            onClick={() => handleClientClick('')}
+                            className={`w-full text-left px-4 py-2 text-sm ${
+                              !selectedClient 
+                                ? 'bg-blue-50 text-blue-700 font-medium' 
+                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                            }`}
+                          >
+                            All Clients
+                          </button>
+                          {teamClients.map(client => (
+                            <button
+                              key={client.id}
+                              onClick={() => handleClientClick(client.id)}
+                              className={`w-full text-left px-4 py-2 text-sm ${
+                                selectedClient === client.id 
+                                  ? 'bg-blue-50 text-blue-700 font-medium' 
+                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                              }`}
+                            >
+                              {client.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   
-                  {/* Client Dropdown Menu */}
-                  {clientDropdownOpen && (
-                    <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg z-50 py-1 border border-gray-200">
-                      <button
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => handleClientClick(null)}
-                      >
-                        All Clients
-                      </button>
-                      {teamClients.map(client => (
-                        <button
-                          key={client.id}
-                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          onClick={() => handleClientClick(client.id)}
-                        >
-                          {client.name}
-                        </button>
-                      ))}
-                    </div>
+                  {(selectedEmployee || selectedClient) && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={clearFilters}
+                      className="flex items-center justify-center px-3 py-2 rounded-md bg-gradient-to-r from-red-50 to-pink-50 border border-red-200 hover:border-red-300 shadow-sm hover:shadow"
+                    >
+                      <div className="flex items-center space-x-1.5">
+                        <X className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-red-700">Clear Filter</span>
+                      </div>
+                    </Button>
                   )}
                 </div>
-                
-                {/* Employee Dropdown */}
-                <div className="relative">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={toggleEmployeeDropdown}
-                    className="flex items-center justify-center px-3 py-2 rounded-md bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 hover:border-blue-300 shadow-sm hover:shadow"
-                  >
-                    <div className="flex items-center space-x-1.5">
-                      <Users className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-700">
-                        {selectedEmployee ? selectedEmployee.name : 'All Team Members'}
-                      </span>
-                      <ChevronDown className="h-3.5 w-3.5 text-blue-600" />
-                    </div>
-                  </Button>
-                  
-                  {/* Employee Dropdown Menu */}
-                  {employeeDropdownOpen && (
-                    <div className="absolute right-0 mt-1 w-56 bg-white rounded-md shadow-lg z-50 py-1 border border-gray-200">
-                      <button
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => handleEmployeeClick(null)}
-                      >
-                        All Team Members
-                      </button>
-                      {teamMembers.map(user => (
-                        <button
-                          key={user.id}
-                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          onClick={() => handleEmployeeClick(user)}
-                        >
-                          {user.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                
-                <PermissionGuard
-                  resource="task"
-                  action="create"
-                  resourceTeam="web"
-                >
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setNewTaskModalOpen(true)}
-                    className="flex items-center space-x-1"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Add Task</span>
-                  </Button>
-                </PermissionGuard>
               </div>
             </CardHeader>
             <CardContent className="p-4">
               {filteredTasks.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredTasks.map(task => (
-                    <TaskCard key={task.id} task={task} />
+                    <TaskCard 
+                      key={task.id} 
+                      task={task} 
+                      onDelete={handleTaskDelete}
+                    />
                   ))}
                 </div>
               ) : (

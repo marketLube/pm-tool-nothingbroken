@@ -1,10 +1,12 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import { StatusProvider } from './contexts/StatusContext';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import UserSyncComponent from './components/UserSyncComponent';
+import { ensurePasswordField } from './utils/supabase';
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -14,120 +16,143 @@ import WebTeam from './pages/teams/WebTeam';
 import Reports from './pages/Reports';
 import Analytics from './pages/Analytics';
 import Users from './pages/Users';
+import Clients from './pages/Clients';
 import Settings from './pages/Settings';
 import Status from './pages/Status';
 import Unauthorized from './pages/Unauthorized';
+import Login from './pages/Login';
+import ConnectionTester from './components/utils/ConnectionTester';
+import BiometricTest from './components/utils/BiometricTest';
+import BiometricDebug from './components/utils/BiometricDebug';
 
 function App() {
+  // Run once when the app starts
+  useEffect(() => {
+    // Ensure the password field exists in the database
+    ensurePasswordField()
+      .then(() => console.log('Database schema check completed'))
+      .catch(err => console.error('Error checking database schema:', err));
+  }, []);
+
   return (
     <AuthProvider>
       <DataProvider>
         <StatusProvider>
+          <UserSyncComponent />
           <Router>
             <Routes>
-              <Route path="/" element={<MainLayout />}>
-                {/* Dashboard is accessible to everyone who is authenticated */}
-                <Route 
-                  element={<ProtectedRoute requireAuth />}
-                >
+              {/* Login route - accessible to everyone but redirects to dashboard if logged in */}
+              <Route path="/login" element={<Login />} />
+              
+              {/* Unauthorized page - accessible to everyone */}
+              <Route path="/unauthorized" element={<Unauthorized />} />
+              
+              {/* Temporary testing routes */}
+              <Route path="/test-connection" element={<ConnectionTester />} />
+              <Route path="/test-biometric" element={<BiometricTest />} />
+              <Route path="/debug-biometric" element={<BiometricDebug />} />
+              
+              {/* Protected routes within MainLayout */}
+              <Route element={<ProtectedRoute requireAuth redirectPath="/login" />}>
+                <Route element={<MainLayout />}>
+                  {/* Dashboard is accessible to everyone who is authenticated */}
                   <Route index element={<Dashboard />} />
-                </Route>
-                
-                {/* Task Board - Accessible to all authenticated users */}
-                <Route 
-                  element={<ProtectedRoute requireAuth />}
-                >
+                  
+                  {/* Task Board - Accessible to all authenticated users */}
                   <Route path="tasks" element={<TaskBoard />} />
+                  
+                  {/* Status Management - Admin only */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="status" 
+                        action="manage" 
+                      />
+                    }
+                  >
+                    <Route path="status" element={<Status />} />
+                  </Route>
+                  
+                  {/* Team Pages - Team-specific permissions */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="team" 
+                        action="view" 
+                        resourceTeam="creative" 
+                      />
+                    }
+                  >
+                    <Route path="teams/creative" element={<CreativeTeam />} />
+                  </Route>
+                  
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="team" 
+                        action="view" 
+                        resourceTeam="web" 
+                      />
+                    }
+                  >
+                    <Route path="teams/web" element={<WebTeam />} />
+                  </Route>
+                  
+                  {/* Reports - Accessible to everyone with report view permission */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="report" 
+                        action="view" 
+                      />
+                    }
+                  >
+                    <Route path="reports" element={<Reports />} />
+                  </Route>
+                  
+                  {/* Analytics - Admin and managers only */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="report" 
+                        action="approve" 
+                      />
+                    }
+                  >
+                    <Route path="analytics" element={<Analytics />} />
+                  </Route>
+                  
+                  {/* User Management - Admin only */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="user" 
+                        action="view" 
+                      />
+                    }
+                  >
+                    <Route path="users" element={<Users />} />
+                  </Route>
+                  
+                  {/* Client Management - Accessible to all authenticated users */}
+                  <Route path="clients" element={<Clients />} />
+                  
+                  {/* Settings - Admin only */}
+                  <Route 
+                    element={
+                      <ProtectedRoute 
+                        resource="team" 
+                        action="manage" 
+                      />
+                    }
+                  >
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
                 </Route>
-                
-                {/* Status Management - Admin only */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="status" 
-                      action="manage" 
-                    />
-                  }
-                >
-                  <Route path="status" element={<Status />} />
-                </Route>
-                
-                {/* Team Pages - Team-specific permissions */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="team" 
-                      action="view" 
-                      resourceTeam="creative" 
-                    />
-                  }
-                >
-                  <Route path="teams/creative" element={<CreativeTeam />} />
-                </Route>
-                
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="team" 
-                      action="view" 
-                      resourceTeam="web" 
-                    />
-                  }
-                >
-                  <Route path="teams/web" element={<WebTeam />} />
-                </Route>
-                
-                {/* Reports - Accessible to everyone with report view permission */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="report" 
-                      action="view" 
-                    />
-                  }
-                >
-                  <Route path="reports" element={<Reports />} />
-                </Route>
-                
-                {/* Analytics - Admin and managers only */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="report" 
-                      action="approve" 
-                    />
-                  }
-                >
-                  <Route path="analytics" element={<Analytics />} />
-                </Route>
-                
-                {/* User Management - Admin only */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="user" 
-                      action="view" 
-                    />
-                  }
-                >
-                  <Route path="users" element={<Users />} />
-                </Route>
-                
-                {/* Settings - Admin only */}
-                <Route 
-                  element={
-                    <ProtectedRoute 
-                      resource="team" 
-                      action="manage" 
-                    />
-                  }
-                >
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-                
-                {/* Unauthorized page - accessible to everyone */}
-                <Route path="unauthorized" element={<Unauthorized />} />
               </Route>
+              
+              {/* Redirect root to login if not authenticated */}
+              <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>
           </Router>
         </StatusProvider>

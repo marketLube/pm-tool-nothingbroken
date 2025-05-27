@@ -9,15 +9,14 @@ import NewClientModal from '../components/clients/NewClientModal';
 import { useData } from '../contexts/DataContext';
 import { useStatus } from '../contexts/StatusContext';
 import { useAuth } from '../contexts/AuthContext';
-import { Task, Status, TeamType } from '../types';
+import { Task, Status, TeamType, StatusCode } from '../types';
 import { Plus, Search, Filter, Users, Briefcase, ChevronLeft, ChevronRight, ChevronDown, Palette, Code } from 'lucide-react';
 import Avatar from '../components/ui/Avatar';
-import { Status as StatusObject } from '../contexts/StatusContext';
 
 // Column type to help with type safety
 interface Column {
   id: string;
-  status: Status;
+  status: StatusCode;
   team: TeamType;
   name: string;
   color: string;
@@ -39,7 +38,7 @@ const TaskBoard: React.FC = () => {
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [initialStatus, setInitialStatus] = useState<Status | null>(null);
+  const [initialStatus, setInitialStatus] = useState<StatusCode | null>(null);
   
   // Filtering state - default to creative team
   const [viewMode, setViewMode] = useState<'all' | 'my-tasks'>('all');
@@ -161,7 +160,7 @@ const TaskBoard: React.FC = () => {
     // Create a column map that will store all columns and their tasks
     const columnMap: Column[] = statusColumns.map(column => ({
       id: `${column.team}_${column.id}`,
-      status: column.id as Status,
+      status: column.id,
       team: column.team,
       name: column.name,
       color: column.color,
@@ -313,7 +312,7 @@ const TaskBoard: React.FC = () => {
     setInitialStatus(null);
   }, []);
   
-  const handleNewTaskInStatus = useCallback((statusId: Status) => {
+  const handleNewTaskInStatus = useCallback((statusId: StatusCode) => {
     setSelectedTask(null);
     setInitialStatus(statusId);
     setNewTaskModalOpen(true);
@@ -412,6 +411,12 @@ const TaskBoard: React.FC = () => {
   // Render functions
   // ---------------------------------------------------
   
+  // Handle task deletion
+  const handleTaskDelete = useCallback((taskId: string) => {
+    // Force a re-render to update the board
+    forceUpdateRef.current += 1;
+  }, []);
+
   // Render a task within a column
   const renderTask = useCallback((task: Task, index: number) => (
     <Draggable
@@ -437,11 +442,12 @@ const TaskBoard: React.FC = () => {
             task={task}
             isDragging={snapshot.isDragging}
             onClick={() => handleTaskClick(task)}
+            onDelete={handleTaskDelete}
           />
         </div>
       )}
     </Draggable>
-  ), [handleTaskClick, isInitialized]);
+  ), [handleTaskClick, handleTaskDelete, isInitialized]);
   
   // Render a column with its tasks
   const renderColumn = useCallback((column: Column) => (
@@ -787,12 +793,13 @@ const TaskBoard: React.FC = () => {
       <NewTaskModal
         isOpen={newTaskModalOpen}
         onClose={handleCloseTaskModal}
-        initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus } : undefined}
+        initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
       />
       
       <NewClientModal
         isOpen={newClientModalOpen}
         onClose={handleCloseClientModal}
+        team={teamFilter}
       />
     </div>
   );
