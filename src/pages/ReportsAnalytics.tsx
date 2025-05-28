@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays } from 'date-fns';
+import React, { useState, useEffect, useRef } from 'react';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 import Badge from '../components/ui/Badge';
@@ -18,7 +18,11 @@ import {
   TrendingUp,
   AlertCircle,
   User,
-  CalendarDays
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Target,
+  Activity
 } from 'lucide-react';
 import { TeamType, DailyReport, Task, DailyWorkEntry } from '../types';
 import * as dailyReportService from '../services/dailyReportService';
@@ -32,6 +36,7 @@ interface DailyCardProps {
   onAbsentToggle: (isAbsent: boolean) => void;
   onCheckInOut: (checkIn?: string, checkOut?: string) => void;
   isAdmin: boolean;
+  userTasks: Task[];
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -42,142 +47,170 @@ const DailyCard: React.FC<DailyCardProps> = ({
   onAddTask,
   onAbsentToggle,
   onCheckInOut,
-  isAdmin
+  isAdmin,
+  userTasks
 }) => {
   const { getUserById, getClientById } = useData();
   const user = getUserById(userId);
   const isAbsent = report?.workEntry.isAbsent || false;
-  const assignedTasks = report?.tasks.assigned || [];
-  const completedTasks = report?.tasks.completed || [];
+  
+  // Get actual tasks assigned to this user from TaskBoard
+  const assignedTaskIds = report?.workEntry.assignedTasks || [];
+  const completedTaskIds = report?.workEntry.completedTasks || [];
+  
+  // Only show tasks that are explicitly assigned for this specific day
+  // Don't show all user tasks - only show what's in the daily report
+  const assignedTasks = userTasks.filter(task => 
+    assignedTaskIds.includes(task.id)
+  );
+  
+  const completedTasks = userTasks.filter(task => 
+    completedTaskIds.includes(task.id)
+  );
 
   const formatTime = (time?: string) => {
     if (!time) return '--:--';
     return time;
   };
 
+  // Check if it's Sunday and set default absent
+  const dayOfWeek = new Date(date).getDay();
+  const isSunday = dayOfWeek === 0;
+  const defaultAbsent = isSunday && !report?.workEntry.isAbsent;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 animate-fadeIn">
       {/* User Header (for admin view) */}
       {isAdmin && (
-        <div className="flex items-center space-x-3 mb-4">
-                     <Avatar name={user?.name} size="sm" />
-          <div>
-            <h3 className="font-medium text-gray-900">{user?.name}</h3>
-            <p className="text-sm text-gray-600 capitalize">{user?.team} Team</p>
+        <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 transition-all duration-200 hover:shadow-sm">
+          <Avatar name={user?.name} size="sm" />
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-gray-900">{user?.name}</h3>
+            <p className="text-xs text-gray-600 capitalize flex items-center">
+              <Users className="h-3 w-3 mr-1" />
+              {user?.team} Team • {user?.role}
+            </p>
           </div>
         </div>
       )}
 
       {/* Date Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="font-medium text-gray-900">
-          {format(parseISO(date), 'EEEE, MMM d')}
-        </h4>
+      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
         <div className="flex items-center space-x-2">
-          <label className="flex items-center space-x-2 text-sm">
+          <CalendarDays className="h-4 w-4 text-blue-600" />
+          <h4 className="text-sm font-semibold text-gray-900">
+            {format(parseISO(date), 'EEEE, MMM d')}
+          </h4>
+        </div>
+        <div className="flex items-center space-x-2">
+          <label className="flex items-center space-x-2 text-xs cursor-pointer group">
             <input
               type="checkbox"
-              checked={isAbsent}
+              checked={isAbsent || defaultAbsent}
               onChange={(e) => onAbsentToggle(e.target.checked)}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="rounded border-gray-300 text-red-600 focus:ring-red-500 transition-all duration-200"
             />
-            <span className="text-gray-700">Mark Absent</span>
+            <span className="text-gray-700 group-hover:text-gray-900 transition-colors">
+              {isSunday && !report ? 'Sunday (Default Absent)' : 'Mark Absent'}
+            </span>
           </label>
         </div>
       </div>
 
       {/* Check-in/Check-out Times */}
-      {!isAbsent && (
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+      {!isAbsent && !defaultAbsent && (
+        <div className="grid grid-cols-2 gap-3 p-3 bg-green-50 rounded-lg border border-green-100 transition-all duration-300">
+          <div className="space-y-1">
+            <label className="flex items-center text-xs font-medium text-gray-700">
+              <Clock className="h-3 w-3 mr-1 text-green-600" />
               Check In
             </label>
             <input
               type="time"
               value={report?.workEntry.checkInTime || ''}
               onChange={(e) => onCheckInOut(e.target.value, undefined)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div className="space-y-1">
+            <label className="flex items-center text-xs font-medium text-gray-700">
+              <Clock className="h-3 w-3 mr-1 text-green-600" />
               Check Out
             </label>
             <input
               type="time"
               value={report?.workEntry.checkOutTime || ''}
               onChange={(e) => onCheckInOut(undefined, e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
             />
           </div>
         </div>
       )}
 
       {/* Task Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {/* Tasks Assigned */}
-        <Card className={isAbsent ? 'opacity-50' : ''}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center justify-between">
-              <span>Tasks Assigned</span>
-              <Badge variant="info">{assignedTasks.length}</Badge>
+        <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span className="flex items-center text-gray-800">
+                <Target className="h-4 w-4 mr-2 text-blue-600" />
+                Tasks Assigned
+              </span>
+              <Badge variant="info" className="text-xs px-2 py-1">{assignedTasks.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {assignedTasks.map((task) => {
-                const client = getClientById(task.clientId);
+          <CardContent className="pt-0">
+            <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+              {assignedTasks.map((task, index) => {
+                const client = task.clientId ? getClientById(task.clientId) : null;
                 return (
                   <div
                     key={task.id}
-                    className="flex items-start space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    className="flex items-start space-x-2 p-2 border border-gray-200 rounded-md hover:bg-blue-50 hover:border-blue-200 transition-all duration-200 group animate-slideIn"
+                    style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <button
                       onClick={() => onTaskToggle(task.id, true)}
-                      className="mt-0.5 text-gray-400 hover:text-green-600"
-                      disabled={isAbsent}
+                      className="mt-0.5 text-gray-400 hover:text-green-600 transition-all duration-200 hover:scale-110"
+                      disabled={isAbsent || defaultAbsent}
+                      title="Mark as completed"
                     >
-                      <Circle className="h-5 w-5" />
+                      <Circle className="h-4 w-4" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-gray-900 truncate">
+                      <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-blue-900 transition-colors">
                         {task.title}
                       </h4>
-                      <p className="text-sm text-gray-600">
-                        Client: {client?.name || 'Unknown'}
+                      <p className="text-xs text-gray-600 truncate">
+                        {client?.name || 'Unknown Client'}
                       </p>
-                      <p className="text-sm text-gray-500">
-                        Due: {format(parseISO(task.dueDate), 'MMM d')}
-                      </p>
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="text-xs text-gray-500">
+                          Due: {format(parseISO(task.dueDate), 'MMM d')}
+                        </p>
+                        <div className="flex space-x-1">
+                          <Badge 
+                            variant={
+                              task.priority === 'high' ? 'danger' : 
+                              task.priority === 'medium' ? 'warning' : 'info'
+                            }
+                            size="sm"
+                            className="text-xs px-1.5 py-0.5"
+                          >
+                            {task.priority}
+                          </Badge>
+                        </div>
+                      </div>
                     </div>
-                    <Badge 
-                      variant={
-                        task.priority === 'high' ? 'danger' : 
-                        task.priority === 'medium' ? 'warning' : 'info'
-                      }
-                    >
-                      {task.priority}
-                    </Badge>
                   </div>
                 );
               })}
               
-              {!isAbsent && (
-                                 <Button
-                   variant="secondary"
-                   onClick={onAddTask}
-                   className="w-full flex items-center justify-center space-x-2 py-3 border-dashed"
-                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Add Task</span>
-                </Button>
-              )}
-              
               {assignedTasks.length === 0 && (
-                <div className="text-center py-6 text-gray-500">
-                  <Circle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No tasks assigned</p>
+                <div className="text-center py-4 text-gray-500">
+                  <Circle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                  <p className="text-xs">No tasks assigned</p>
                 </div>
               )}
             </div>
@@ -185,51 +218,82 @@ const DailyCard: React.FC<DailyCardProps> = ({
         </Card>
 
         {/* Tasks Completed */}
-        <Card className={isAbsent ? 'opacity-50' : ''}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center justify-between">
-              <span>Tasks Completed</span>
-              <Badge variant="success">{completedTasks.length}</Badge>
+        <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span className="flex items-center text-gray-800">
+                <Activity className="h-4 w-4 mr-2 text-green-600" />
+                Tasks Completed
+              </span>
+              <Badge variant="success" className="text-xs px-2 py-1">{completedTasks.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {completedTasks.map((task) => {
-                const client = getClientById(task.clientId);
-                return (
-                  <div
-                    key={task.id}
-                    className="flex items-start space-x-3 p-3 border border-green-200 rounded-lg bg-green-50"
-                  >
-                    <button
-                      onClick={() => onTaskToggle(task.id, false)}
-                      className="mt-0.5 text-green-600 hover:text-gray-400"
-                      disabled={isAbsent}
-                    >
-                      <CheckCircle className="h-5 w-5" />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-gray-900 truncate">
-                        {task.title}
-                      </h4>
-                      <p className="text-sm text-gray-600">
-                        Client: {client?.name || 'Unknown'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Due: {format(parseISO(task.dueDate), 'MMM d')}
-                      </p>
-                    </div>
-                    <Badge variant="success">
-                      Completed
-                    </Badge>
-                  </div>
-                );
-              })}
+          <CardContent className="pt-0">
+            <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+              {(isAbsent || defaultAbsent) && completedTasks.length > 0 ? (
+                <div className="text-center py-6">
+                  <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-500" />
+                  <p className="text-gray-600 font-medium text-sm">Absent</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {completedTasks.length} task{completedTasks.length !== 1 ? 's' : ''} completed while absent
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {completedTasks.map((task, index) => {
+                    const client = task.clientId ? getClientById(task.clientId) : null;
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-start space-x-2 p-2 border border-green-200 rounded-md bg-green-50 hover:bg-green-100 transition-all duration-200 group animate-slideIn"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <button
+                          onClick={() => onTaskToggle(task.id, false)}
+                          className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
+                          disabled={isAbsent || defaultAbsent}
+                          title="Move back to assigned"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-green-900 transition-colors">
+                            {task.title}
+                          </h4>
+                          <p className="text-xs text-gray-600 truncate">
+                            {client?.name || 'Unknown Client'}
+                          </p>
+                          <div className="flex items-center justify-between mt-1">
+                            <p className="text-xs text-gray-500">
+                              Due: {format(parseISO(task.dueDate), 'MMM d')}
+                            </p>
+                            <div className="flex space-x-1">
+                              <Badge 
+                                variant={
+                                  task.priority === 'high' ? 'danger' : 
+                                  task.priority === 'medium' ? 'warning' : 'info'
+                                }
+                                size="sm"
+                                className="text-xs px-1.5 py-0.5"
+                              >
+                                {task.priority}
+                              </Badge>
+                              <Badge variant="success" size="sm" className="text-xs px-1.5 py-0.5">
+                                Completed
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
               
               {completedTasks.length === 0 && (
-                <div className="text-center py-6 text-gray-500">
-                  <CheckCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No tasks completed</p>
+                <div className="text-center py-4 text-gray-500">
+                  <CheckCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                  <p className="text-xs">No tasks completed</p>
                 </div>
               )}
             </div>
@@ -242,14 +306,14 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
 const ReportsAnalytics: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
-  const { users, tasks, addTask } = useData();
+  const { users, tasks, addTask, getTasksByUser, getTasksByTeam } = useData();
   
   // State management
-  const [selectedTeam, setSelectedTeam] = useState<TeamType>('web');
-  const [selectedUser, setSelectedUser] = useState<string>('all');
+  const [selectedTeam, setSelectedTeam] = useState<TeamType>('creative');
+  const [selectedUser, setSelectedUser] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [weekStart, setWeekStart] = useState<string>(
-    format(startOfWeek(new Date()), 'yyyy-MM-dd')
+    format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') // Start from Monday
   );
   const [dailyReports, setDailyReports] = useState<{ [key: string]: DailyReport | null }>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -257,17 +321,43 @@ const ReportsAnalytics: React.FC = () => {
   const [addTaskForUser, setAddTaskForUser] = useState<string>('');
   const [addTaskForDate, setAddTaskForDate] = useState<string>('');
 
-  // Get week days
+  // Refs for scrolling to today
+  const todayRef = useRef<HTMLDivElement>(null);
+
+  // Early return if essential data is not loaded
+  if (!currentUser || !users || users.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-600">Loading user data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Get week days (Monday to Sunday)
   const weekDays = eachDayOfInterval({
     start: parseISO(weekStart),
-    end: endOfWeek(parseISO(weekStart)),
+    end: addDays(parseISO(weekStart), 6), // Monday to Sunday
   });
 
-  // Get filtered users
+  // Get filtered users with safety check
   const filteredUsers = users.filter(user => 
-    user.isActive && 
-    (isAdmin ? user.team === selectedTeam : user.id === currentUser?.id)
+    user && user.isActive && 
+    (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
   );
+
+  // Set default user (first user in the team instead of 'all')
+  useEffect(() => {
+    if (filteredUsers.length > 0 && !selectedUser) {
+      if (isAdmin) {
+        setSelectedUser(filteredUsers[0].id); // Set first user as default
+      } else {
+        setSelectedUser(currentUser.id);
+      }
+    }
+  }, [filteredUsers, selectedUser, isAdmin, currentUser]);
 
   // Get users to display
   const usersToDisplay = isAdmin 
@@ -276,19 +366,43 @@ const ReportsAnalytics: React.FC = () => {
 
   // Load daily reports
   useEffect(() => {
-    loadDailyReports();
-  }, [selectedTeam, selectedUser, weekStart, usersToDisplay]);
+    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser) {
+      loadDailyReports();
+    }
+  }, [selectedTeam, selectedUser, weekStart]);
 
   const loadDailyReports = async () => {
     setIsLoading(true);
     try {
       const reports: { [key: string]: DailyReport | null } = {};
       
-      for (const user of usersToDisplay) {
-        for (const day of weekDays) {
+      // Calculate usersToDisplay inside the function to avoid dependency issues
+      const currentUsersToDisplay = isAdmin 
+        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
+        : filteredUsers;
+      
+      for (const user of currentUsersToDisplay) {
+        for (let idx = 0; idx < weekDays.length; idx++) {
+          const day = weekDays[idx];
           const dateStr = format(day, 'yyyy-MM-dd');
           const key = `${user.id}-${dateStr}`;
-          
+
+          // Rollover unfinished tasks from previous day
+          if (idx > 0) {
+            const prevDateStr = format(weekDays[idx - 1], 'yyyy-MM-dd');
+            await dailyReportService.moveUnfinishedTasksToNextDay(user.id, prevDateStr, dateStr);
+          }
+
+          // Sync tasks due on this day from TaskBoard into this day's entry
+          const boardTasks = getTasksByUser(user.id);
+          for (const task of boardTasks) {
+            // Only assign tasks whose due date matches this date
+            const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
+            if (taskDueDate === dateStr) {
+              await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
+            }
+          }
+
           try {
             const report = await dailyReportService.getDailyReport(user.id, dateStr);
             reports[key] = report;
@@ -309,20 +423,31 @@ const ReportsAnalytics: React.FC = () => {
 
   const handleTaskToggle = async (userId: string, date: string, taskId: string, completed: boolean) => {
     try {
-      if (completed) {
-        await dailyReportService.moveTaskToCompleted(userId, date, taskId);
-      } else {
-        await dailyReportService.moveTaskToAssigned(userId, date, taskId);
+      // Get the task details to find its due date
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        console.error('Task not found:', taskId);
+        return;
       }
       
-      // Reload the specific report
-      const report = await dailyReportService.getDailyReport(userId, date);
-      setDailyReports(prev => ({
-        ...prev,
-        [`${userId}-${date}`]: report
-      }));
+      const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
+      
+      if (completed) {
+        // Use the new cross-day completion function
+        await dailyReportService.moveTaskToCompletedAcrossDays(userId, date, taskId, taskDueDate);
+      } else {
+        // Use the new cross-day assignment function
+        await dailyReportService.moveTaskToAssignedAcrossDays(userId, date, taskId, taskDueDate);
+      }
+      
+      // Reload all reports for this week to reflect changes across all days
+      await loadDailyReports();
+      
+      // Show success feedback (optional)
+      console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully across all relevant days`);
     } catch (error) {
       console.error('Error toggling task:', error);
+      // You could add a toast notification here for better UX
     }
   };
 
@@ -362,8 +487,33 @@ const ReportsAnalytics: React.FC = () => {
     setShowAddTaskModal(true);
   };
 
+  // Function to manually assign a task to a specific day
+  const handleAssignTaskToDay = async (userId: string, date: string, taskId: string) => {
+    try {
+      await dailyReportService.assignTaskToSpecificDay(userId, date, taskId);
+      
+      // Reload the specific report to show the new task
+      const report = await dailyReportService.getDailyReport(userId, date);
+      setDailyReports(prev => ({
+        ...prev,
+        [`${userId}-${date}`]: report
+      }));
+      
+      console.log(`Task assigned to ${date} successfully`);
+    } catch (error) {
+      console.error('Error assigning task to day:', error);
+      alert('Error assigning task. Please try again.');
+    }
+  };
+
   const setThisWeek = () => {
-    setWeekStart(format(startOfWeek(new Date()), 'yyyy-MM-dd'));
+    setWeekStart(format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+  };
+
+  const scrollToToday = () => {
+    if (todayRef.current) {
+      todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   const navigateWeek = (direction: 'prev' | 'next') => {
@@ -375,42 +525,47 @@ const ReportsAnalytics: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 p-4 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Reports & Analytics</h1>
-          <p className="text-gray-600">Track daily work progress and team performance</p>
+          <h1 className="text-xl font-bold text-gray-900 flex items-center">
+            <BarChart3 className="h-6 w-6 mr-3 text-blue-600" />
+            Reports & Analytics
+          </h1>
+          <p className="text-sm text-gray-600 mt-1">Track daily work progress and team performance</p>
         </div>
         
-        <div className="flex items-center space-x-2">
-          <BarChart3 className="h-5 w-5 text-blue-600" />
-          <span className="text-sm font-medium text-gray-700">
-            Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
-          </span>
+        <div className="flex items-center space-x-3 text-sm">
+          <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+            <Calendar className="h-4 w-4 text-blue-600" />
+            <span className="font-medium text-blue-900">
+              Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Fixed Filter Panel */}
-      <Card className="sticky top-0 z-10 bg-white shadow-sm">
-        <CardContent className="py-4">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+      <Card className="sticky top-4 z-10 bg-white shadow-md border border-gray-200">
+        <CardContent className="py-3">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
             {/* Team Selector */}
             {isAdmin && (
               <div className="md:col-span-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
                   Team
                 </label>
                 <select
                   value={selectedTeam}
                   onChange={(e) => {
                     setSelectedTeam(e.target.value as TeamType);
-                    setSelectedUser('all');
+                    setSelectedUser(''); // Reset user selection
                   }}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 >
-                  <option value="web">Web Team</option>
                   <option value="creative">Creative Team</option>
+                  <option value="web">Web Team</option>
                 </select>
               </div>
             )}
@@ -418,15 +573,14 @@ const ReportsAnalytics: React.FC = () => {
             {/* User Selector (Admin only) */}
             {isAdmin && (
               <div className="md:col-span-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
                   User
                 </label>
                 <select
                   value={selectedUser}
                   onChange={(e) => setSelectedUser(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 >
-                  <option value="all">All Users</option>
                   {filteredUsers.map(user => (
                     <option key={user.id} value={user.id}>
                       {user.name} ({user.role})
@@ -437,41 +591,55 @@ const ReportsAnalytics: React.FC = () => {
             )}
 
             {/* Week Navigation */}
-            <div className={`${isAdmin ? 'md:col-span-4' : 'md:col-span-8'}`}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+            <div className={`${isAdmin ? 'md:col-span-3' : 'md:col-span-8'}`}>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Week Selection
               </label>
               <div className="flex space-x-2">
-                                 <Button
-                   variant="secondary"
-                   onClick={() => navigateWeek('prev')}
-                   className="px-3"
-                 >
-                   ←
-                 </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => navigateWeek('prev')}
+                  className="px-3 py-2 hover:bg-gray-100 transition-all duration-200"
+                  size="sm"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
                 <input
                   type="date"
                   value={weekStart}
                   onChange={(e) => setWeekStart(e.target.value)}
-                  className="flex-1 border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 />
-                                 <Button
-                   variant="secondary"
-                   onClick={() => navigateWeek('next')}
-                   className="px-3"
-                 >
-                   →
-                 </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => navigateWeek('next')}
+                  className="px-3 py-2 hover:bg-gray-100 transition-all duration-200"
+                  size="sm"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               </div>
             </div>
 
-            {/* This Week Button */}
-            <div className="md:col-span-2">
+            {/* Admin Actions - REMOVED SYNC BUTTON */}
+            {/* Tasks should be manually assigned to specific days, not auto-synced */}
+
+            {/* This Week and Today Buttons */}
+            <div className={`${isAdmin ? 'md:col-span-3' : 'md:col-span-4'} flex space-x-2`}>
               <Button
                 onClick={setThisWeek}
-                className="w-full"
+                className="flex-1 text-xs py-2 bg-blue-600 hover:bg-blue-700 transition-all duration-200"
+                size="sm"
               >
                 This Week
+              </Button>
+              <Button
+                onClick={scrollToToday}
+                variant="secondary"
+                className="flex-1 text-xs py-2 hover:bg-gray-100 transition-all duration-200"
+                size="sm"
+              >
+                Today
               </Button>
             </div>
           </div>
@@ -482,48 +650,59 @@ const ReportsAnalytics: React.FC = () => {
       {isLoading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="text-gray-600 mt-2">Loading reports...</p>
+          <p className="text-sm text-gray-600 mt-2">Loading reports...</p>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {weekDays.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
+            const isToday = isSameDay(day, new Date());
             
             return (
-              <div key={dateStr} className="space-y-6">
-                {/* Day Header */}
-                <div className="flex items-center space-x-3 border-b border-gray-200 pb-2">
-                  <CalendarDays className="h-5 w-5 text-blue-600" />
-                  <h2 className="text-xl font-semibold text-gray-900">
+              <div
+                key={dateStr}
+                ref={isToday ? todayRef : undefined}
+                className={`space-y-4 p-4 rounded-lg border transition-all duration-300 ${
+                  isToday 
+                    ? 'bg-blue-50 border-blue-200 shadow-md' 
+                    : 'bg-white border-gray-200 hover:shadow-sm'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className={`text-lg font-bold flex items-center ${
+                    isToday ? 'text-blue-900' : 'text-gray-900'
+                  }`}>
+                    <CalendarDays className={`h-5 w-5 mr-2 ${
+                      isToday ? 'text-blue-600' : 'text-gray-600'
+                    }`} />
                     {format(day, 'EEEE, MMMM d, yyyy')}
-                  </h2>
+                    {isToday && (
+                      <Badge variant="info" className="ml-3 text-xs px-2 py-1 animate-pulse">
+                        Today
+                      </Badge>
+                    )}
+                  </h3>
                 </div>
 
-                {/* User Cards for the Day */}
-                <div className="grid grid-cols-1 gap-6">
+                <div className="grid gap-4">
                   {usersToDisplay.map((user) => {
                     const reportKey = `${user.id}-${dateStr}`;
                     const report = dailyReports[reportKey];
-                    
+                    const userTasks = getTasksByUser(user.id);
+
                     return (
-                      <Card key={reportKey} className="p-6">
-                        <DailyCard
-                          userId={user.id}
-                          date={dateStr}
-                          report={report}
-                          onTaskToggle={(taskId, completed) => 
-                            handleTaskToggle(user.id, dateStr, taskId, completed)
-                          }
-                          onAddTask={() => handleAddTask(user.id, dateStr)}
-                          onAbsentToggle={(isAbsent) => 
-                            handleAbsentToggle(user.id, dateStr, isAbsent)
-                          }
-                          onCheckInOut={(checkIn, checkOut) => 
-                            handleCheckInOut(user.id, dateStr, checkIn, checkOut)
-                          }
-                          isAdmin={isAdmin}
-                        />
-                      </Card>
+                      <DailyCard
+                        key={reportKey}
+                        userId={user.id}
+                        date={dateStr}
+                        report={report}
+                        onTaskToggle={(taskId, completed) => handleTaskToggle(user.id, dateStr, taskId, completed)}
+                        onAddTask={() => handleAddTask(user.id, dateStr)}
+                        onAbsentToggle={(isAbsent) => handleAbsentToggle(user.id, dateStr, isAbsent)}
+                        onCheckInOut={(checkIn, checkOut) => handleCheckInOut(user.id, dateStr, checkIn, checkOut)}
+                        isAdmin={isAdmin}
+                        userTasks={userTasks}
+                      />
                     );
                   })}
                 </div>
@@ -533,20 +712,7 @@ const ReportsAnalytics: React.FC = () => {
         </div>
       )}
 
-      {/* Empty State */}
-      {!isLoading && usersToDisplay.length === 0 && (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Users Found</h3>
-            <p className="text-gray-600">
-              {isAdmin 
-                ? "No active users found for the selected team."
-                : "You don't have access to view reports."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Add Task Modal would go here if needed */}
     </div>
   );
 };

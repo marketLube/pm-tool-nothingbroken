@@ -1,5 +1,25 @@
 export type StatusCode = 
   // Creative team statuses
+  | 'creative_not_started' 
+  | 'creative_scripting' 
+  | 'creative_script_confirmed' 
+  | 'creative_shoot_pending' 
+  | 'creative_shoot_finished' 
+  | 'creative_edit_pending' 
+  | 'creative_client_approval' 
+  | 'creative_approved' 
+  // Web team statuses
+  | 'web_proposal_awaiting'
+  | 'web_not_started'
+  | 'web_ui_started'
+  | 'web_ui_finished'
+  | 'web_development_started'
+  | 'web_development_finished'
+  | 'web_testing'
+  | 'web_handed_over'
+  | 'web_client_reviewing'
+  | 'web_completed'
+  // Legacy statuses (keeping for backward compatibility)
   | 'not_started' 
   | 'scripting' 
   | 'script_confirmed' 
@@ -8,7 +28,6 @@ export type StatusCode =
   | 'edit_pending' 
   | 'client_approval' 
   | 'approved' 
-  // Web team statuses (new)
   | 'proposal_awaiting'
   | 'ui_started'
   | 'ui_finished'
@@ -18,7 +37,6 @@ export type StatusCode =
   | 'handed_over'
   | 'client_reviewing'
   | 'completed'
-  // Legacy web team statuses (keeping for backward compatibility)
   | 'in_progress' 
   | 'done';
 
@@ -75,8 +93,8 @@ export interface Task {
   description: string;
   status: StatusCode;
   priority: Priority;
-  assigneeId: string;
-  clientId: string;
+  assigneeId?: string;
+  clientId?: string;
   team: TeamType;
   dueDate: string;
   createdAt: string;

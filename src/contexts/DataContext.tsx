@@ -5,6 +5,7 @@ import * as userService from '../services/userService';
 import * as taskService from '../services/taskService';
 import * as clientService from '../services/clientService';
 import * as statusService from '../services/statusService';
+import * as dailyReportService from '../services/dailyReportService';
 import { format } from 'date-fns';
 import { useAuth } from './AuthContext';
 
@@ -145,7 +146,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           },
           {
             id: 'web',
-            name: 'Coding (Web) Team',
+            name: 'Web Team',
             managerId: webTeamMembers.find(u => u.role === 'manager')?.id || '',
             description: 'Develops and maintains web applications',
             memberCount: webTeamMembers.length
@@ -264,11 +265,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const deleteTask = async (taskId: string) => {
     try {
+      // First remove the task from all daily reports
+      await dailyReportService.removeTaskFromAllDailyReports(taskId);
+      
+      // Then delete the task from the database
       await taskService.deleteTask(taskId);
+      
+      // Finally update the local state
       setTasks(tasks.filter(task => task.id !== taskId));
       updateTaskAnalytics();
     } catch (error) {
       console.error('Error deleting task:', error);
+      throw error; // Re-throw to allow UI to handle the error
     }
   };
 

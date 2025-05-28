@@ -6,7 +6,7 @@ import Button from '../ui/Button';
 import { useData } from '../../contexts/DataContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useStatus } from '../../contexts/StatusContext';
-import { Task, Priority, TeamType, Status } from '../../types';
+import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
 import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 
@@ -70,7 +70,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     if (teamStatuses.length > 0 && !initialData?.id && !formData.status) {
       setFormData(prev => ({
         ...prev,
-        status: teamStatuses[0].id
+        status: teamStatuses[0].id as StatusCode
       }));
     }
   }, [formData.team, teamStatuses, initialData, formData.status]);
@@ -107,10 +107,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     
     if (!formData.title?.trim()) {
       newErrors.title = 'Title is required';
-    }
-    
-    if (!formData.assigneeId) {
-      newErrors.assigneeId = 'Assignee is required';
     }
     
     if (!formData.dueDate) {
@@ -156,14 +152,14 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const handleDelete = async () => {
     if (!initialData?.id) return;
     
-    if (window.confirm(`Are you sure you want to delete the task "${formData.title}"? This action cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete the task "${formData.title}"?\n\nThis will remove the task from:\n• TaskBoard\n• All daily reports (assigned tasks only)\n• Historical completion records will be preserved\n\nThis action cannot be undone.`)) {
       setIsDeleting(true);
       try {
         await deleteTask(initialData.id);
         onClose();
       } catch (error) {
         console.error('Error deleting task:', error);
-        alert('Failed to delete task. Please try again.');
+        alert(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
       } finally {
         setIsDeleting(false);
       }
@@ -204,10 +200,13 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     label: client.name
   }));
   
-  const userOptions = teamUsers.map(user => ({
-    value: user.id,
-    label: user.name
-  }));
+  const userOptions = [
+    { value: '', label: 'Unassigned' },
+    ...teamUsers.map(user => ({
+      value: user.id,
+      label: user.name
+    }))
+  ];
 
   // Function to find and move to the next status
   const moveToNextStatus = () => {
@@ -220,7 +219,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
       const nextStatus = teamSpecificStatuses[currentStatusIndex + 1];
       setFormData(prev => ({
         ...prev,
-        status: nextStatus.id as Status
+        status: nextStatus.id as StatusCode
       }));
     }
   };
@@ -270,7 +269,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                     onChange={handleChange}
                     className={`block w-full pl-3 pr-10 py-2.5 text-base rounded-md border appearance-none transition-all duration-200 ${errors.clientId ? 'border-red-300 focus:ring-red-400 focus:border-red-500' : 'border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'} bg-white focus:outline-none focus:ring-2 focus:shadow-sm sm:text-sm`}
                   >
-                    <option value="">Select a client...</option>
+                    <option value="">Unassigned</option>
                     {clientOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -317,7 +316,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
               onChange={handleChange}
               error={errors.assigneeId}
               fullWidth
-              required
             />
             
             <Select
@@ -354,7 +352,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   {teamStatuses.slice(0, 5).map((status) => (
                     <div 
                       key={status.id}
-                      onClick={() => setFormData(prev => ({ ...prev, status: status.id as Status }))}
+                      onClick={() => setFormData(prev => ({ ...prev, status: status.id as StatusCode }))}
                       className={`
                         cursor-pointer rounded-md py-2 px-1 flex items-center justify-center text-center text-xs font-medium border transition-all duration-200 h-[44px]
                         ${formData.status === status.id 
@@ -378,7 +376,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                     {teamStatuses.slice(5, 10).map((status) => (
                       <div 
                         key={status.id}
-                        onClick={() => setFormData(prev => ({ ...prev, status: status.id as Status }))}
+                        onClick={() => setFormData(prev => ({ ...prev, status: status.id as StatusCode }))}
                         className={`
                           cursor-pointer rounded-md py-2 px-1 flex items-center justify-center text-center text-xs font-medium border transition-all duration-200 h-[44px]
                           ${formData.status === status.id 

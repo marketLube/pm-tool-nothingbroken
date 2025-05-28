@@ -15,7 +15,8 @@ import {
   ChevronRight,
   Briefcase,
   Building,
-  BarChart3
+  BarChart3,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
@@ -53,6 +54,8 @@ const Sidebar: React.FC = () => {
     if (path === '/teams/web') return 'Web Team';
     if (path === '/users') return 'Users Management';
     if (path === '/clients') return 'Clients';
+    if (path === '/attendance') return 'Attendance';
+    if (path === '/attendance/calendar') return 'Attendance Calendar';
     if (path === '/settings') return 'Settings';
     
     return 'marketlube';
@@ -82,6 +85,12 @@ const Sidebar: React.FC = () => {
       name: 'Reports & Analytics',
       path: '/reports-analytics',
       icon: BarChart3,
+      show: true
+    },
+    {
+      name: 'Attendance',
+      path: '/attendance',
+      icon: Clock,
       show: true
     },
     {

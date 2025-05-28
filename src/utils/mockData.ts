@@ -60,10 +60,10 @@ export const teams: Team[] = [
   },
   {
     id: 'web',
-    name: 'Coding (Web) Team',
-    managerId: 'user3',
+    name: 'Web Team',
+    managerId: '',
     description: 'Develops and maintains web applications',
-    memberCount: 3
+    memberCount: 0
   }
 ];
 

@@ -65,8 +65,8 @@ const TaskCard: React.FC<TaskCardProps> = ({
     };
   }, [showActions]);
   
-  const assignee = getUserById(task.assigneeId);
-  const client = getClientById(task.clientId);
+  const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
+  const client = task.clientId ? getClientById(task.clientId) : null;
   
   // Calculate if task is overdue
   const dueDate = new Date(task.dueDate);
@@ -166,7 +166,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
     
-    if (window.confirm(`Are you sure you want to delete the task "${task.title}"? This action cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete the task "${task.title}"?\n\nThis will remove the task from:\n• TaskBoard\n• All daily reports (assigned tasks only)\n• Historical completion records will be preserved\n\nThis action cannot be undone.`)) {
       setIsDeleting(true);
       try {
         await deleteTask(task.id);
@@ -175,7 +175,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         }
       } catch (error) {
         console.error('Error deleting task:', error);
-        alert('Failed to delete task. Please try again.');
+        alert(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
       } finally {
         setIsDeleting(false);
       }
@@ -199,7 +199,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
       {/* Client Name Banner at top */}
       <div className="absolute top-0 left-0 right-0 py-1.5 px-3 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-b border-indigo-100">
         <div className="flex items-center">
-          <span className="text-xs font-bold tracking-wide uppercase text-indigo-800 truncate">{client?.name}</span>
+          <span className="text-xs font-bold tracking-wide uppercase text-indigo-800 truncate">{client?.name || 'Unassigned Client'}</span>
         </div>
       </div>
       
@@ -262,24 +262,31 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <p className="caption-text text-secondary-600 mb-3 line-clamp-2 flex-grow">{task.description}</p>
         
         {/* Footer with Assignee and Due Date */}
-        <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-100">
+        <div className="mt-auto pt-2 border-t border-gray-100 space-y-2">
           {/* Assignee */}
-          {assignee && (
+          {assignee ? (
             <div className="flex items-center">
               <Avatar 
                 src={assignee.avatar} 
                 name={assignee.name} 
                 size="xs" 
               />
-              <span className="ml-1.5 text-xs font-medium text-secondary-700">{assignee.name.split(' ')[0]}</span>
+              <span className="ml-1.5 text-xs font-medium text-secondary-700">{assignee.name}</span>
+            </div>
+          ) : (
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
+                <span className="text-xs text-gray-500">?</span>
+              </div>
+              <span className="ml-1.5 text-xs font-medium text-gray-500 italic">Unassigned</span>
             </div>
           )}
           
           {/* Due Date */}
           <div className="flex items-center text-xs">
             <Calendar className="h-3 w-3 mr-1 text-secondary-500" />
-            <span className={isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-500'}>
-              {isOverdue && <AlertTriangle className="h-3 w-3 mr-1 inline text-danger-500" />}
+            <span className={`${isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-500'} flex items-center`}>
+              {isOverdue && <AlertTriangle className="h-3 w-3 mr-1 text-danger-500" />}
               {formattedDueDate}
             </span>
           </div>

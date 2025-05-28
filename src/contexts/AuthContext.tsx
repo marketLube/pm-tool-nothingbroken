@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useMemo, useEffe
 import { Role, TeamType, User } from '../types';
 import { isSupabaseConfigured } from '../utils/supabase';
 import * as userService from '../services/userService';
+import * as attendanceService from '../services/attendanceService';
 import { 
   getPermissions, 
   Permission, 
@@ -96,6 +97,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         };
         
         setCurrentUser(adminUser);
+        
+        // Record automatic check-in
+        await attendanceService.recordLoginAsCheckIn(adminUser.id);
+        
         console.log('Admin login successful!');
         return true;
       }
@@ -105,6 +110,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       if (user && user.isActive) {
         setCurrentUser(user);
+        
+        // Record automatic check-in for the user
+        await attendanceService.recordLoginAsCheckIn(user.id);
+        
         console.log('User login successful');
         return true;
       }

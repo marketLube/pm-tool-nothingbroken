@@ -1,12 +1,14 @@
-const { createClient } = require('@supabase/supabase-js');
-const fs = require('fs');
-const path = require('path');
+import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Load environment variables
-require('dotenv').config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+// Use hardcoded values since we don't have .env
+const supabaseUrl = 'https://ysfknpujqivkudhnhezx.supabase.co';
+const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzZmtucHVqcWl2a3VkaG5oZXp4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzU5NjExMywiZXhwIjoyMDYzMTcyMTEzfQ.7q0ONGSxRUvWJS_Vo3DcXnoZt6DSpBqsZhcnX9JTARI';
 
 if (!supabaseUrl || !supabaseServiceKey) {
   console.error('Missing Supabase configuration. Please check your environment variables.');
@@ -80,9 +82,9 @@ async function runMigrationDirect() {
     // For direct execution, we'll need to use the SQL editor in Supabase dashboard
     // or use a PostgreSQL client directly
     console.log('📋 Please execute the following SQL in your Supabase SQL editor:');
-    console.log('=' * 80);
+    console.log('='.repeat(80));
     console.log(sql);
-    console.log('=' * 80);
+    console.log('='.repeat(80));
     
     console.log('✅ SQL script ready for execution!');
     console.log('💡 Copy the SQL above and run it in your Supabase dashboard > SQL Editor');

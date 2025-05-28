@@ -105,19 +105,26 @@ const TaskBoard: React.FC = () => {
     
     // Step 3: Apply client filter if needed
     if (clientFilter !== 'all') {
+      // Show tasks assigned to the selected client (including system 'Unassigned' client)
       filtered = filtered.filter(task => task.clientId === clientFilter);
     }
     
     // Step 4: Apply employee filter if needed
     if (employeeFilter !== 'all') {
-      filtered = filtered.filter(task => task.assigneeId === employeeFilter);
+      if (employeeFilter === 'unassigned') {
+        // Show only unassigned tasks (tasks without assigneeId)
+        filtered = filtered.filter(task => !task.assigneeId);
+      } else {
+        // Show tasks assigned to specific employee
+        filtered = filtered.filter(task => task.assigneeId === employeeFilter);
+      }
     }
     
     // Step 5: Apply search filter if needed
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(task => {
-        const client = getClientById(task.clientId);
+        const client = task.clientId ? getClientById(task.clientId) : null;
         return (
           task.title.toLowerCase().includes(query) || 
                task.description.toLowerCase().includes(query) ||
@@ -616,6 +623,7 @@ const TaskBoard: React.FC = () => {
                     {teamFilter === 'creative' ? 'All Creative Clients' : 'All Web Clients'} 
                     ({filteredClients.length})
                   </option>
+                  {/* Use system clients (including 'Unassigned') */}
                   {filteredClients.map(client => (
                     <option key={client.id} value={client.id}>
                       {client.name}
@@ -641,6 +649,9 @@ const TaskBoard: React.FC = () => {
                   <option value="all">
                     {teamFilter === 'creative' ? 'All Creative Team' : 'All Web Team'} 
                     ({filteredUsers.filter(u => u.team === teamFilter).length})
+                  </option>
+                  <option value="unassigned">
+                    Unassigned Tasks
                   </option>
                   {filteredUsers.map(user => (
                     <option key={user.id} value={user.id}>
@@ -690,7 +701,12 @@ const TaskBoard: React.FC = () => {
           {employeeFilter !== 'all' && (
             <div className="inline-flex items-center bg-primary-50 text-primary-700 px-3 py-1 rounded-full text-sm">
               <span className="mr-1">{teamFilter === 'creative' ? 'Creative Team Member:' : 'Web Team Member:'}</span>
-              <span className="font-medium">{filteredUsers.find(u => u.id === employeeFilter)?.name}</span>
+              <span className="font-medium">
+                {employeeFilter === 'unassigned' 
+                  ? 'Unassigned Tasks' 
+                  : filteredUsers.find(u => u.id === employeeFilter)?.name
+                }
+              </span>
               <button 
                 className="ml-2 text-primary-500 hover:text-primary-700 transition-colors"
                 onClick={() => setEmployeeFilter('all')}
@@ -702,7 +718,9 @@ const TaskBoard: React.FC = () => {
           {clientFilter !== 'all' && (
             <div className="inline-flex items-center bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm">
               <span className="mr-1">{teamFilter === 'creative' ? 'Creative Client:' : 'Web Client:'}</span>
-              <span className="font-medium">{clients.find(c => c.id === clientFilter)?.name}</span>
+              <span className="font-medium">
+                {clients.find(c => c.id === clientFilter)?.name}
+              </span>
               <button 
                 className="ml-2 text-purple-500 hover:text-purple-700 transition-colors"
                 onClick={() => setClientFilter('all')}

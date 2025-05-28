@@ -20,6 +20,8 @@ import Users from './pages/Users';
 import Clients from './pages/Clients';
 import Settings from './pages/Settings';
 import Status from './pages/Status';
+import Attendance from './pages/Attendance';
+import AttendanceCalendar from './pages/AttendanceCalendar';
 import Unauthorized from './pages/Unauthorized';
 import Login from './pages/Login';
 import ConnectionTester from './components/utils/ConnectionTester';
@@ -140,6 +142,10 @@ function App() {
                   
                   {/* Reports & Analytics - Accessible to all authenticated users */}
                   <Route path="reports-analytics" element={<ReportsAnalytics />} />
+                  
+                  {/* Attendance - Accessible to all authenticated users */}
+                  <Route path="attendance" element={<Attendance />} />
+                  <Route path="attendance/calendar" element={<AttendanceCalendar />} />
                   
                   {/* Settings - Admin only */}
                   <Route 
