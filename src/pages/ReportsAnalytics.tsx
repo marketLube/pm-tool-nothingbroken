@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { TeamType, DailyReport, Task, DailyWorkEntry } from '../types';
 import * as dailyReportService from '../services/dailyReportService';
+import PerformanceMonitor from '../utils/performance';
 
 interface DailyCardProps {
   userId: string;
@@ -44,6 +45,7 @@ interface DailyCardProps {
   isExpanded: boolean;
   onToggleExpand: () => void;
   isToday: boolean;
+  loadingStates: { [key: string]: boolean };
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -60,7 +62,8 @@ const DailyCard: React.FC<DailyCardProps> = ({
   weekDays,
   isExpanded,
   onToggleExpand,
-  isToday
+  isToday,
+  loadingStates
 }) => {
   const { getUserById, getClientById } = useData();
   const [warningMessage, setWarningMessage] = useState<string>('');
@@ -372,13 +375,15 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               ? 'text-amber-500 hover:text-amber-600' 
                               : 'text-gray-400 hover:text-green-600'
                           }`}
-                          disabled={isAbsent || defaultAbsent}
+                          disabled={isAbsent || defaultAbsent || loadingStates[`${userId}-${date}-${task.id}`]}
                           title={hasConflict 
                             ? `Cannot complete - task is still open on ${format(parseISO(conflictDay!), 'MMM d')}` 
                             : "Mark as completed"
                           }
                         >
-                          {hasConflict ? (
+                          {loadingStates[`${userId}-${date}-${task.id}`] ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                          ) : hasConflict ? (
                             <AlertCircle className="h-4 w-4" />
                           ) : (
                             <Circle className="h-4 w-4" />
@@ -476,10 +481,14 @@ const DailyCard: React.FC<DailyCardProps> = ({
                                 handleTaskToggleWithValidation(task.id, false);
                               }}
                               className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
-                              disabled={isAbsent || defaultAbsent}
+                              disabled={isAbsent || defaultAbsent || loadingStates[`${userId}-${date}-${task.id}`]}
                               title="Move back to assigned"
                             >
-                              <CheckCircle className="h-4 w-4" />
+                              {loadingStates[`${userId}-${date}-${task.id}`] ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                              ) : (
+                                <CheckCircle className="h-4 w-4" />
+                              )}
                             </button>
                             <div className="flex-1 min-w-0">
                               <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-green-900 transition-colors">
@@ -544,12 +553,31 @@ const ReportsAnalytics: React.FC = () => {
   );
   const [dailyReports, setDailyReports] = useState<{ [key: string]: DailyReport | null }>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStates, setLoadingStates] = useState<{ [key: string]: boolean }>({});
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [addTaskForUser, setAddTaskForUser] = useState<string>('');
   const [addTaskForDate, setAddTaskForDate] = useState<string>('');
 
   // Refs for scrolling to today
   const todayRef = useRef<HTMLDivElement>(null);
+  
+  // Memoize expensive computations
+  const weekDays = useMemo(() => eachDayOfInterval({
+    start: parseISO(weekStart),
+    end: addDays(parseISO(weekStart), 6), // Monday to Sunday
+  }), [weekStart]);
+
+  // Memoize filtered users
+  const filteredUsers = useMemo(() => users.filter(user => 
+    user && user.isActive && 
+    (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
+  ), [users, isAdmin, selectedTeam, currentUser]);
+
+  // Memoize users to display
+  const usersToDisplay = useMemo(() => isAdmin 
+    ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
+    : filteredUsers
+  , [isAdmin, selectedUser, filteredUsers]);
 
   // Early return if essential data is not loaded
   if (!currentUser || !users || users.length === 0) {
@@ -563,18 +591,6 @@ const ReportsAnalytics: React.FC = () => {
     );
   }
 
-  // Get week days (Monday to Sunday)
-  const weekDays = eachDayOfInterval({
-    start: parseISO(weekStart),
-    end: addDays(parseISO(weekStart), 6), // Monday to Sunday
-  });
-
-  // Get filtered users with safety check
-  const filteredUsers = users.filter(user => 
-    user && user.isActive && 
-    (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
-  );
-
   // Set default user (first user in the team instead of 'all')
   useEffect(() => {
     if (filteredUsers.length > 0 && !selectedUser) {
@@ -586,11 +602,6 @@ const ReportsAnalytics: React.FC = () => {
     }
   }, [filteredUsers, selectedUser, isAdmin, currentUser]);
 
-  // Get users to display
-  const usersToDisplay = isAdmin 
-    ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
-    : filteredUsers;
-
   // Load daily reports
   useEffect(() => {
     if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser) {
@@ -598,91 +609,138 @@ const ReportsAnalytics: React.FC = () => {
     }
   }, [selectedTeam, selectedUser, weekStart]);
 
-  // Add effect to reload reports when tasks change
+  // Add effect to reload reports when tasks change - but debounced
   useEffect(() => {
-    // Reload reports when tasks are updated in the TaskBoard
-    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser) {
-      loadDailyReports();
+    // Only reload if we have the necessary data
+    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser && tasks.length > 0) {
+      // Debounce to prevent excessive reloads
+      const timeoutId = setTimeout(() => {
+        loadDailyReports();
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [tasks]); // Reload when tasks array changes
+  }, [tasks.length]); // Only trigger when tasks array length changes, not content
 
   const loadDailyReports = async () => {
-    setIsLoading(true);
-    try {
-      const reports: { [key: string]: DailyReport | null } = {};
-      
-      // Calculate usersToDisplay inside the function to avoid dependency issues
-      const currentUsersToDisplay = isAdmin 
-        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
-        : filteredUsers;
-      
-      for (const user of currentUsersToDisplay) {
-        for (let idx = 0; idx < weekDays.length; idx++) {
-          const day = weekDays[idx];
-          const dateStr = format(day, 'yyyy-MM-dd');
-          const key = `${user.id}-${dateStr}`;
+    return PerformanceMonitor.measureAsync('loadDailyReports', async () => {
+      setIsLoading(true);
+      try {
+        const reports: { [key: string]: DailyReport | null } = {};
+        
+        // Process users in parallel for better performance
+        const reportPromises = usersToDisplay.flatMap(user => 
+          weekDays.map(async (day, idx) => {
+            const dateStr = format(day, 'yyyy-MM-dd');
+            const key = `${user.id}-${dateStr}`;
 
-          // Rollover unfinished tasks from previous day
-          if (idx > 0) {
-            const prevDateStr = format(weekDays[idx - 1], 'yyyy-MM-dd');
-            await dailyReportService.moveUnfinishedTasksToNextDay(user.id, prevDateStr, dateStr);
-          }
+            try {
+              // OPTIMIZED: Only do task rollover for current/past days
+              const today = new Date();
+              const dayDate = parseISO(dateStr);
+              
+              if (dayDate <= today && idx > 0) {
+                const prevDateStr = format(weekDays[idx - 1], 'yyyy-MM-dd');
+                await dailyReportService.moveUnfinishedTasksToNextDay(user.id, prevDateStr, dateStr);
+              }
 
-          // Sync tasks due on this day from TaskBoard into this day's entry
-          const boardTasks = getTasksByUser(user.id);
-          for (const task of boardTasks) {
-            // Define all possible completed statuses
-            const completedStatuses = [
-              'done', 
-              'approved', 
-              'creative_approved',
-              'completed',
-              'web_completed',
-              'handed_over',
-              'web_handed_over'
-            ];
-            
-            const isTaskCompleted = completedStatuses.includes(task.status);
-            
-            // Only assign tasks whose due date matches this date
-            const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
-            if (taskDueDate === dateStr) {
-              // Don't assign completed tasks to current or future days
-              if (!isTaskCompleted || dateStr < format(new Date(), 'yyyy-MM-dd')) {
-                await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
-              } else if (isTaskCompleted && dateStr >= format(new Date(), 'yyyy-MM-dd')) {
-                // If task is completed but exists in assigned list, remove it
-                const existingReport = await dailyReportService.getDailyReport(user.id, dateStr);
-                if (existingReport?.workEntry.assignedTasks.includes(task.id)) {
-                  // Move it to completed if not already there
-                  if (!existingReport.workEntry.completedTasks.includes(task.id)) {
-                    await dailyReportService.moveTaskToCompleted(user.id, dateStr, task.id);
+              // OPTIMIZED: Simplified task sync - only for due date matches
+              const userTasks = tasks.filter(task => 
+                task.assigneeId === user.id && 
+                format(parseISO(task.dueDate), 'yyyy-MM-dd') === dateStr
+              );
+
+              // Batch task assignments for efficiency
+              if (userTasks.length > 0) {
+                for (const task of userTasks) {
+                  const completedStatuses = [
+                    'done', 'approved', 'creative_approved',
+                    'completed', 'web_completed', 'handed_over', 'web_handed_over'
+                  ];
+                  
+                  const isTaskCompleted = completedStatuses.includes(task.status);
+                  
+                  // Only assign incomplete tasks or completed tasks for past days
+                  if (!isTaskCompleted || dateStr < format(new Date(), 'yyyy-MM-dd')) {
+                    await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
                   }
                 }
               }
-            }
-          }
 
-          try {
-            const report = await dailyReportService.getDailyReport(user.id, dateStr);
-            reports[key] = report;
-          } catch (error) {
-            console.error(`Error loading report for ${user.name} on ${dateStr}:`, error);
-            reports[key] = null;
-          }
-        }
+              const report = await dailyReportService.getDailyReport(user.id, dateStr);
+              return { key, report };
+            } catch (error) {
+              console.error(`Error loading report for ${user.name} on ${dateStr}:`, error);
+              return { key, report: null };
+            }
+          })
+        );
+
+        // Wait for all reports to load
+        const reportResults = await PerformanceMonitor.measureAsync('loadAllReports', () => 
+          Promise.all(reportPromises)
+        );
+        
+        // Build reports object
+        reportResults.forEach(({ key, report }) => {
+          reports[key] = report;
+        });
+        
+        setDailyReports(reports);
+      } catch (error) {
+        console.error('Error loading daily reports:', error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setDailyReports(reports);
-    } catch (error) {
-      console.error('Error loading daily reports:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   const handleTaskToggle = async (userId: string, date: string, taskId: string, completed: boolean) => {
+    const loadingKey = `${userId}-${date}-${taskId}`;
+    
     try {
+      // Set loading state for this specific task
+      setLoadingStates(prev => ({ ...prev, [loadingKey]: true }));
+      
+      // OPTIMISTIC UPDATE - Update UI immediately
+      const reportKey = `${userId}-${date}`;
+      const currentReport = dailyReports[reportKey];
+      
+      if (currentReport) {
+        const updatedReport = { ...currentReport };
+        const assignedTasks = [...(updatedReport.workEntry.assignedTasks || [])];
+        const completedTasks = [...(updatedReport.workEntry.completedTasks || [])];
+        
+        if (completed) {
+          // Move from assigned to completed
+          const taskIndex = assignedTasks.indexOf(taskId);
+          if (taskIndex > -1) {
+            assignedTasks.splice(taskIndex, 1);
+          }
+          if (!completedTasks.includes(taskId)) {
+            completedTasks.push(taskId);
+          }
+        } else {
+          // Move from completed to assigned
+          const taskIndex = completedTasks.indexOf(taskId);
+          if (taskIndex > -1) {
+            completedTasks.splice(taskIndex, 1);
+          }
+          if (!assignedTasks.includes(taskId)) {
+            assignedTasks.push(taskId);
+          }
+        }
+        
+        updatedReport.workEntry.assignedTasks = assignedTasks;
+        updatedReport.workEntry.completedTasks = completedTasks;
+        
+        // Update UI immediately
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: updatedReport
+        }));
+      }
+
       // Get the task details to find its due date
       const task = tasks.find(t => t.id === taskId);
       if (!task) {
@@ -692,52 +750,139 @@ const ReportsAnalytics: React.FC = () => {
       
       const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
       
+      // Background API update
       if (completed) {
-        // Use the new cross-day completion function
         await dailyReportService.moveTaskToCompletedAcrossDays(userId, date, taskId, taskDueDate);
       } else {
-        // Use the new cross-day assignment function
         await dailyReportService.moveTaskToAssignedAcrossDays(userId, date, taskId, taskDueDate);
       }
       
-      // Reload all reports for this week to reflect changes across all days
-      await loadDailyReports();
+      // SELECTIVE RELOAD - Only reload the affected report
+      const updatedReport = await dailyReportService.getDailyReport(userId, date);
+      setDailyReports(prev => ({
+        ...prev,
+        [reportKey]: updatedReport
+      }));
       
-      // Show success feedback (optional)
-      console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully across all relevant days`);
+      console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully`);
     } catch (error) {
       console.error('Error toggling task:', error);
-      // You could add a toast notification here for better UX
+      
+      // ROLLBACK on error - reload the original report
+      try {
+        const reportKey = `${userId}-${date}`;
+        const originalReport = await dailyReportService.getDailyReport(userId, date);
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: originalReport
+        }));
+      } catch (rollbackError) {
+        console.error('Error rolling back task toggle:', rollbackError);
+      }
+    } finally {
+      // Clear loading state
+      setLoadingStates(prev => {
+        const newState = { ...prev };
+        delete newState[loadingKey];
+        return newState;
+      });
     }
   };
 
   const handleAbsentToggle = async (userId: string, date: string, isAbsent: boolean) => {
     try {
+      // OPTIMISTIC UPDATE - Update UI immediately
+      const reportKey = `${userId}-${date}`;
+      const currentReport = dailyReports[reportKey];
+      
+      if (currentReport) {
+        const updatedReport = { 
+          ...currentReport,
+          workEntry: {
+            ...currentReport.workEntry,
+            isAbsent: isAbsent
+          }
+        };
+        
+        // Update UI immediately
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: updatedReport
+        }));
+      }
+
+      // Background API update
       await dailyReportService.markAbsent(userId, date, isAbsent);
       
-      // Reload the specific report
-      const report = await dailyReportService.getDailyReport(userId, date);
+      // SELECTIVE RELOAD - Only reload the affected report
+      const updatedReport = await dailyReportService.getDailyReport(userId, date);
       setDailyReports(prev => ({
         ...prev,
-        [`${userId}-${date}`]: report
+        [reportKey]: updatedReport
       }));
     } catch (error) {
       console.error('Error marking absent:', error);
+      
+      // ROLLBACK on error
+      try {
+        const reportKey = `${userId}-${date}`;
+        const originalReport = await dailyReportService.getDailyReport(userId, date);
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: originalReport
+        }));
+      } catch (rollbackError) {
+        console.error('Error rolling back absent toggle:', rollbackError);
+      }
     }
   };
 
   const handleCheckInOut = async (userId: string, date: string, checkIn?: string, checkOut?: string) => {
     try {
+      // OPTIMISTIC UPDATE - Update UI immediately
+      const reportKey = `${userId}-${date}`;
+      const currentReport = dailyReports[reportKey];
+      
+      if (currentReport) {
+        const updatedReport = { 
+          ...currentReport,
+          workEntry: {
+            ...currentReport.workEntry,
+            checkInTime: checkIn !== undefined ? checkIn : currentReport.workEntry.checkInTime,
+            checkOutTime: checkOut !== undefined ? checkOut : currentReport.workEntry.checkOutTime
+          }
+        };
+        
+        // Update UI immediately
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: updatedReport
+        }));
+      }
+
+      // Background API update
       await dailyReportService.updateCheckInOut(userId, date, checkIn, checkOut);
       
-      // Reload the specific report
-      const report = await dailyReportService.getDailyReport(userId, date);
+      // SELECTIVE RELOAD - Only reload the affected report
+      const updatedReport = await dailyReportService.getDailyReport(userId, date);
       setDailyReports(prev => ({
         ...prev,
-        [`${userId}-${date}`]: report
+        [reportKey]: updatedReport
       }));
     } catch (error) {
       console.error('Error updating check-in/out:', error);
+      
+      // ROLLBACK on error
+      try {
+        const reportKey = `${userId}-${date}`;
+        const originalReport = await dailyReportService.getDailyReport(userId, date);
+        setDailyReports(prev => ({
+          ...prev,
+          [reportKey]: originalReport
+        }));
+      } catch (rollbackError) {
+        console.error('Error rolling back check-in/out update:', rollbackError);
+      }
     }
   };
 
@@ -942,6 +1087,7 @@ const ReportsAnalytics: React.FC = () => {
                       isExpanded={dateStr === selectedDate}
                       onToggleExpand={() => setSelectedDate(selectedDate === dateStr ? '' : dateStr)}
                       isToday={isToday}
+                      loadingStates={loadingStates}
                     />
                   );
                 })}
