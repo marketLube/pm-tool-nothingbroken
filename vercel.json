@@ -8,87 +8,11 @@
   "trailingSlash": false,
   "rewrites": [
     {
-      "source": "/calendar-export/:token",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/export/:token",
-      "destination": "/index.html"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/users",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/tasks",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/reports",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/analytics",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/clients",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/settings",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/status",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/attendance",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/attendance/(.*)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/social-calendar",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/reports-analytics",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/teams/(.*)",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/login",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/unauthorized",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/test-connection",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/test-biometric",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/debug-biometric",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/((?!api|_next|static|favicon.ico|robots.txt|sitemap.xml|assets).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
