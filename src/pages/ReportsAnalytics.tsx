@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay, isBefore } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
@@ -552,6 +552,17 @@ const DailyCard: React.FC<DailyCardProps> = ({
   );
 };
 
+// Memoized version of DailyCard for performance optimization
+const MemoizedDailyCard = React.memo(DailyCard, (prevProps, nextProps) => {
+  return (
+    prevProps.userId === nextProps.userId &&
+    prevProps.date === nextProps.date &&
+    prevProps.isExpanded === nextProps.isExpanded &&
+    prevProps.isToday === nextProps.isToday &&
+    prevProps.isLoading === nextProps.isLoading
+  );
+});
+
 const ReportsAnalytics: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { users, tasks, addTask, getTasksByUser, getTasksByTeam } = useData();
@@ -573,6 +584,23 @@ const ReportsAnalytics: React.FC = () => {
   // Refs for scrolling to today
   const todayRef = useRef<HTMLDivElement>(null);
 
+  // Memoize expensive computations
+  const memoizedFilteredUsers = useMemo(() => 
+    users?.filter(user => 
+      user && user.isActive && 
+      (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
+    ) || [], 
+    [users, selectedTeam, isAdmin, currentUser?.id]
+  );
+  
+  const memoizedWeekDays = useMemo(() => 
+    eachDayOfInterval({
+      start: parseISO(weekStart),
+      end: addDays(parseISO(weekStart), 6), // Monday to Sunday
+    }), 
+    [weekStart]
+  );
+
   // Early return if essential data is not loaded
   if (!currentUser || !users || users.length === 0) {
     return (
@@ -585,35 +613,41 @@ const ReportsAnalytics: React.FC = () => {
     );
   }
 
+  // Get filtered users with safety check - use memoized version
+  const filteredUsers = memoizedFilteredUsers;
+
+  // Get week days - use memoized version
+  const weekDays = memoizedWeekDays;
+
   // Get week days (Monday to Sunday)
-  const weekDays = eachDayOfInterval({
+  const weekDaysOriginal = eachDayOfInterval({
     start: parseISO(weekStart),
     end: addDays(parseISO(weekStart), 6), // Monday to Sunday
   });
 
   // Get filtered users with safety check
-  const filteredUsers = users.filter(user => 
+  const filteredUsersOriginal = users.filter(user => 
     user && user.isActive && 
     (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
   );
 
   // Set default user (first user in the team instead of 'all')
   useEffect(() => {
-    if (filteredUsers.length > 0 && !selectedUser) {
+    if (filteredUsersOriginal.length > 0 && !selectedUser) {
       if (isAdmin) {
-        setSelectedUser(filteredUsers[0].id); // Set first user as default
+        setSelectedUser(filteredUsersOriginal[0].id); // Set first user as default
       } else {
         setSelectedUser(currentUser.id);
       }
     }
-  }, [filteredUsers, selectedUser, isAdmin, currentUser]);
+  }, [filteredUsersOriginal, selectedUser, isAdmin, currentUser]);
 
   // Get users to display
   const usersToDisplay = isAdmin 
-    ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
-    : filteredUsers;
+    ? (selectedUser === 'all' ? filteredUsersOriginal : filteredUsersOriginal.filter(u => u.id === selectedUser))
+    : filteredUsersOriginal;
 
-  // Load only today's data initially for fast startup
+  // Load only today's data initially
   const loadTodayData = async () => {
     setIsInitialLoading(true);
     try {
@@ -1004,7 +1038,7 @@ const ReportsAnalytics: React.FC = () => {
                   const userTasks = getTasksByUser(user.id);
 
                   return (
-                    <DailyCard
+                    <MemoizedDailyCard
                       key={reportKey}
                       userId={user.id}
                       date={dateStr}
