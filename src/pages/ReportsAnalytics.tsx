@@ -371,6 +371,14 @@ const ReportsAnalytics: React.FC = () => {
     }
   }, [selectedTeam, selectedUser, weekStart]);
 
+  // Add effect to reload reports when tasks change
+  useEffect(() => {
+    // Reload reports when tasks are updated in the TaskBoard
+    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser) {
+      loadDailyReports();
+    }
+  }, [tasks]); // Reload when tasks array changes
+
   const loadDailyReports = async () => {
     setIsLoading(true);
     try {
@@ -396,10 +404,35 @@ const ReportsAnalytics: React.FC = () => {
           // Sync tasks due on this day from TaskBoard into this day's entry
           const boardTasks = getTasksByUser(user.id);
           for (const task of boardTasks) {
+            // Define all possible completed statuses
+            const completedStatuses = [
+              'done', 
+              'approved', 
+              'creative_approved',
+              'completed',
+              'web_completed',
+              'handed_over',
+              'web_handed_over'
+            ];
+            
+            const isTaskCompleted = completedStatuses.includes(task.status);
+            
             // Only assign tasks whose due date matches this date
             const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
             if (taskDueDate === dateStr) {
-              await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
+              // Don't assign completed tasks to current or future days
+              if (!isTaskCompleted || dateStr < format(new Date(), 'yyyy-MM-dd')) {
+                await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
+              } else if (isTaskCompleted && dateStr >= format(new Date(), 'yyyy-MM-dd')) {
+                // If task is completed but exists in assigned list, remove it
+                const existingReport = await dailyReportService.getDailyReport(user.id, dateStr);
+                if (existingReport?.workEntry.assignedTasks.includes(task.id)) {
+                  // Move it to completed if not already there
+                  if (!existingReport.workEntry.completedTasks.includes(task.id)) {
+                    await dailyReportService.moveTaskToCompleted(user.id, dateStr, task.id);
+                  }
+                }
+              }
             }
           }
 

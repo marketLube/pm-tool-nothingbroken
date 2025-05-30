@@ -4,9 +4,14 @@ const path = require('path');
 // Import Supabase client
 const { createClient } = require('@supabase/supabase-js');
 
-// Use the same credentials as in the app
-const supabaseUrl = 'https://ysfknpujqivkudhnhezx.supabase.co';
-const serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzZmtucHVqcWl2a3VkaG5oZXp4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzU5NjExMywiZXhwIjoyMDYzMTcyMTEzfQ.7q0ONGSxRUvWJS_Vo3DcXnoZt6DSpBqsZhcnX9JTARI';
+// Use environment variables directly instead of importing from removed admin client
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co';
+const serviceRoleKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || 'your-service-role-key';
+
+if (!supabaseUrl || !serviceRoleKey || supabaseUrl.includes('your-project') || serviceRoleKey.includes('your-service')) {
+  console.error('❌ Please set VITE_SUPABASE_URL and VITE_SUPABASE_SERVICE_ROLE_KEY environment variables');
+  process.exit(1);
+}
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 

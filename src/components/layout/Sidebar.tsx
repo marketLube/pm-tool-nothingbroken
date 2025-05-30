@@ -16,7 +16,8 @@ import {
   Briefcase,
   Building,
   BarChart3,
-  Clock
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
@@ -73,6 +74,12 @@ const Sidebar: React.FC = () => {
       name: 'Task Board',
       path: '/tasks',
       icon: Kanban,
+      show: true
+    },
+    {
+      name: 'Social Calendar',
+      path: '/social-calendar',
+      icon: Calendar,
       show: true
     },
     {

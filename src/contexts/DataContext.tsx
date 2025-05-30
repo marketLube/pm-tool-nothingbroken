@@ -45,6 +45,7 @@ interface DataContextType {
   addClient: (client: Omit<Client, 'id' | 'dateAdded'>) => Promise<Client>;
   updateClient: (client: Client) => Promise<void>;
   deleteClient: (clientId: string) => Promise<void>;
+  refreshClients: () => Promise<void>;
 
   // Report actions
   addReport: (report: Omit<Report, 'id'>) => Promise<void>;
@@ -344,6 +345,15 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   };
 
+  const refreshClients = async () => {
+    try {
+      const refreshedClients = await clientService.getClients();
+      setClients(refreshedClients);
+    } catch (error) {
+      console.error('Error refreshing clients:', error);
+    }
+  };
+
   // Team actions
   const updateTeam = async (team: Team) => {
     setTeams(teams.map(t => 
@@ -511,6 +521,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         addClient,
         updateClient,
         deleteClient,
+        refreshClients,
         addReport,
         updateReport,
         approveReport,

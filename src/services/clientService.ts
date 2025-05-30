@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from '../utils/supabase';
+import { supabase } from '../utils/supabase';
 import { Client } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -36,7 +36,7 @@ const mapFromDbClient = (dbClient: any): Client => {
 
 // Get all clients
 export const getClients = async (): Promise<Client[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('clients')
     .select('*');
   
@@ -51,7 +51,7 @@ export const getClients = async (): Promise<Client[]> => {
 // Get clients by team
 export const getClientsByTeam = async (team: string): Promise<Client[]> => {
   // First try to get clients with team filter
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('clients')
     .select('*')
     .eq('team', team);
@@ -71,7 +71,7 @@ export const getClientsByTeam = async (team: string): Promise<Client[]> => {
 
 // Get client by ID
 export const getClientById = async (id: string): Promise<Client | null> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('clients')
     .select('*')
     .eq('id', id)
@@ -106,7 +106,7 @@ export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Pr
   console.log('Raw insert data for Supabase:', clientData);
   
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('clients')
       .insert([clientData])
       .select()
@@ -133,7 +133,7 @@ export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Pr
 
 // Update a client
 export const updateClient = async (client: Client): Promise<Client> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('clients')
     .update({
       name: client.name,
@@ -164,7 +164,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   let clientData;
   let clientTeam = 'creative'; // Default team
   
-  const { data: clientWithTeam, error: teamError } = await supabaseAdmin
+  const { data: clientWithTeam, error: teamError } = await supabase
     .from('clients')
     .select('team, name')
     .eq('id', clientId)
@@ -173,7 +173,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   if (teamError && teamError.code === '42703') {
     // Column doesn't exist, try without team
     console.log(`[ClientService] Team column doesn't exist, fetching client without team field`);
-    const { data: clientWithoutTeam, error: clientError } = await supabaseAdmin
+    const { data: clientWithoutTeam, error: clientError } = await supabase
       .from('clients')
       .select('name')
       .eq('id', clientId)
@@ -216,7 +216,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   
   // Check if client has related tasks
   console.log(`[ClientService] Checking for tasks assigned to client ${clientId}`);
-  const { data: tasks, error: tasksError } = await supabaseAdmin
+  const { data: tasks, error: tasksError } = await supabase
     .from('tasks')
     .select('id, title')
     .eq('client_id', clientId);
@@ -232,7 +232,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   if (tasks && tasks.length > 0) {
     // Find or create "Unassigned" client for this team
     let unassignedClient;
-    const { data: existingUnassigned, error: unassignedError } = await supabaseAdmin
+    const { data: existingUnassigned, error: unassignedError } = await supabase
       .from('clients')
       .select('id')
       .eq('name', 'Unassigned')
@@ -260,7 +260,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
         created_at: new Date().toISOString()
       };
       
-      const { data: newUnassigned, error: createError } = await supabaseAdmin
+      const { data: newUnassigned, error: createError } = await supabase
         .from('clients')
         .insert([unassignedClientData])
         .select('id')
@@ -275,7 +275,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
     }
     
     // Reassign all tasks to the unassigned client
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await supabase
       .from('tasks')
       .update({ client_id: unassignedClient.id })
       .eq('client_id', clientId);
@@ -290,7 +290,7 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   
   // Delete the client
   console.log(`[ClientService] Deleting client ${clientId} from database`);
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('clients')
     .delete()
     .eq('id', clientId);

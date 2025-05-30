@@ -68,6 +68,25 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
   const client = task.clientId ? getClientById(task.clientId) : null;
   
+  // Get the actual status object from StatusContext
+  const currentStatus = statuses.find(
+    s => s.id === task.status && s.team === task.team
+  );
+  
+  // Get status display name - use the status name from StatusContext or format the status ID as fallback
+  const getStatusDisplayName = () => {
+    if (currentStatus) {
+      return currentStatus.name;
+    }
+    
+    // Fallback: format the status ID if no matching status found
+    if (typeof task.status === 'string') {
+      return task.status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+    
+    return 'Unknown Status';
+  };
+  
   // Calculate if task is overdue
   const dueDate = new Date(task.dueDate);
   const isOverdue = isPast(dueDate) && !isToday(dueDate) && task.status !== 'done';
@@ -248,7 +267,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         {/* Status and Priority Row */}
         <div className="flex justify-between items-center mb-2.5">
           <Badge variant={getStatusColor()} size="sm" className="py-0.5">
-            {task.status.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+            {getStatusDisplayName()}
           </Badge>
           <Badge variant={getPriorityColor()} size="sm" className="py-0.5">
             {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}

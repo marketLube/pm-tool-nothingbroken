@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from '../utils/supabase';
+import { supabase } from '../utils/supabase';
 import { Status, TeamType } from '../types';
 
 // Map from App Status to Supabase DB schema
@@ -25,7 +25,7 @@ const mapFromDbStatus = (dbStatus: any): Status => {
 
 // Get all statuses
 export const getStatuses = async (): Promise<Status[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('statuses')
     .select('*');
   
@@ -39,7 +39,7 @@ export const getStatuses = async (): Promise<Status[]> => {
 
 // Get statuses by team
 export const getStatusesByTeam = async (team: TeamType): Promise<Status[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('statuses')
     .select('*')
     .eq('team', team)
@@ -55,7 +55,7 @@ export const getStatusesByTeam = async (team: TeamType): Promise<Status[]> => {
 
 // Add a status
 export const addStatus = async (status: Status): Promise<Status> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('statuses')
     .insert([{
       ...mapToDbStatus(status),
@@ -74,7 +74,7 @@ export const addStatus = async (status: Status): Promise<Status> => {
 
 // Update a status
 export const updateStatus = async (id: string, status: Partial<Status>): Promise<Status> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('statuses')
     .update(mapToDbStatus(status as Status))
     .eq('id', id)
@@ -92,7 +92,7 @@ export const updateStatus = async (id: string, status: Partial<Status>): Promise
 // Delete a status
 export const deleteStatus = async (id: string): Promise<void> => {
   // Check if status is being used in tasks
-  const { data: tasks, error: tasksError } = await supabaseAdmin
+  const { data: tasks, error: tasksError } = await supabase
     .from('tasks')
     .select('id')
     .eq('status', id);
@@ -107,7 +107,7 @@ export const deleteStatus = async (id: string): Promise<void> => {
     throw new Error(`Cannot delete status ${id} as it is being used in ${tasks.length} tasks`);
   }
   
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('statuses')
     .delete()
     .eq('id', id);

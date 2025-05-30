@@ -22,6 +22,8 @@ import Settings from './pages/Settings';
 import Status from './pages/Status';
 import Attendance from './pages/Attendance';
 import AttendanceCalendar from './pages/AttendanceCalendar';
+import SocialCalendar from './pages/SocialCalendar';
+import CalendarExport from './pages/CalendarExport';
 import Unauthorized from './pages/Unauthorized';
 import Login from './pages/Login';
 import ConnectionTester from './components/utils/ConnectionTester';
@@ -49,6 +51,9 @@ function App() {
               
               {/* Unauthorized page - accessible to everyone */}
               <Route path="/unauthorized" element={<Unauthorized />} />
+              
+              {/* Public Calendar Export - No authentication required */}
+              <Route path="/calendar-export/:token" element={<CalendarExport />} />
               
               {/* Temporary testing routes */}
               <Route path="/test-connection" element={<ConnectionTester />} />
@@ -146,6 +151,9 @@ function App() {
                   {/* Attendance - Accessible to all authenticated users */}
                   <Route path="attendance" element={<Attendance />} />
                   <Route path="attendance/calendar" element={<AttendanceCalendar />} />
+                  
+                  {/* Social Calendar - Accessible to all authenticated users */}
+                  <Route path="social-calendar" element={<SocialCalendar />} />
                   
                   {/* Settings - Admin only */}
                   <Route 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, subDays, parseISO, isWithinInterval } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
@@ -8,6 +8,7 @@ import Select from '../components/ui/Select';
 import Input from '../components/ui/Input';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useStatus } from '../contexts/StatusContext';
 import { 
   FileText, 
   CheckCircle, 
@@ -26,17 +27,9 @@ import { TeamType } from '../types';
 type DateFilterType = 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'custom';
 
 const Reports: React.FC = () => {
+  const { users, reports, tasks, clients, getUserById, getTaskById, approveReport, submitReport } = useData();
+  const { statuses } = useStatus();
   const { currentUser, isAdmin, isManager } = useAuth();
-  const { 
-    reports, 
-    users, 
-    clients, 
-    getReportsByDate, 
-    getUserById, 
-    getTaskById, 
-    submitReport, 
-    approveReport 
-  } = useData();
   
   // State for the report creation form
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,6 +48,44 @@ const Reports: React.FC = () => {
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'approved' | 'rejected' | 'pending'>('all');
   
+  // Force re-render when tasks change to update available tasks list
+  const [taskUpdateTrigger, setTaskUpdateTrigger] = useState(0);
+  useEffect(() => {
+    // This will trigger re-render when tasks array changes
+    setTaskUpdateTrigger(prev => prev + 1);
+  }, [tasks]);
+
+  // Get user's available tasks (non-completed or completed with past due dates)
+  const availableUserTasks = useMemo(() => {
+    if (!currentUser) return [];
+    
+    const userTasks = tasks.filter(task => task.assigneeId === currentUser.id);
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    
+    return userTasks.filter(task => {
+      // Define all possible completed statuses
+      const completedStatuses = [
+        'done', 
+        'approved', 
+        'creative_approved',
+        'completed',
+        'web_completed',
+        'handed_over',
+        'web_handed_over'
+      ];
+      
+      const isCompleted = completedStatuses.includes(task.status);
+      
+      if (isCompleted) {
+        // If task is completed, only show if due date is before today
+        return task.dueDate < todayStr;
+      }
+      
+      // Show all non-completed tasks
+      return true;
+    });
+  }, [tasks, currentUser, taskUpdateTrigger]);
+
   // Get dates based on filter
   const getFilterDates = () => {
     const today = new Date();
@@ -486,7 +517,7 @@ const Reports: React.FC = () => {
                         label="Task"
                         options={[
                           { value: '', label: 'Select a task...' },
-                          ...useData().getTasksByUser(currentUser?.id || '').map(task => ({
+                          ...availableUserTasks.map(task => ({
                             value: task.id,
                             label: task.title
                           }))
@@ -623,7 +654,20 @@ const Reports: React.FC = () => {
                                         }
                                         size="sm"
                                       >
-                                        {task.status.replace('_', ' ')}
+                                        {(() => {
+                                          // Get the actual status object from StatusContext
+                                          const currentStatus = statuses.find(
+                                            s => s.id === task.status && s.team === task.team
+                                          );
+                                          
+                                          // Return the status name or fallback to formatted ID
+                                          if (currentStatus) {
+                                            return currentStatus.name;
+                                          }
+                                          
+                                          // Fallback: format the status ID if no matching status found
+                                          return task.status.replace('_', ' ');
+                                        })()}
                                       </Badge>
                                     )}
                                   </div>

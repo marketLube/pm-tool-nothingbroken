@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from '../utils/supabase';
+import { supabase } from '../utils/supabase';
 import { Task, TeamType } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -36,7 +36,7 @@ const mapFromDbTask = (dbTask: any): Task => {
 
 // Get all tasks
 export const getTasks = async (): Promise<Task[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .select('*');
   
@@ -50,7 +50,7 @@ export const getTasks = async (): Promise<Task[]> => {
 
 // Get task by ID
 export const getTaskById = async (id: string): Promise<Task | null> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .select('*')
     .eq('id', id)
@@ -67,7 +67,7 @@ export const getTaskById = async (id: string): Promise<Task | null> => {
 // Create a new task
 export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>): Promise<Task> => {
   const id = uuidv4();
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .insert([{
       id,
@@ -87,7 +87,7 @@ export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>): Promise<
 
 // Update a task
 export const updateTask = async (task: Task): Promise<Task> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .update({
       title: task.title,
@@ -113,7 +113,7 @@ export const updateTask = async (task: Task): Promise<Task> => {
 
 // Update task status
 export const updateTaskStatus = async (taskId: string, status: string): Promise<Task> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .update({ status })
     .eq('id', taskId)
@@ -130,7 +130,7 @@ export const updateTaskStatus = async (taskId: string, status: string): Promise<
 
 // Delete a task
 export const deleteTask = async (taskId: string): Promise<void> => {
-  const { error } = await supabaseAdmin
+  const { error } = await supabase
     .from('tasks')
     .delete()
     .eq('id', taskId);
@@ -143,7 +143,7 @@ export const deleteTask = async (taskId: string): Promise<void> => {
 
 // Get tasks by team
 export const getTasksByTeam = async (teamId: TeamType): Promise<Task[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .select('*')
     .eq('team', teamId);
@@ -158,7 +158,7 @@ export const getTasksByTeam = async (teamId: TeamType): Promise<Task[]> => {
 
 // Get tasks by user
 export const getTasksByUser = async (userId: string): Promise<Task[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('tasks')
     .select('*')
     .eq('assignee_id', userId);

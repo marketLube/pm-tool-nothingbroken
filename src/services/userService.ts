@@ -1,43 +1,45 @@
-import { supabase, supabaseAdmin } from '../utils/supabase';
+import { supabase } from '../utils/supabase';
 import { User } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
-// Map from App User to Supabase DB schema
-const mapToDbUser = (user: Omit<User, 'id'>) => {
-  return {
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    team: user.team,
-    join_date: user.joinDate,
-    avatar_url: user.avatar || null,
-    is_active: user.isActive,
-    allowed_statuses: user.allowedStatuses || null,
-    password: user.password || null
-  };
-};
+// NOTE: This service now uses the regular supabase client instead of admin client
+// Ensure proper Row Level Security (RLS) policies are set up in Supabase for:
+// - users table: Allow authenticated users to read/write their own data
+// - Admin operations should be handled through proper RLS policies
 
-// Map from Supabase DB schema to App User
-const mapFromDbUser = (dbUser: any): User => {
-  return {
-    id: dbUser.id,
-    name: dbUser.name,
-    email: dbUser.email,
-    role: dbUser.role,
-    team: dbUser.team,
-    joinDate: dbUser.join_date,
-    avatar: dbUser.avatar_url || undefined,
-    isActive: dbUser.is_active,
-    allowedStatuses: dbUser.allowed_statuses || [],
-    password: dbUser.password
-  };
-};
+// Database mapping functions
+const mapToDbUser = (user: Omit<User, 'id'> | User) => ({
+  name: user.name,
+  email: user.email,
+  team: user.team,
+  role: user.role,
+  password: user.password,
+  avatar: user.avatar || null,
+  join_date: user.joinDate || new Date().toISOString().split('T')[0],
+  is_active: user.isActive !== undefined ? user.isActive : true,
+  allowed_statuses: user.allowedStatuses || [],
+  created_at: new Date().toISOString()
+});
+
+const mapFromDbUser = (dbUser: any): User => ({
+  id: dbUser.id,
+  name: dbUser.name,
+  email: dbUser.email,
+  team: dbUser.team,
+  role: dbUser.role,
+  password: dbUser.password,
+  avatar: dbUser.avatar,
+  joinDate: dbUser.join_date || dbUser.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+  isActive: dbUser.is_active !== undefined ? dbUser.is_active : true,
+  allowedStatuses: dbUser.allowed_statuses || []
+});
 
 // Get all users
 export const getUsers = async (): Promise<User[]> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('users')
-    .select('*');
+    .select('*')
+    .order('name');
   
   if (error) {
     console.error('Error fetching users:', error);
@@ -47,33 +49,36 @@ export const getUsers = async (): Promise<User[]> => {
   return data.map(mapFromDbUser);
 };
 
+// Get users by team
+export const getUsersByTeam = async (team: string): Promise<User[]> => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('team', team)
+    .order('name');
+  
+  if (error) {
+    console.error(`Error fetching users for team ${team}:`, error);
+    throw error;
+  }
+  
+  return data.map(mapFromDbUser);
+};
+
 // Get user by ID
 export const getUserById = async (id: string): Promise<User | null> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('users')
     .select('*')
     .eq('id', id)
     .single();
   
   if (error) {
+    if (error.code === 'PGRST116') {
+      return null; // User not found
+    }
     console.error(`Error fetching user ${id}:`, error);
-    return null;
-  }
-  
-  return mapFromDbUser(data);
-};
-
-// Get user by email
-export const getUserByEmail = async (email: string): Promise<User | null> => {
-  const { data, error } = await supabaseAdmin
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .single();
-  
-  if (error) {
-    console.error(`Error fetching user with email ${email}:`, error);
-    return null;
+    throw error;
   }
   
   return mapFromDbUser(data);
@@ -81,7 +86,7 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
 
 // Check user credentials
 export const checkUserCredentials = async (email: string, password: string): Promise<User | null> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('users')
     .select('*')
     .eq('email', email)
@@ -105,19 +110,19 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
     email: user.email,
     team: user.team,
     role: user.role,
-    hasPassword: !!user.password
+    hasPassword: !!user.password,
+    joinDate: user.joinDate || new Date().toISOString().split('T')[0]
   });
   
   const userDbData = {
     id,
-    ...mapToDbUser(user),
-    created_at: new Date().toISOString()
+    ...mapToDbUser(user)
   };
   
   console.log('Raw insert data:', JSON.stringify(userDbData));
   
   try {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('users')
       .insert([userDbData])
       .select()
@@ -141,7 +146,7 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
     
     // Check if the user already exists
     try {
-      const { data: existingUser } = await supabaseAdmin
+      const { data: existingUser } = await supabase
         .from('users')
         .select('*')
         .eq('email', user.email)
@@ -159,9 +164,9 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
   }
 };
 
-// Update a user
+// Update user
 export const updateUser = async (user: User): Promise<User> => {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('users')
     .update(mapToDbUser(user))
     .eq('id', user.id)
@@ -173,61 +178,61 @@ export const updateUser = async (user: User): Promise<User> => {
     throw error;
   }
   
+  if (!data) {
+    throw new Error('Failed to update user: No data returned');
+  }
+  
   return mapFromDbUser(data);
 };
 
-// Toggle user active status
-export const toggleUserStatus = async (userId: string): Promise<User> => {
-  try {
-    // First get current user
-    const currentUser = await getUserById(userId);
-    
-    if (!currentUser) {
-      const error = new Error(`User ${userId} not found`);
-      console.error(error);
-      throw error;
-    }
-    
-    console.log(`Toggling status for user ${userId} from ${currentUser.isActive ? 'active' : 'inactive'} to ${!currentUser.isActive ? 'active' : 'inactive'}`);
-    
-    // Toggle status
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .update({ is_active: !currentUser.isActive })
-      .eq('id', userId)
-      .select()
-      .single();
-    
-    if (error) {
-      console.error(`Error toggling status for user ${userId}:`, error);
-      throw error;
-    }
-    
-    if (!data) {
-      const noDataError = new Error(`No data returned when toggling status for user ${userId}`);
-      console.error(noDataError);
-      throw noDataError;
-    }
-    
-    console.log(`Successfully toggled status for user ${userId} to ${!currentUser.isActive ? 'active' : 'inactive'}`);
-    return mapFromDbUser(data);
-  } catch (error) {
-    console.error('Exception in toggleUserStatus:', error);
+// Update user avatar
+export const updateUserAvatar = async (userId: string, avatar: string): Promise<void> => {
+  const { error } = await supabase
+    .from('users')
+    .update({ 
+      avatar
+    })
+    .eq('id', userId);
+  
+  if (error) {
+    console.error(`Error updating avatar for user ${userId}:`, error);
     throw error;
   }
 };
 
-// Get users by team
-export const getUsersByTeam = async (teamId: string): Promise<User[]> => {
-  const { data, error } = await supabaseAdmin
+// Delete user
+export const deleteUser = async (userId: string): Promise<void> => {
+  const { error } = await supabase
     .from('users')
-    .select('*')
-    .eq('team', teamId);
+    .delete()
+    .eq('id', userId);
   
   if (error) {
-    console.error(`Error fetching users for team ${teamId}:`, error);
+    console.error('Error deleting user:', error);
     throw error;
   }
+};
+
+export const toggleUserStatus = async (userId: string): Promise<User> => {
+  // First get the current user to toggle their status
+  const user = await getUserById(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const newStatus = !user.isActive;
   
-  return data.map(mapFromDbUser);
+  const { data, error } = await supabase
+    .from('users')
+    .update({ is_active: newStatus })
+    .eq('id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error toggling user status:', error);
+    throw error;
+  }
+
+  return mapFromDbUser(data);
 }; 

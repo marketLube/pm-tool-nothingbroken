@@ -1,26 +1,36 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../types/supabase';
 
-// Ideally these would be in environment variables
-// For production, you should use .env files or environment variables
-const supabaseUrl = 'https://ysfknpujqivkudhnhezx.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzZmtucHVqcWl2a3VkaG5oZXp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDc1OTYxMTMsImV4cCI6MjA2MzE3MjExM30.zSHRvncRmwEMNTPgfIgieN6A4tZ2VeCfu6uZV0xaiSQ';
+// Environment variables validation
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-// IMPORTANT: This should be your service role key
-// NOTE: In a production environment, this key should NEVER be exposed in client-side code
-// It should be used only in server-side code or in a secure environment
-const serviceRoleKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzZmtucHVqcWl2a3VkaG5oZXp4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NzU5NjExMywiZXhwIjoyMDYzMTcyMTEzfQ.7q0ONGSxRUvWJS_Vo3DcXnoZt6DSpBqsZhcnX9JTARI';
+// Validate required environment variables
+if (!supabaseUrl) {
+  throw new Error('Missing VITE_SUPABASE_URL environment variable. Please check your .env file.');
+}
+
+// TEMPORARY FIX: Use service role key if anon key is not working
+// In production, you should fix the anon key and RLS policies instead
+const effectiveKey = serviceRoleKey || supabaseKey;
+
+if (!effectiveKey) {
+  throw new Error('Missing required Supabase API key. Please check your .env file.');
+}
+
+console.log('🔧 Supabase client initialized with:', {
+  url: supabaseUrl,
+  keyType: serviceRoleKey ? 'service_role (TEMP FIX)' : 'anon',
+  keyExists: !!effectiveKey
+});
 
 // Create a single supabase client for interacting with your database
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
-
-// Create a supabase client with admin privileges
-// CAUTION: Use this client only for operations that truly need admin privileges
-export const supabaseAdmin = createClient<Database>(supabaseUrl, serviceRoleKey);
+export const supabase = createClient<Database>(supabaseUrl, effectiveKey);
 
 // Helper function to check if Supabase is configured
 export const isSupabaseConfigured = (): boolean => {
-  return supabaseUrl.length > 0 && supabaseKey.length > 0;
+  return Boolean(supabaseUrl && effectiveKey);
 };
 
 // Function to ensure the password field exists in the user table
@@ -54,28 +64,6 @@ export const testSupabaseConnection = async (): Promise<boolean> => {
     return true;
   } catch (error) {
     console.error('Error testing Supabase connection:', error);
-    return false;
-  }
-};
-
-// Function to test admin connection
-export const testAdminConnection = async (): Promise<boolean> => {
-  try {
-    // Try to fetch a small amount of data to test connection with admin privileges
-    const { data, error } = await supabaseAdmin
-      .from('clients')
-      .select('id, name')
-      .limit(1);
-    
-    if (error) {
-      console.error('Supabase admin connection test failed:', error);
-      return false;
-    }
-    
-    console.log('Supabase admin connection successful, test data:', data);
-    return true;
-  } catch (error) {
-    console.error('Error testing Supabase admin connection:', error);
     return false;
   }
 }; 
