@@ -47,10 +47,101 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Start with loading true to check session
   
-  // We're no longer auto-logging in users on mount
-  // This ensures users must explicitly log in through the login page
+  // Helper function to store user session
+  const storeUserSession = (user: User) => {
+    try {
+      // Set session to expire in 24 hours
+      const expiryTime = Date.now() + (24 * 60 * 60 * 1000);
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      localStorage.setItem('sessionExpiry', expiryTime.toString());
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Error storing user session:', error);
+      setCurrentUser(user); // Still set in memory even if storage fails
+    }
+  };
+
+  const logout = () => {
+    // Clear session storage
+    localStorage.removeItem('currentUser');
+    localStorage.removeItem('sessionExpiry');
+    setCurrentUser(null);
+    console.log('User logged out, session cleared');
+  };
+  
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkExistingSession = () => {
+      try {
+        const storedUser = localStorage.getItem('currentUser');
+        const sessionExpiry = localStorage.getItem('sessionExpiry');
+        
+        if (storedUser && sessionExpiry) {
+          const expiryTime = parseInt(sessionExpiry);
+          const currentTime = Date.now();
+          
+          // Check if session is still valid (24 hours)
+          if (currentTime < expiryTime) {
+            const user = JSON.parse(storedUser);
+            setCurrentUser(user);
+            console.log('Restored user session for:', user.email);
+          } else {
+            // Session expired, clear storage
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('sessionExpiry');
+            console.log('Session expired, cleared storage');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking existing session:', error);
+        // Clear corrupted data
+        localStorage.removeItem('currentUser');
+        localStorage.removeItem('sessionExpiry');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkExistingSession();
+
+    // Set up periodic session validation (every 5 minutes)
+    const sessionCheckInterval = setInterval(() => {
+      const sessionExpiry = localStorage.getItem('sessionExpiry');
+      if (sessionExpiry) {
+        const expiryTime = parseInt(sessionExpiry);
+        const currentTime = Date.now();
+        
+        if (currentTime >= expiryTime) {
+          console.log('Session expired during use, logging out');
+          logout();
+        }
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes
+
+    // Clear interval on cleanup
+    return () => clearInterval(sessionCheckInterval);
+  }, []);
+  
+  // Listen for window focus to validate session
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      const sessionExpiry = localStorage.getItem('sessionExpiry');
+      if (sessionExpiry && currentUser) {
+        const expiryTime = parseInt(sessionExpiry);
+        const currentTime = Date.now();
+        
+        if (currentTime >= expiryTime) {
+          console.log('Session expired while away, logging out');
+          logout();
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [currentUser]);
   
   const isAuthenticated = !!currentUser;
   const isAdmin = currentUser?.role === 'admin';
@@ -96,7 +187,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           ]
         };
         
-        setCurrentUser(adminUser);
+        storeUserSession(adminUser);
         
         // Record automatic check-in
         await attendanceService.recordLoginAsCheckIn(adminUser.id);
@@ -109,7 +200,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const user = await userService.checkUserCredentials(email, password);
       
       if (user && user.isActive) {
-        setCurrentUser(user);
+        storeUserSession(user);
         
         // Record automatic check-in for the user
         await attendanceService.recordLoginAsCheckIn(user.id);
@@ -127,15 +218,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsLoading(false);
     }
   };
-
-  const logout = () => {
-    setCurrentUser(null);
-  };
   
   // Function to update current user when modified in the DataContext
   const updateCurrentUser = (updatedUser: User) => {
     if (currentUser && currentUser.id === updatedUser.id) {
-      setCurrentUser(updatedUser);
+      storeUserSession(updatedUser); // Update stored session as well
     }
   };
 
