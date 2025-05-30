@@ -43,6 +43,7 @@ interface DailyCardProps {
   weekDays: Date[];
   isExpanded: boolean;
   onToggleExpand: () => void;
+  isToday: boolean;
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -58,7 +59,8 @@ const DailyCard: React.FC<DailyCardProps> = ({
   allDailyReports,
   weekDays,
   isExpanded,
-  onToggleExpand
+  onToggleExpand,
+  isToday
 }) => {
   const { getUserById, getClientById } = useData();
   const [warningMessage, setWarningMessage] = useState<string>('');
@@ -163,21 +165,39 @@ const DailyCard: React.FC<DailyCardProps> = ({
         onClick={onToggleExpand}
         className={`cursor-pointer transition-all duration-300 ${
           isExpanded 
-            ? 'bg-blue-50 border-blue-200 shadow-md' 
-            : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'
+            ? isToday 
+              ? 'bg-blue-100 border-blue-300 shadow-lg' 
+              : 'bg-blue-50 border-blue-200 shadow-md'
+            : isToday
+              ? 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:shadow-md'
+              : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'
         } border rounded-lg p-4`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <CalendarDays className={`h-5 w-5 ${
-              isExpanded ? 'text-blue-600' : 'text-gray-600'
+              isExpanded 
+                ? isToday ? 'text-blue-700' : 'text-blue-600'
+                : isToday ? 'text-blue-600' : 'text-gray-600'
             }`} />
             <div>
-              <h3 className={`text-lg font-semibold ${
-                isExpanded ? 'text-blue-900' : 'text-gray-900'
-              }`}>
-                {format(parseISO(date), 'EEEE, MMM d')}
-              </h3>
+              <div className="flex items-center space-x-2">
+                <h3 className={`text-lg font-semibold ${
+                  isExpanded 
+                    ? isToday ? 'text-blue-900' : 'text-blue-900'
+                    : isToday ? 'text-blue-900' : 'text-gray-900'
+                }`}>
+                  {format(parseISO(date), 'EEEE, MMM d')}
+                </h3>
+                {isToday && (
+                  <Badge 
+                    variant="info" 
+                    className="text-xs px-2 py-1 bg-blue-600 text-white animate-pulse"
+                  >
+                    Today
+                  </Badge>
+                )}
+              </div>
               {!isExpanded && (
                 <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
                   {isAbsent || defaultAbsent ? (
@@ -217,7 +237,9 @@ const DailyCard: React.FC<DailyCardProps> = ({
             <div className={`transition-transform duration-300 ${
               isExpanded ? 'rotate-180' : ''
             }`}>
-              <ChevronDown className="h-5 w-5 text-gray-400" />
+              <ChevronDown className={`h-5 w-5 ${
+                isToday ? 'text-blue-500' : 'text-gray-400'
+              }`} />
             </div>
           </div>
         </div>
@@ -918,7 +940,8 @@ const ReportsAnalytics: React.FC = () => {
                       allDailyReports={dailyReports}
                       weekDays={weekDays}
                       isExpanded={dateStr === selectedDate}
-                      onToggleExpand={() => setSelectedDate(dateStr)}
+                      onToggleExpand={() => setSelectedDate(selectedDate === dateStr ? '' : dateStr)}
+                      isToday={isToday}
                     />
                   );
                 })}
