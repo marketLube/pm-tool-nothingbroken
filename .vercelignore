@@ -1,0 +1,66 @@
+# Development files
+node_modules/
+.env.local
+.env.development
+.env.test
+
+# Build files that aren't needed
+dist/
+build/
+
+# Documentation and development scripts
+*.md
+CALENDAR_EXPORT_SETUP.md
+COMPLETE_DATABASE_SETUP.sql
+FIX_DATABASE_ISSUES.sql
+FIX_DATABASE_ISSUES_SAFE.sql
+PRODUCTION_CHECKLIST.md
+PRODUCTION_READINESS_STATUS.md
+SOCIAL_CALENDAR_CLIENT_REFRESH_FEATURES.md
+SOCIAL_CALENDAR_FIX_INSTRUCTIONS.md
+SOCIAL_CALENDAR_IMPLEMENTATION_SUMMARY.md
+SOCIAL_CALENDAR_README.md
+SOCIAL_CALENDAR_UPDATED_REQUIREMENTS.md
+STATE_MANAGEMENT_ANALYSIS.md
+
+# SQL and test files
+*.sql
+*.mjs
+test_*.js
+*test*.js
+debug_*.sql
+temporary_*.sql
+
+# Git and editor files
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache 
