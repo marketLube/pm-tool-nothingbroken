@@ -22,7 +22,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Target,
-  Activity
+  Activity,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { TeamType, DailyReport, Task, DailyWorkEntry } from '../types';
 import * as dailyReportService from '../services/dailyReportService';
@@ -39,6 +41,8 @@ interface DailyCardProps {
   userTasks: Task[];
   allDailyReports: { [key: string]: DailyReport | null };
   weekDays: Date[];
+  isExpanded: boolean;
+  onToggleExpand: () => void;
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -52,7 +56,9 @@ const DailyCard: React.FC<DailyCardProps> = ({
   isAdmin,
   userTasks,
   allDailyReports,
-  weekDays
+  weekDays,
+  isExpanded,
+  onToggleExpand
 }) => {
   const { getUserById, getClientById } = useData();
   const [warningMessage, setWarningMessage] = useState<string>('');
@@ -152,247 +158,233 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
   return (
     <div className="space-y-3 animate-fadeIn">
-      {/* Warning Alert */}
-      {showWarning && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 animate-slideIn">
-          <div className="flex items-start space-x-2">
-            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <h4 className="text-sm font-medium text-red-800">Cannot Complete Task</h4>
-              <p className="text-sm text-red-700 mt-1">{warningMessage}</p>
-            </div>
-            <button
-              onClick={() => {
-                setShowWarning(false);
-                setWarningMessage('');
-              }}
-              className="text-red-400 hover:text-red-600 transition-colors"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* User Header (for admin view) */}
-      {isAdmin && (
-        <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 transition-all duration-200 hover:shadow-sm">
-          <Avatar name={user?.name} size="sm" />
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-900">{user?.name}</h3>
-            <p className="text-xs text-gray-600 capitalize flex items-center">
-              <Users className="h-3 w-3 mr-1" />
-              {user?.team} Team • {user?.role}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Date Header */}
-      <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-        <div className="flex items-center space-x-2">
-          <CalendarDays className="h-4 w-4 text-blue-600" />
-          <h4 className="text-sm font-semibold text-gray-900">
-            {format(parseISO(date), 'EEEE, MMM d')}
-          </h4>
-        </div>
-        <div className="flex items-center space-x-2">
-          <label className="flex items-center space-x-2 text-xs cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={isAbsent || defaultAbsent}
-              onChange={(e) => onAbsentToggle(e.target.checked)}
-              className="rounded border-gray-300 text-red-600 focus:ring-red-500 transition-all duration-200"
-            />
-            <span className="text-gray-700 group-hover:text-gray-900 transition-colors">
-              {isSunday && !report ? 'Sunday (Default Absent)' : 'Mark Absent'}
-            </span>
-          </label>
-        </div>
-      </div>
-
-      {/* Check-in/Check-out Times */}
-      {!isAbsent && !defaultAbsent && (
-        <div className="grid grid-cols-2 gap-3 p-3 bg-green-50 rounded-lg border border-green-100 transition-all duration-300">
-          <div className="space-y-1">
-            <label className="flex items-center text-xs font-medium text-gray-700">
-              <Clock className="h-3 w-3 mr-1 text-green-600" />
-              Check In
-            </label>
-            <input
-              type="time"
-              value={report?.workEntry.checkInTime || ''}
-              onChange={(e) => onCheckInOut(e.target.value, undefined)}
-              className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="flex items-center text-xs font-medium text-gray-700">
-              <Clock className="h-3 w-3 mr-1 text-green-600" />
-              Check Out
-            </label>
-            <input
-              type="time"
-              value={report?.workEntry.checkOutTime || ''}
-              onChange={(e) => onCheckInOut(undefined, e.target.value)}
-              className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Task Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {/* Tasks Assigned */}
-        <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span className="flex items-center text-gray-800">
-                <Target className="h-4 w-4 mr-2 text-blue-600" />
-                Tasks Assigned
-              </span>
-              <Badge variant="info" className="text-xs px-2 py-1">{assignedTasks.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-              {assignedTasks.map((task, index) => {
-                const client = task.clientId ? getClientById(task.clientId) : null;
-                const hasConflict = isFutureDate(date) && isTaskOpenOnEarlierDays(task.id, date);
-                const conflictDay = hasConflict ? isTaskOpenOnEarlierDays(task.id, date) : null;
-                
-                return (
-                  <div
-                    key={task.id}
-                    className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
-                      hasConflict 
-                        ? 'border-amber-200 bg-amber-50 hover:bg-amber-100' 
-                        : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
-                    }`}
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <button
-                      onClick={() => handleTaskToggleWithValidation(task.id, true)}
-                      className={`mt-0.5 transition-all duration-200 hover:scale-110 ${
-                        hasConflict 
-                          ? 'text-amber-500 hover:text-amber-600' 
-                          : 'text-gray-400 hover:text-green-600'
-                      }`}
-                      disabled={isAbsent || defaultAbsent}
-                      title={hasConflict 
-                        ? `Cannot complete - task is still open on ${format(parseISO(conflictDay!), 'MMM d')}` 
-                        : "Mark as completed"
-                      }
-                    >
-                      {hasConflict ? (
-                        <AlertCircle className="h-4 w-4" />
-                      ) : (
-                        <Circle className="h-4 w-4" />
+      {/* Collapsible Header */}
+      <div 
+        onClick={onToggleExpand}
+        className={`cursor-pointer transition-all duration-300 ${
+          isExpanded 
+            ? 'bg-blue-50 border-blue-200 shadow-md' 
+            : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'
+        } border rounded-lg p-4`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <CalendarDays className={`h-5 w-5 ${
+              isExpanded ? 'text-blue-600' : 'text-gray-600'
+            }`} />
+            <div>
+              <h3 className={`text-lg font-semibold ${
+                isExpanded ? 'text-blue-900' : 'text-gray-900'
+              }`}>
+                {format(parseISO(date), 'EEEE, MMM d')}
+              </h3>
+              {!isExpanded && (
+                <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                  {isAbsent || defaultAbsent ? (
+                    <span className="flex items-center text-red-600">
+                      <AlertCircle className="h-4 w-4 mr-1" />
+                      Absent
+                    </span>
+                  ) : (
+                    <>
+                      <span className="flex items-center">
+                        <Target className="h-4 w-4 mr-1 text-blue-500" />
+                        {assignedTasks.length} assigned
+                      </span>
+                      <span className="flex items-center">
+                        <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
+                        {completedTasks.length} completed
+                      </span>
+                      {report?.workEntry.checkInTime && (
+                        <span className="flex items-center">
+                          <Clock className="h-4 w-4 mr-1 text-gray-500" />
+                          {formatTime(report.workEntry.checkInTime)} - {formatTime(report.workEntry.checkOutTime)}
+                        </span>
                       )}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <h4 className={`text-xs font-medium truncate transition-colors ${
-                          hasConflict 
-                            ? 'text-amber-900 group-hover:text-amber-800' 
-                            : 'text-gray-900 group-hover:text-blue-900'
-                        }`}>
-                          {task.title}
-                        </h4>
-                        {hasConflict && (
-                          <Badge variant="warning" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
-                            Conflict
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-600 truncate">
-                        {client?.name || 'Unknown Client'}
-                      </p>
-                      {hasConflict && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          Open on {format(parseISO(conflictDay!), 'MMM d')} - complete there first
-                        </p>
-                      )}
-                      <div className="flex items-center justify-between mt-1">
-                        <p className="text-xs text-gray-500">
-                          Due: {format(parseISO(task.dueDate), 'MMM d')}
-                        </p>
-                        <div className="flex space-x-1">
-                          <Badge 
-                            variant={
-                              task.priority === 'high' ? 'danger' : 
-                              task.priority === 'medium' ? 'warning' : 'info'
-                            }
-                            size="sm"
-                            className="text-xs px-1.5 py-0.5"
-                          >
-                            {task.priority}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              
-              {assignedTasks.length === 0 && (
-                <div className="text-center py-4 text-gray-500">
-                  <Circle className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                  <p className="text-xs">No tasks assigned</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="flex items-center space-x-3">
+            {!isExpanded && isAdmin && user && (
+              <div className="flex items-center space-x-2">
+                <Avatar name={user.name} size="sm" />
+                <span className="text-sm font-medium text-gray-700">{user.name}</span>
+              </div>
+            )}
+            <div className={`transition-transform duration-300 ${
+              isExpanded ? 'rotate-180' : ''
+            }`}>
+              <ChevronDown className="h-5 w-5 text-gray-400" />
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Tasks Completed */}
-        <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center justify-between">
-              <span className="flex items-center text-gray-800">
-                <Activity className="h-4 w-4 mr-2 text-green-600" />
-                Tasks Completed
-              </span>
-              <Badge variant="success" className="text-xs px-2 py-1">{completedTasks.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-              {(isAbsent || defaultAbsent) && completedTasks.length > 0 ? (
-                <div className="text-center py-6">
-                  <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-500" />
-                  <p className="text-gray-600 font-medium text-sm">Absent</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {completedTasks.length} task{completedTasks.length !== 1 ? 's' : ''} completed while absent
-                  </p>
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="space-y-3 pl-4 border-l-2 border-blue-200">
+          {/* Warning Alert */}
+          {showWarning && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 animate-slideIn">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-medium text-red-800">Cannot Complete Task</h4>
+                  <p className="text-sm text-red-700 mt-1">{warningMessage}</p>
                 </div>
-              ) : (
-                <>
-                  {completedTasks.map((task, index) => {
+                <button
+                  onClick={() => {
+                    setShowWarning(false);
+                    setWarningMessage('');
+                  }}
+                  className="text-red-400 hover:text-red-600 transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* User Header (for admin view) */}
+          {isAdmin && (
+            <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 transition-all duration-200 hover:shadow-sm">
+              <Avatar name={user?.name} size="sm" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-gray-900">{user?.name}</h3>
+                <p className="text-xs text-gray-600 capitalize flex items-center">
+                  <Users className="h-3 w-3 mr-1" />
+                  {user?.team} Team • {user?.role}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Absent/Present Toggle */}
+          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <span className="text-sm font-medium text-gray-700">Attendance</span>
+            <label className="flex items-center space-x-2 text-xs cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={isAbsent || defaultAbsent}
+                onChange={(e) => onAbsentToggle(e.target.checked)}
+                className="rounded border-gray-300 text-red-600 focus:ring-red-500 transition-all duration-200"
+              />
+              <span className="text-gray-700 group-hover:text-gray-900 transition-colors">
+                {isSunday && !report ? 'Sunday (Default Absent)' : 'Mark Absent'}
+              </span>
+            </label>
+          </div>
+
+          {/* Check-in/Check-out Times */}
+          {!isAbsent && !defaultAbsent && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-green-50 rounded-lg border border-green-100 transition-all duration-300">
+              <div className="space-y-1">
+                <label className="flex items-center text-xs font-medium text-gray-700">
+                  <Clock className="h-3 w-3 mr-1 text-green-600" />
+                  Check In
+                </label>
+                <input
+                  type="time"
+                  value={report?.workEntry.checkInTime || ''}
+                  onChange={(e) => onCheckInOut(e.target.value, undefined)}
+                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="flex items-center text-xs font-medium text-gray-700">
+                  <Clock className="h-3 w-3 mr-1 text-green-600" />
+                  Check Out
+                </label>
+                <input
+                  type="time"
+                  value={report?.workEntry.checkOutTime || ''}
+                  onChange={(e) => onCheckInOut(undefined, e.target.value)}
+                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Task Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Tasks Assigned */}
+            <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center text-gray-800">
+                    <Target className="h-4 w-4 mr-2 text-blue-600" />
+                    Tasks Assigned
+                  </span>
+                  <Badge variant="info" className="text-xs px-2 py-1">{assignedTasks.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                  {assignedTasks.map((task, index) => {
                     const client = task.clientId ? getClientById(task.clientId) : null;
+                    const hasConflict = isFutureDate(date) && isTaskOpenOnEarlierDays(task.id, date);
+                    const conflictDay = hasConflict ? isTaskOpenOnEarlierDays(task.id, date) : null;
+                    
                     return (
                       <div
                         key={task.id}
-                        className="flex items-start space-x-2 p-2 border border-green-200 rounded-md bg-green-50 hover:bg-green-100 transition-all duration-200 group animate-slideIn"
+                        className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
+                          hasConflict 
+                            ? 'border-amber-200 bg-amber-50 hover:bg-amber-100' 
+                            : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
+                        }`}
                         style={{ animationDelay: `${index * 50}ms` }}
                       >
                         <button
-                          onClick={() => handleTaskToggleWithValidation(task.id, false)}
-                          className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTaskToggleWithValidation(task.id, true);
+                          }}
+                          className={`mt-0.5 transition-all duration-200 hover:scale-110 ${
+                            hasConflict 
+                              ? 'text-amber-500 hover:text-amber-600' 
+                              : 'text-gray-400 hover:text-green-600'
+                          }`}
                           disabled={isAbsent || defaultAbsent}
-                          title="Move back to assigned"
+                          title={hasConflict 
+                            ? `Cannot complete - task is still open on ${format(parseISO(conflictDay!), 'MMM d')}` 
+                            : "Mark as completed"
+                          }
                         >
-                          <CheckCircle className="h-4 w-4" />
+                          {hasConflict ? (
+                            <AlertCircle className="h-4 w-4" />
+                          ) : (
+                            <Circle className="h-4 w-4" />
+                          )}
                         </button>
                         <div className="flex-1 min-w-0">
-                          <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-green-900 transition-colors">
-                            {task.title}
-                          </h4>
+                          <div className="flex items-center space-x-2">
+                            <h4 className={`text-xs font-medium truncate transition-colors ${
+                              hasConflict 
+                                ? 'text-amber-900 group-hover:text-amber-800' 
+                                : 'text-gray-900 group-hover:text-blue-900'
+                            }`}>
+                              {task.title}
+                            </h4>
+                            {hasConflict && (
+                              <Badge variant="warning" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
+                                Conflict
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-600 truncate">
                             {client?.name || 'Unknown Client'}
                           </p>
+                          {hasConflict && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Open on {format(parseISO(conflictDay!), 'MMM d')} - complete there first
+                            </p>
+                          )}
                           <div className="flex items-center justify-between mt-1">
                             <p className="text-xs text-gray-500">
                               Due: {format(parseISO(task.dueDate), 'MMM d')}
@@ -408,28 +400,111 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               >
                                 {task.priority}
                               </Badge>
-                              <Badge variant="success" size="sm" className="text-xs px-1.5 py-0.5">
-                                Completed
-                              </Badge>
                             </div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
-                </>
-              )}
-              
-              {completedTasks.length === 0 && (
-                <div className="text-center py-4 text-gray-500">
-                  <CheckCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                  <p className="text-xs">No tasks completed</p>
+                  
+                  {assignedTasks.length === 0 && (
+                    <div className="text-center py-4 text-gray-500">
+                      <Circle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-xs">No tasks assigned</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+
+            {/* Tasks Completed */}
+            <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center justify-between">
+                  <span className="flex items-center text-gray-800">
+                    <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                    Tasks Completed
+                  </span>
+                  <Badge variant="success" className="text-xs px-2 py-1">{completedTasks.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                  {(isAbsent || defaultAbsent) && completedTasks.length > 0 ? (
+                    <div className="text-center py-6">
+                      <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-500" />
+                      <p className="text-gray-600 font-medium text-sm">Absent</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {completedTasks.length} task{completedTasks.length !== 1 ? 's' : ''} completed while absent
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {completedTasks.map((task, index) => {
+                        const client = task.clientId ? getClientById(task.clientId) : null;
+                        return (
+                          <div
+                            key={task.id}
+                            className="flex items-start space-x-2 p-2 border border-green-200 rounded-md bg-green-50 hover:bg-green-100 transition-all duration-200 group animate-slideIn"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTaskToggleWithValidation(task.id, false);
+                              }}
+                              className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
+                              disabled={isAbsent || defaultAbsent}
+                              title="Move back to assigned"
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-green-900 transition-colors">
+                                {task.title}
+                              </h4>
+                              <p className="text-xs text-gray-600 truncate">
+                                {client?.name || 'Unknown Client'}
+                              </p>
+                              <div className="flex items-center justify-between mt-1">
+                                <p className="text-xs text-gray-500">
+                                  Due: {format(parseISO(task.dueDate), 'MMM d')}
+                                </p>
+                                <div className="flex space-x-1">
+                                  <Badge 
+                                    variant={
+                                      task.priority === 'high' ? 'danger' : 
+                                      task.priority === 'medium' ? 'warning' : 'info'
+                                    }
+                                    size="sm"
+                                    className="text-xs px-1.5 py-0.5"
+                                  >
+                                    {task.priority}
+                                  </Badge>
+                                  <Badge variant="success" size="sm" className="text-xs px-1.5 py-0.5">
+                                    Completed
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                  
+                  {completedTasks.length === 0 && (
+                    <div className="text-center py-4 text-gray-500">
+                      <CheckCircle className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-xs">No tasks completed</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -816,61 +891,37 @@ const ReportsAnalytics: React.FC = () => {
           <p className="text-sm text-gray-600 mt-2">Loading reports...</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-3">
           {weekDays.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
             const isToday = isSameDay(day, new Date());
             
             return (
-              <div
-                key={dateStr}
-                ref={isToday ? todayRef : undefined}
-                className={`space-y-4 p-4 rounded-lg border transition-all duration-300 ${
-                  isToday 
-                    ? 'bg-blue-50 border-blue-200 shadow-md' 
-                    : 'bg-white border-gray-200 hover:shadow-sm'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className={`text-lg font-bold flex items-center ${
-                    isToday ? 'text-blue-900' : 'text-gray-900'
-                  }`}>
-                    <CalendarDays className={`h-5 w-5 mr-2 ${
-                      isToday ? 'text-blue-600' : 'text-gray-600'
-                    }`} />
-                    {format(day, 'EEEE, MMMM d, yyyy')}
-                    {isToday && (
-                      <Badge variant="info" className="ml-3 text-xs px-2 py-1 animate-pulse">
-                        Today
-                      </Badge>
-                    )}
-                  </h3>
-                </div>
+              <div key={dateStr} ref={isToday ? todayRef : undefined}>
+                {usersToDisplay.map((user) => {
+                  const reportKey = `${user.id}-${dateStr}`;
+                  const report = dailyReports[reportKey];
+                  const userTasks = getTasksByUser(user.id);
 
-                <div className="grid gap-4">
-                  {usersToDisplay.map((user) => {
-                    const reportKey = `${user.id}-${dateStr}`;
-                    const report = dailyReports[reportKey];
-                    const userTasks = getTasksByUser(user.id);
-
-                    return (
-                      <DailyCard
-                        key={reportKey}
-                        userId={user.id}
-                        date={dateStr}
-                        report={report}
-                        onTaskToggle={(taskId, completed) => handleTaskToggle(user.id, dateStr, taskId, completed)}
-                        onAddTask={() => handleAddTask(user.id, dateStr)}
-                        onAbsentToggle={(isAbsent) => handleAbsentToggle(user.id, dateStr, isAbsent)}
-                        onCheckInOut={(checkIn, checkOut) => handleCheckInOut(user.id, dateStr, checkIn, checkOut)}
-                        isAdmin={isAdmin}
-                        userTasks={userTasks}
-                        allDailyReports={dailyReports}
-                        weekDays={weekDays}
-                      />
-                    );
-                  })}
-                </div>
+                  return (
+                    <DailyCard
+                      key={reportKey}
+                      userId={user.id}
+                      date={dateStr}
+                      report={report}
+                      onTaskToggle={(taskId, completed) => handleTaskToggle(user.id, dateStr, taskId, completed)}
+                      onAddTask={() => handleAddTask(user.id, dateStr)}
+                      onAbsentToggle={(isAbsent) => handleAbsentToggle(user.id, dateStr, isAbsent)}
+                      onCheckInOut={(checkIn, checkOut) => handleCheckInOut(user.id, dateStr, checkIn, checkOut)}
+                      isAdmin={isAdmin}
+                      userTasks={userTasks}
+                      allDailyReports={dailyReports}
+                      weekDays={weekDays}
+                      isExpanded={dateStr === selectedDate}
+                      onToggleExpand={() => setSelectedDate(dateStr)}
+                    />
+                  );
+                })}
               </div>
             );
           })}
