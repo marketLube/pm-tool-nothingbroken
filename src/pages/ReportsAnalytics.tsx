@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay } from 'date-fns';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay, isBefore } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 import Badge from '../components/ui/Badge';
@@ -29,6 +29,11 @@ import {
 import { TeamType, DailyReport, Task, DailyWorkEntry } from '../types';
 import * as dailyReportService from '../services/dailyReportService';
 
+// Helper to check "future date"
+const isFutureDate = (dateStr: string): boolean => {
+  return parseISO(dateStr) > startOfDay(new Date());
+};
+
 interface DailyCardProps {
   userId: string;
   date: string;
@@ -45,7 +50,6 @@ interface DailyCardProps {
   onToggleExpand: () => void;
   isToday: boolean;
   isLoading?: boolean;
-  isLoaded?: boolean;
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -63,8 +67,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
   isExpanded,
   onToggleExpand,
   isToday,
-  isLoading,
-  isLoaded
+  isLoading
 }) => {
   const { getUserById, getClientById } = useData();
   const [warningMessage, setWarningMessage] = useState<string>('');
@@ -79,76 +82,59 @@ const DailyCard: React.FC<DailyCardProps> = ({
   // Only show tasks that are explicitly assigned for this specific day
   // Don't show all user tasks - only show what's in the daily report
   const assignedTasks = userTasks.filter(task => 
-    assignedTaskIds.includes(task.id)
+    // only show it as "assigned" if it's not also in the completed list
+    assignedTaskIds.includes(task.id) &&
+    !completedTaskIds.includes(task.id)
   );
   
   const completedTasks = userTasks.filter(task => 
     completedTaskIds.includes(task.id)
   );
 
-  // Function to check if a task is still open/incomplete on current or previous days
-  const isTaskOpenOnEarlierDays = (taskId: string, currentDate: string): string | null => {
-    const currentDateObj = parseISO(currentDate);
-    const today = new Date();
-    
-    // Check all days from the beginning of the week up to (but not including) the current date
-    for (const day of weekDays) {
-      const dayStr = format(day, 'yyyy-MM-dd');
-      
-      // Skip if this is the current date or later
-      if (dayStr >= currentDate) continue;
-      
-      // Skip future dates beyond today
-      if (day > today) continue;
-      
-      const reportKey = `${userId}-${dayStr}`;
-      const dayReport = allDailyReports[reportKey];
-      
-      if (dayReport) {
-        // Check if task is assigned (incomplete) on this earlier day
-        if (dayReport.workEntry.assignedTasks.includes(taskId)) {
-          return dayStr;
-        }
-      }
-    }
-    
-    return null;
-  };
-
-  // Function to check if current date is in the future
-  const isFutureDate = (dateStr: string): boolean => {
-    const date = parseISO(dateStr);
-    const today = startOfDay(new Date());
-    return date > today;
-  };
-
   const handleTaskToggleWithValidation = (taskId: string, completed: boolean) => {
+    const task = userTasks.find(t => t.id === taskId);
+    const dateObj = parseISO(date);
+    const today = startOfDay(new Date());
+    const formattedDate = format(dateObj, 'EEEE, MMM d');
+
+    // 🔒 Prevent un-completing on any day before today
+    if (!completed && dateObj < today) {
+      setWarningMessage(
+        `You can't revert "${task?.title || 'this task'}" on ${formattedDate} — it was already completed. Please contact an admin if you need to change it.`
+      );
+      setShowWarning(true);
+      setTimeout(() => {
+        setShowWarning(false);
+        setWarningMessage('');
+      }, 8000);
+      return;
+    }
+
     if (completed) {
-      // For future dates, check if task is still open on earlier days
+      // 1) Block future dates
       if (isFutureDate(date)) {
-        const openOnDay = isTaskOpenOnEarlierDays(taskId, date);
-        
-        if (openOnDay) {
-          const task = userTasks.find(t => t.id === taskId);
-          const earlierDateFormatted = format(parseISO(openOnDay), 'EEEE, MMM d');
-          
-          setWarningMessage(
-            `Cannot complete "${task?.title || 'this task'}" on ${format(parseISO(date), 'EEEE, MMM d')}. The task is still open on ${earlierDateFormatted}. Please complete it on that day first.`
-          );
-          setShowWarning(true);
-          
-          // Auto-hide warning after 6 seconds
-          setTimeout(() => {
-            setShowWarning(false);
-            setWarningMessage('');
-          }, 6000);
-          
-          return;
-        }
+        const currentDateFormatted = format(parseISO(date), 'EEEE, MMM d');
+        setWarningMessage(
+          `Cannot complete tasks scheduled for ${currentDateFormatted} because that's a future date.`
+        );
+        setShowWarning(true);
+        setTimeout(() => setShowWarning(false), 8000);
+        return;
+      }
+
+      // 2) Block any completed attempt unless you're viewing TODAY
+      if (!isToday) {
+        const todayFormatted = format(startOfDay(new Date()), 'EEEE, MMM d');
+        setWarningMessage(
+          `Tasks can only be completed on ${todayFormatted}. Switch to today's view to finish it.`
+        );
+        setShowWarning(true);
+        setTimeout(() => setShowWarning(false), 8000);
+        return;
       }
     }
-    
-    // If validation passes, proceed with task toggle
+
+    // All clear: proceed
     onTaskToggle(taskId, completed);
   };
 
@@ -156,11 +142,6 @@ const DailyCard: React.FC<DailyCardProps> = ({
     if (!time) return '--:--';
     return time;
   };
-
-  // Check if it's Sunday and set default absent
-  const dayOfWeek = new Date(date).getDay();
-  const isSunday = dayOfWeek === 0;
-  const defaultAbsent = isSunday && !report?.workEntry.isAbsent;
 
   return (
     <div className="space-y-3 animate-fadeIn">
@@ -194,9 +175,8 @@ const DailyCard: React.FC<DailyCardProps> = ({
                   {format(parseISO(date), 'EEEE, MMM d')}
                 </h3>
                 {isToday && (
-                  <Badge 
-                    variant="info" 
-                    className="text-xs px-2 py-1 bg-blue-600 text-white animate-pulse"
+                  <Badge
+                    className="!bg-blue-600 !text-white text-xs px-3 py-1.5 font-semibold shadow-sm rounded-full animate-pulse border-0"
                   >
                     Today
                   </Badge>
@@ -204,14 +184,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
               </div>
               {!isExpanded && (
                 <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                  {isLoading ? (
-                    <div className="flex items-center text-blue-600">
-                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-blue-500 mr-2"></div>
-                      Loading...
-                    </div>
-                  ) : !isLoaded ? (
-                    <span className="text-gray-500 italic">Click to load</span>
-                  ) : isAbsent || defaultAbsent ? (
+                  {isAbsent ? (
                     <span className="flex items-center text-red-600">
                       <AlertCircle className="h-4 w-4 mr-1" />
                       Absent
@@ -262,14 +235,8 @@ const DailyCard: React.FC<DailyCardProps> = ({
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto mb-2"></div>
-                <p className="text-sm text-gray-600">Loading {format(parseISO(date), 'EEEE')}'s data...</p>
-              </div>
-            </div>
-          ) : !isLoaded ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="text-center text-gray-500">
-                <p className="text-sm">Click to load {format(parseISO(date), 'EEEE')}'s data</p>
+                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+                <p className="text-sm text-gray-600 mt-2">Loading day data...</p>
               </div>
             </div>
           ) : (
@@ -318,18 +285,18 @@ const DailyCard: React.FC<DailyCardProps> = ({
                 <label className="flex items-center space-x-2 text-xs cursor-pointer group">
                   <input
                     type="checkbox"
-                    checked={isAbsent || defaultAbsent}
+                    checked={isAbsent}
                     onChange={(e) => onAbsentToggle(e.target.checked)}
                     className="rounded border-gray-300 text-red-600 focus:ring-red-500 transition-all duration-200"
                   />
                   <span className="text-gray-700 group-hover:text-gray-900 transition-colors">
-                    {isSunday && !report ? 'Sunday (Default Absent)' : 'Mark Absent'}
+                    Mark Absent
                   </span>
                 </label>
               </div>
 
               {/* Check-in/Check-out Times */}
-              {!isAbsent && !defaultAbsent && (
+              {!isAbsent && (
                 <div className="grid grid-cols-2 gap-3 p-3 bg-green-50 rounded-lg border border-green-100 transition-all duration-300">
                   <div className="space-y-1">
                     <label className="flex items-center text-xs font-medium text-gray-700">
@@ -361,7 +328,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
               {/* Task Cards */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* Tasks Assigned */}
-                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent) ? 'opacity-60 grayscale' : ''}`}>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center justify-between">
                       <span className="flex items-center text-gray-800">
@@ -375,16 +342,24 @@ const DailyCard: React.FC<DailyCardProps> = ({
                     <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
                       {assignedTasks.map((task, index) => {
                         const client = task.clientId ? getClientById(task.clientId) : null;
-                        const hasConflict = isFutureDate(date) && isTaskOpenOnEarlierDays(task.id, date);
-                        const conflictDay = hasConflict ? isTaskOpenOnEarlierDays(task.id, date) : null;
+                        // Simple conflict detection: show warning if future date OR not today
+                        const hasConflict = isFutureDate(date) || !isToday;
+                        const conflictType = isFutureDate(date) ? 'future' : 'not-today';
+                        
+                        // Overdue detection: task due date is before card date (and not a future date)
+                        const taskDue = parseISO(task.dueDate);
+                        const cardDateStart = startOfDay(parseISO(date));
+                        const isOverdue = isBefore(taskDue, cardDateStart) && !isFutureDate(date);
                         
                         return (
                           <div
                             key={task.id}
                             className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
                               hasConflict 
-                                ? 'border-amber-200 bg-amber-50 hover:bg-amber-100' 
-                                : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
+                                ? 'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                                : isOverdue
+                                  ? 'border-red-300 bg-red-50 hover:bg-red-100'
+                                  : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
                             }`}
                             style={{ animationDelay: `${index * 50}ms` }}
                           >
@@ -395,13 +370,19 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               }}
                               className={`mt-0.5 transition-all duration-200 hover:scale-110 ${
                                 hasConflict 
-                                  ? 'text-amber-500 hover:text-amber-600' 
-                                  : 'text-gray-400 hover:text-green-600'
+                                  ? 'text-amber-500 hover:text-amber-600'
+                                  : isOverdue
+                                    ? 'text-red-500 hover:text-red-600'
+                                    : 'text-gray-400 hover:text-green-600'
                               }`}
-                              disabled={isAbsent || defaultAbsent}
+                              disabled={isAbsent}
                               title={hasConflict 
-                                ? `Cannot complete - task is still open on ${format(parseISO(conflictDay!), 'MMM d')}` 
-                                : "Mark as completed"
+                                ? conflictType === 'future' 
+                                  ? `Cannot complete - future date` 
+                                  : `Can only complete on today`
+                                : isOverdue
+                                  ? `Task is overdue - due ${format(taskDue, 'MMM d')}`
+                                  : "Mark as completed"
                               }
                             >
                               {hasConflict ? (
@@ -414,14 +395,21 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               <div className="flex items-center space-x-2">
                                 <h4 className={`text-xs font-medium truncate transition-colors ${
                                   hasConflict 
-                                    ? 'text-amber-900 group-hover:text-amber-800' 
-                                    : 'text-gray-900 group-hover:text-blue-900'
+                                    ? 'text-amber-900 group-hover:text-amber-800'
+                                    : isOverdue
+                                      ? 'text-red-900 group-hover:text-red-800'
+                                      : 'text-gray-900 group-hover:text-blue-900'
                                 }`}>
                                   {task.title}
                                 </h4>
+                                {isOverdue && (
+                                  <Badge variant="danger" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
+                                    Overdue
+                                  </Badge>
+                                )}
                                 {hasConflict && (
                                   <Badge variant="warning" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
-                                    Conflict
+                                    {conflictType === 'future' ? 'Future Date' : 'Use Today'}
                                   </Badge>
                                 )}
                               </div>
@@ -430,11 +418,16 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               </p>
                               {hasConflict && (
                                 <p className="text-xs text-amber-600 mt-1">
-                                  Open on {format(parseISO(conflictDay!), 'MMM d')} - complete there first
+                                  {conflictType === 'future' 
+                                    ? 'Wait until this date becomes current'
+                                    : 'Switch to today\'s view to complete'
+                                  }
                                 </p>
                               )}
                               <div className="flex items-center justify-between mt-1">
-                                <p className="text-xs text-gray-500">
+                                <p className={`text-xs ${
+                                  isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'
+                                }`}>
                                   Due: {format(parseISO(task.dueDate), 'MMM d')}
                                 </p>
                                 <div className="flex space-x-1">
@@ -466,7 +459,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
                 </Card>
 
                 {/* Tasks Completed */}
-                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent || defaultAbsent) ? 'opacity-60 grayscale' : ''}`}>
+                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent) ? 'opacity-60 grayscale' : ''}`}>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center justify-between">
                       <span className="flex items-center text-gray-800">
@@ -478,7 +471,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                      {(isAbsent || defaultAbsent) && completedTasks.length > 0 ? (
+                      {(isAbsent) && completedTasks.length > 0 ? (
                         <div className="text-center py-6">
                           <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-500" />
                           <p className="text-gray-600 font-medium text-sm">Absent</p>
@@ -502,7 +495,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
                                     handleTaskToggleWithValidation(task.id, false);
                                   }}
                                   className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
-                                  disabled={isAbsent || defaultAbsent}
+                                  disabled={isAbsent}
                                   title="Move back to assigned"
                                 >
                                   <CheckCircle className="h-4 w-4" />
@@ -571,9 +564,8 @@ const ReportsAnalytics: React.FC = () => {
     format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') // Start from Monday
   );
   const [dailyReports, setDailyReports] = useState<{ [key: string]: DailyReport | null }>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [dayLoadingStates, setDayLoadingStates] = useState<{ [key: string]: boolean }>({});
-  const [loadedDays, setLoadedDays] = useState<Set<string>>(new Set());
+  const [dayLoadingStates, setDayLoadingStates] = useState<{ [dateStr: string]: boolean }>({});
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [addTaskForUser, setAddTaskForUser] = useState<string>('');
   const [addTaskForDate, setAddTaskForDate] = useState<string>('');
@@ -621,78 +613,67 @@ const ReportsAnalytics: React.FC = () => {
     ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
     : filteredUsers;
 
-  // Load daily reports - optimized to load today first, then on-demand
-  useEffect(() => {
-    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser) {
-      // Reset loaded days when week/team/user changes
-      setLoadedDays(new Set());
-      setDayLoadingStates({});
-      loadTodayReports();
-    }
-  }, [selectedTeam, selectedUser, weekStart]);
-
-  // Add effect to reload reports when tasks change - but only reload already loaded days
-  useEffect(() => {
-    if (filteredUsers.length > 0 && weekDays.length > 0 && selectedUser && loadedDays.size > 0) {
-      reloadLoadedDays();
-    }
-  }, [tasks]);
-
-  // Load today's reports first for immediate display
-  const loadTodayReports = async () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    setIsLoading(true);
-    
+  // Load only today's data initially for fast startup
+  const loadTodayData = async () => {
+    setIsInitialLoading(true);
     try {
-      await loadSpecificDay(today);
-      setSelectedDate(today); // Ensure today is expanded
-    } catch (error) {
-      console.error('Error loading today reports:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Reload only the days that have been loaded before (when tasks change)
-  const reloadLoadedDays = async () => {
-    const daysToReload = Array.from(loadedDays);
-    
-    for (const dateStr of daysToReload) {
-      try {
-        await loadSpecificDay(dateStr, false); // false = don't show loading state for silent reload
-      } catch (error) {
-        console.error(`Error reloading day ${dateStr}:`, error);
-      }
-    }
-  };
-
-  // Load a specific day's data (used for both initial today load and on-demand loading)
-  const loadSpecificDay = async (dateStr: string, showLoadingState: boolean = true) => {
-    if (showLoadingState) {
-      setDayLoadingStates(prev => ({ ...prev, [dateStr]: true }));
-    }
-
-    try {
-      const reports: { [key: string]: DailyReport | null } = {};
-      const dayIndex = weekDays.findIndex(day => format(day, 'yyyy-MM-dd') === dateStr);
+      const today = format(new Date(), 'yyyy-MM-dd');
       
-      // Calculate usersToDisplay inside the function to avoid dependency issues
+      // Get users to process rollover for
       const currentUsersToDisplay = isAdmin 
         ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
         : filteredUsers;
       
+      // 1) Roll every day's unfinished forward up to today for all users
+      await Promise.all(
+        currentUsersToDisplay.map(u => runRolloverChain(u.id, today))
+      );
+      
+      // 2) Then fetch just today's reports
+      await loadSpecificDay(today);
+    } catch (error) {
+      console.error('Error loading today data:', error);
+    } finally {
+      setIsInitialLoading(false);
+    }
+  };
+
+  // Helper to run rollover chain from week start up to target date
+  const runRolloverChain = async (userId: string, upToDate: string) => {
+    // find index of upToDate in weekDays
+    const idx = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === upToDate);
+    // for each day from Monday (i=1) through idx, move unfinished from day[i-1] → day[i]
+    for (let i = 1; i <= idx; i++) {
+      const from = format(weekDays[i - 1], 'yyyy-MM-dd');
+      const to = format(weekDays[i], 'yyyy-MM-dd');
+      await dailyReportService.moveUnfinishedTasksToNextDay(userId, from, to);
+    }
+  };
+
+  // Load data for a specific day when user expands it
+  const loadSpecificDay = async (dateStr: string) => {
+    // Set loading state for this specific day
+    setDayLoadingStates(prev => ({ ...prev, [dateStr]: true }));
+    
+    try {
+      const currentUsersToDisplay = isAdmin 
+        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
+        : filteredUsers;
+      
+      const dayReports: { [key: string]: DailyReport | null } = {};
+      
       for (const user of currentUsersToDisplay) {
         const key = `${user.id}-${dateStr}`;
-
-        // Rollover unfinished tasks from previous day (preserve existing logic)
-        if (dayIndex > 0) {
-          const prevDateStr = format(weekDays[dayIndex - 1], 'yyyy-MM-dd');
-          await dailyReportService.moveUnfinishedTasksToNextDay(user.id, prevDateStr, dateStr);
-        }
-
-        // Sync tasks due on this day from TaskBoard into this day's entry (preserve existing logic)
+        
+        // Get the index of this date in the week for rollover logic
+        const dayIndex = weekDays.findIndex(day => format(day, 'yyyy-MM-dd') === dateStr);
+        
+        // Sync tasks due on this day from TaskBoard into this day's entry
         const boardTasks = getTasksByUser(user.id);
         for (const task of boardTasks) {
+          const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
+          if (taskDueDate !== dateStr) continue; // Only process tasks due on this specific date
+
           // Define all possible completed statuses
           const completedStatuses = [
             'done', 
@@ -705,21 +686,17 @@ const ReportsAnalytics: React.FC = () => {
           ];
           
           const isTaskCompleted = completedStatuses.includes(task.status);
-          
-          // Only assign tasks whose due date matches this date
-          const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
-          if (taskDueDate === dateStr) {
-            // Don't assign completed tasks to current or future days
-            if (!isTaskCompleted || dateStr < format(new Date(), 'yyyy-MM-dd')) {
-              await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
-            } else if (isTaskCompleted && dateStr >= format(new Date(), 'yyyy-MM-dd')) {
-              // If task is completed but exists in assigned list, remove it
-              const existingReport = await dailyReportService.getDailyReport(user.id, dateStr);
-              if (existingReport?.workEntry.assignedTasks.includes(task.id)) {
-                // Move it to completed if not already there
-                if (!existingReport.workEntry.completedTasks.includes(task.id)) {
-                  await dailyReportService.moveTaskToCompleted(user.id, dateStr, task.id);
-                }
+
+          if (!isTaskCompleted) {
+            // Only assign tasks that are still incomplete/open
+            await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
+          } else {
+            // For completed tasks, ensure they stay in the completed list
+            const existingReport = await dailyReportService.getDailyReport(user.id, dateStr);
+            if (existingReport?.workEntry.assignedTasks.includes(task.id)) {
+              // Move from assigned to completed if not already there
+              if (!existingReport.workEntry.completedTasks.includes(task.id)) {
+                await dailyReportService.moveTaskToCompleted(user.id, dateStr, task.id);
               }
             }
           }
@@ -727,43 +704,57 @@ const ReportsAnalytics: React.FC = () => {
 
         try {
           const report = await dailyReportService.getDailyReport(user.id, dateStr);
-          reports[key] = report;
+          dayReports[key] = report;
+          
+          // *** NEW: if this is Sunday and there's never been an entry in the DB, persist the default ***
+          const dayOfWeek = new Date(dateStr).getDay();
+          if (dayOfWeek === 0 && report?.workEntry.isAbsent === false && 
+              (!report?.tasks.assigned || report.tasks.assigned.length === 0) && 
+              (!report?.tasks.completed || report.tasks.completed.length === 0)) {
+            // this means "no one has ever touched this Sunday before"
+            await dailyReportService.markAbsent(user.id, dateStr, true);
+            // re-fetch so UI will see the persisted isAbsent
+            dayReports[key] = await dailyReportService.getDailyReport(user.id, dateStr);
+          }
         } catch (error) {
           console.error(`Error loading report for ${user.name} on ${dateStr}:`, error);
-          reports[key] = null;
+          dayReports[key] = null;
         }
       }
       
-      // Update the daily reports with new data for this specific day
-      setDailyReports(prev => ({ ...prev, ...reports }));
-      
-      // Mark this day as loaded
-      setLoadedDays(prev => new Set([...prev, dateStr]));
+      // Update only this day's data
+      setDailyReports(prev => ({ ...prev, ...dayReports }));
       
     } catch (error) {
       console.error(`Error loading day ${dateStr}:`, error);
     } finally {
-      if (showLoadingState) {
-        setDayLoadingStates(prev => ({ ...prev, [dateStr]: false }));
-      }
+      // Clear loading state for this specific day
+      setDayLoadingStates(prev => ({ ...prev, [dateStr]: false }));
     }
   };
 
-  // Enhanced toggle function that loads day data on-demand
+  // Handle day expansion - load data when user clicks to expand
   const handleDayToggle = async (dateStr: string) => {
-    // If clicking the same day that's already expanded, collapse it
-    if (selectedDate === dateStr) {
+    const isCurrentlyExpanded = selectedDate === dateStr;
+    
+    if (isCurrentlyExpanded) {
+      // Collapse - just update UI state
       setSelectedDate('');
-      return;
-    }
-
-    // If this day hasn't been loaded yet, load it
-    if (!loadedDays.has(dateStr)) {
+    } else {
+      // Expand - run rollover chain then load data for this day
+      const currentUsersToDisplay = isAdmin 
+        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
+        : filteredUsers;
+      
+      // 1) Roll forward all missing days up to target date
+      await Promise.all(
+        currentUsersToDisplay.map(u => runRolloverChain(u.id, dateStr))
+      );
+      
+      // 2) Now load that single day
+      setSelectedDate(dateStr);
       await loadSpecificDay(dateStr);
     }
-
-    // Expand this day
-    setSelectedDate(dateStr);
   };
 
   const handleTaskToggle = async (userId: string, date: string, taskId: string, completed: boolean) => {
@@ -785,21 +776,13 @@ const ReportsAnalytics: React.FC = () => {
         await dailyReportService.moveTaskToAssignedAcrossDays(userId, date, taskId, taskDueDate);
       }
       
-      // Only reload the affected days that are already loaded (more efficient)
-      const affectedDays = [date, taskDueDate];
-      const uniqueAffectedDays = [...new Set(affectedDays)];
-      
-      for (const affectedDate of uniqueAffectedDays) {
-        if (loadedDays.has(affectedDate)) {
-          await loadSpecificDay(affectedDate, false); // Silent reload
-        }
-      }
+      // Reload only the affected day instead of all days
+      await loadSpecificDay(date);
       
       // Show success feedback (optional)
-      console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully across all relevant days`);
+      console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully`);
     } catch (error) {
       console.error('Error toggling task:', error);
-      // You could add a toast notification here for better UX
     }
   };
 
@@ -807,12 +790,8 @@ const ReportsAnalytics: React.FC = () => {
     try {
       await dailyReportService.markAbsent(userId, date, isAbsent);
       
-      // Reload the specific report
-      const report = await dailyReportService.getDailyReport(userId, date);
-      setDailyReports(prev => ({
-        ...prev,
-        [`${userId}-${date}`]: report
-      }));
+      // Reload the specific day
+      await loadSpecificDay(date);
     } catch (error) {
       console.error('Error marking absent:', error);
     }
@@ -822,12 +801,8 @@ const ReportsAnalytics: React.FC = () => {
     try {
       await dailyReportService.updateCheckInOut(userId, date, checkIn, checkOut);
       
-      // Reload the specific report
-      const report = await dailyReportService.getDailyReport(userId, date);
-      setDailyReports(prev => ({
-        ...prev,
-        [`${userId}-${date}`]: report
-      }));
+      // Reload the specific day
+      await loadSpecificDay(date);
     } catch (error) {
       console.error('Error updating check-in/out:', error);
     }
@@ -844,12 +819,8 @@ const ReportsAnalytics: React.FC = () => {
     try {
       await dailyReportService.assignTaskToSpecificDay(userId, date, taskId);
       
-      // Reload the specific report to show the new task
-      const report = await dailyReportService.getDailyReport(userId, date);
-      setDailyReports(prev => ({
-        ...prev,
-        [`${userId}-${date}`]: report
-      }));
+      // Reload the specific day
+      await loadSpecificDay(date);
       
       console.log(`Task assigned to ${date} successfully`);
     } catch (error) {
@@ -875,6 +846,21 @@ const ReportsAnalytics: React.FC = () => {
       : addDays(currentWeek, -7);
     setWeekStart(format(newWeek, 'yyyy-MM-dd'));
   };
+
+  // Load only today's data initially
+  useEffect(() => {
+    if (filteredUsers.length > 0 && selectedUser) {
+      loadTodayData();
+    }
+  }, [selectedTeam, selectedUser, weekStart]);
+
+  // Reload today's data when tasks change
+  useEffect(() => {
+    if (filteredUsers.length > 0 && selectedUser) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      loadSpecificDay(today);
+    }
+  }, [tasks]);
 
   return (
     <div className="space-y-4 p-4 bg-gray-50 min-h-screen">
@@ -999,7 +985,7 @@ const ReportsAnalytics: React.FC = () => {
       </Card>
 
       {/* Daily View */}
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
           <p className="text-sm text-gray-600 mt-2">Loading reports...</p>
@@ -1035,7 +1021,6 @@ const ReportsAnalytics: React.FC = () => {
                       onToggleExpand={() => handleDayToggle(dateStr)}
                       isToday={isToday}
                       isLoading={dayLoadingStates[dateStr]}
-                      isLoaded={loadedDays.has(dateStr)}
                     />
                   );
                 })}

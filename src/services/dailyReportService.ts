@@ -517,6 +517,17 @@ export const moveTaskToCompleted = async (userId: string, date: string, taskId: 
   try {
     const workEntry = await getOrCreateDailyWorkEntry(userId, date);
     
+    // Ensure the task isn't already completed to avoid duplicates
+    if (workEntry.completedTasks.includes(taskId)) {
+      // Already completed, just ensure it's not in assigned list
+      const updatedEntry = {
+        ...workEntry,
+        assignedTasks: workEntry.assignedTasks.filter(id => id !== taskId),
+        updatedAt: new Date().toISOString(),
+      };
+      return await updateDailyWorkEntry(updatedEntry);
+    }
+    
     // Move task from assigned to completed
     const updatedEntry = {
       ...workEntry,

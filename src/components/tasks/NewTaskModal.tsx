@@ -9,6 +9,7 @@ import { useStatus } from '../../contexts/StatusContext';
 import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
 import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
+import { format, startOfDay, parseISO } from 'date-fns';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -62,6 +63,13 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
   
+  // Date validation - minimum date is today
+  const today = format(startOfDay(new Date()), 'yyyy-MM-dd');
+  
+  // If this is an existing task and its dueDate < today, lock it
+  const isPastDue = !!initialData?.dueDate &&
+    parseISO(initialData.dueDate) < startOfDay(new Date());
+  
   // Get team-specific statuses
   const teamStatuses = getStatusesByTeam(formData.team as TeamType || 'creative');
   
@@ -111,6 +119,19 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     
     if (!formData.dueDate) {
       newErrors.dueDate = 'Due date is required';
+    } else {
+      // If task is past due, prevent any changes
+      if (isPastDue) {
+        newErrors.dueDate = 'Due date is locked (task is past due)';
+      } else {
+        // For new tasks or non-past-due tasks, prevent setting past dates
+        const isNewTask = !initialData?.id;
+        const dueDateChanged = formData.dueDate !== initialData?.dueDate;
+        
+        if ((isNewTask || dueDateChanged) && formData.dueDate < today) {
+          newErrors.dueDate = 'Due date cannot be in the past';
+        }
+      }
     }
     
     setErrors(newErrors);
@@ -121,6 +142,28 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     e.preventDefault();
     
     if (!validate()) return;
+    
+    // Additional validation for past dates (defense against bypasses)
+    // If task is past due, prevent any changes
+    if (isPastDue) {
+      setErrors(prev => ({
+        ...prev,
+        dueDate: 'Due date is locked (task is past due)'
+      }));
+      return;
+    }
+    
+    // For new tasks or non-past-due tasks, prevent setting past dates
+    const isNewTask = !initialData?.id;
+    const dueDateChanged = formData.dueDate !== initialData?.dueDate;
+    
+    if ((isNewTask || dueDateChanged) && formData.dueDate && formData.dueDate < today) {
+      setErrors(prev => ({
+        ...prev,
+        dueDate: 'Due date cannot be in the past'
+      }));
+      return;
+    }
     
     if (initialData?.id) {
       // Update existing task
@@ -328,16 +371,37 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
               required
             />
             
-            <Input
-              label="Due Date"
-              name="dueDate"
-              type="date"
-              value={formData.dueDate || ''}
-              onChange={handleChange}
-              error={errors.dueDate}
-              fullWidth
-              required
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Due Date *
+              </label>
+              <input
+                name="dueDate"
+                type="date"
+                value={formData.dueDate || ''}
+                onChange={handleChange}
+                min={today}
+                disabled={isPastDue}
+                className={`block w-full border rounded-md py-2.5 px-3 transition-all duration-200 focus:outline-none focus:ring-2 focus:shadow-sm text-sm ${
+                  isPastDue
+                    ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200'
+                    : errors.dueDate 
+                      ? 'bg-white border-red-300 focus:ring-red-400 focus:border-red-500' 
+                      : 'bg-white border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'
+                }`}
+                required
+              />
+              {isPastDue && (
+                <p className="mt-1.5 text-sm text-gray-500">
+                  Due date locked (task is past due).
+                </p>
+              )}
+              {errors.dueDate && (
+                <p className="mt-1.5 text-sm text-red-600">
+                  {errors.dueDate}
+                </p>
+              )}
+            </div>
           </div>
           
           {/* Improved Status Selection */}
