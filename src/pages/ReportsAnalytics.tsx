@@ -37,6 +37,8 @@ interface DailyCardProps {
   onCheckInOut: (checkIn?: string, checkOut?: string) => void;
   isAdmin: boolean;
   userTasks: Task[];
+  allDailyReports: { [key: string]: DailyReport | null };
+  weekDays: Date[];
 }
 
 const DailyCard: React.FC<DailyCardProps> = ({
@@ -48,9 +50,13 @@ const DailyCard: React.FC<DailyCardProps> = ({
   onAbsentToggle,
   onCheckInOut,
   isAdmin,
-  userTasks
+  userTasks,
+  allDailyReports,
+  weekDays
 }) => {
   const { getUserById, getClientById } = useData();
+  const [warningMessage, setWarningMessage] = useState<string>('');
+  const [showWarning, setShowWarning] = useState<boolean>(false);
   const user = getUserById(userId);
   const isAbsent = report?.workEntry.isAbsent || false;
   
@@ -68,6 +74,72 @@ const DailyCard: React.FC<DailyCardProps> = ({
     completedTaskIds.includes(task.id)
   );
 
+  // Function to check if a task is still open/incomplete on current or previous days
+  const isTaskOpenOnEarlierDays = (taskId: string, currentDate: string): string | null => {
+    const currentDateObj = parseISO(currentDate);
+    const today = new Date();
+    
+    // Check all days from the beginning of the week up to (but not including) the current date
+    for (const day of weekDays) {
+      const dayStr = format(day, 'yyyy-MM-dd');
+      
+      // Skip if this is the current date or later
+      if (dayStr >= currentDate) continue;
+      
+      // Skip future dates beyond today
+      if (day > today) continue;
+      
+      const reportKey = `${userId}-${dayStr}`;
+      const dayReport = allDailyReports[reportKey];
+      
+      if (dayReport) {
+        // Check if task is assigned (incomplete) on this earlier day
+        if (dayReport.workEntry.assignedTasks.includes(taskId)) {
+          return dayStr;
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  // Function to check if current date is in the future
+  const isFutureDate = (dateStr: string): boolean => {
+    const date = parseISO(dateStr);
+    const today = startOfDay(new Date());
+    return date > today;
+  };
+
+  const handleTaskToggleWithValidation = (taskId: string, completed: boolean) => {
+    if (completed) {
+      // For future dates, check if task is still open on earlier days
+      if (isFutureDate(date)) {
+        const openOnDay = isTaskOpenOnEarlierDays(taskId, date);
+        
+        if (openOnDay) {
+          const task = userTasks.find(t => t.id === taskId);
+          const earlierDateFormatted = format(parseISO(openOnDay), 'EEEE, MMM d');
+          
+          setWarningMessage(
+            `Cannot complete "${task?.title || 'this task'}" on ${format(parseISO(date), 'EEEE, MMM d')}. The task is still open on ${earlierDateFormatted}. Please complete it on that day first.`
+          );
+          setShowWarning(true);
+          
+          // Auto-hide warning after 6 seconds
+          setTimeout(() => {
+            setShowWarning(false);
+            setWarningMessage('');
+          }, 6000);
+          
+          return;
+        }
+      }
+    }
+    
+    // If validation passes, proceed with task toggle
+    onTaskToggle(taskId, completed);
+  };
+
   const formatTime = (time?: string) => {
     if (!time) return '--:--';
     return time;
@@ -80,6 +152,30 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
   return (
     <div className="space-y-3 animate-fadeIn">
+      {/* Warning Alert */}
+      {showWarning && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 animate-slideIn">
+          <div className="flex items-start space-x-2">
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-red-800">Cannot Complete Task</h4>
+              <p className="text-sm text-red-700 mt-1">{warningMessage}</p>
+            </div>
+            <button
+              onClick={() => {
+                setShowWarning(false);
+                setWarningMessage('');
+              }}
+              className="text-red-400 hover:text-red-600 transition-colors"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* User Header (for admin view) */}
       {isAdmin && (
         <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 transition-all duration-200 hover:shadow-sm">
@@ -164,27 +260,61 @@ const DailyCard: React.FC<DailyCardProps> = ({
             <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
               {assignedTasks.map((task, index) => {
                 const client = task.clientId ? getClientById(task.clientId) : null;
+                const hasConflict = isFutureDate(date) && isTaskOpenOnEarlierDays(task.id, date);
+                const conflictDay = hasConflict ? isTaskOpenOnEarlierDays(task.id, date) : null;
+                
                 return (
                   <div
                     key={task.id}
-                    className="flex items-start space-x-2 p-2 border border-gray-200 rounded-md hover:bg-blue-50 hover:border-blue-200 transition-all duration-200 group animate-slideIn"
+                    className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
+                      hasConflict 
+                        ? 'border-amber-200 bg-amber-50 hover:bg-amber-100' 
+                        : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
+                    }`}
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <button
-                      onClick={() => onTaskToggle(task.id, true)}
-                      className="mt-0.5 text-gray-400 hover:text-green-600 transition-all duration-200 hover:scale-110"
+                      onClick={() => handleTaskToggleWithValidation(task.id, true)}
+                      className={`mt-0.5 transition-all duration-200 hover:scale-110 ${
+                        hasConflict 
+                          ? 'text-amber-500 hover:text-amber-600' 
+                          : 'text-gray-400 hover:text-green-600'
+                      }`}
                       disabled={isAbsent || defaultAbsent}
-                      title="Mark as completed"
+                      title={hasConflict 
+                        ? `Cannot complete - task is still open on ${format(parseISO(conflictDay!), 'MMM d')}` 
+                        : "Mark as completed"
+                      }
                     >
-                      <Circle className="h-4 w-4" />
+                      {hasConflict ? (
+                        <AlertCircle className="h-4 w-4" />
+                      ) : (
+                        <Circle className="h-4 w-4" />
+                      )}
                     </button>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-blue-900 transition-colors">
-                        {task.title}
-                      </h4>
+                      <div className="flex items-center space-x-2">
+                        <h4 className={`text-xs font-medium truncate transition-colors ${
+                          hasConflict 
+                            ? 'text-amber-900 group-hover:text-amber-800' 
+                            : 'text-gray-900 group-hover:text-blue-900'
+                        }`}>
+                          {task.title}
+                        </h4>
+                        {hasConflict && (
+                          <Badge variant="warning" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
+                            Conflict
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-600 truncate">
                         {client?.name || 'Unknown Client'}
                       </p>
+                      {hasConflict && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Open on {format(parseISO(conflictDay!), 'MMM d')} - complete there first
+                        </p>
+                      )}
                       <div className="flex items-center justify-between mt-1">
                         <p className="text-xs text-gray-500">
                           Due: {format(parseISO(task.dueDate), 'MMM d')}
@@ -249,7 +379,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
                         style={{ animationDelay: `${index * 50}ms` }}
                       >
                         <button
-                          onClick={() => onTaskToggle(task.id, false)}
+                          onClick={() => handleTaskToggleWithValidation(task.id, false)}
                           className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
                           disabled={isAbsent || defaultAbsent}
                           title="Move back to assigned"
@@ -735,6 +865,8 @@ const ReportsAnalytics: React.FC = () => {
                         onCheckInOut={(checkIn, checkOut) => handleCheckInOut(user.id, dateStr, checkIn, checkOut)}
                         isAdmin={isAdmin}
                         userTasks={userTasks}
+                        allDailyReports={dailyReports}
+                        weekDays={weekDays}
                       />
                     );
                   })}
