@@ -8,6 +8,7 @@ import * as statusService from '../services/statusService';
 import * as dailyReportService from '../services/dailyReportService';
 import { format } from 'date-fns';
 import { useAuth } from './AuthContext';
+import { updateUserPassword } from '../services/authService';
 
 interface DataContextType {
   // Data
@@ -194,7 +195,22 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const updateUser = async (updatedUser: User) => {
     try {
       const oldUser = users.find(u => u.id === updatedUser.id);
-      const updated = await userService.updateUser(updatedUser);
+      
+      // Check if password was changed
+      const passwordChanged = updatedUser.password && 
+                             oldUser && 
+                             updatedUser.password !== oldUser.password;
+      
+      let updated: User;
+      
+      if (passwordChanged && updatedUser.password) {
+        // Use auth service to update both custom table and Supabase Auth
+        console.log('Password changed detected, updating via authService...');
+        updated = await updateUserPassword(updatedUser, updatedUser.password);
+      } else {
+        // Regular user update without password change
+        updated = await userService.updateUser(updatedUser);
+      }
       
       setUsers(users.map(user => 
         user.id === updatedUser.id ? updated : user
@@ -207,6 +223,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('Error updating user:', error);
+      throw error; // Re-throw to let the frontend handle it
     }
   };
 
