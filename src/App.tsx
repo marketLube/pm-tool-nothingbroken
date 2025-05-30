@@ -6,6 +6,7 @@ import { StatusProvider } from './contexts/StatusContext';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import UserSyncComponent from './components/UserSyncComponent';
+import SessionIndicator from './components/ui/SessionIndicator';
 import { ensurePasswordField } from './utils/supabase';
 
 // Pages
@@ -44,6 +45,7 @@ function App() {
       <DataProvider>
         <StatusProvider>
           <UserSyncComponent />
+          <SessionIndicator />
           <Router>
             <Routes>
               {/* Login route - accessible to everyone but redirects to dashboard if logged in */}

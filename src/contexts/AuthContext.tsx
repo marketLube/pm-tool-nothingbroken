@@ -49,17 +49,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true); // Start with loading true to check session
   
+  // Session timeout in milliseconds (30 minutes)
+  const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  
   // Helper function to store user session
   const storeUserSession = (user: User) => {
     try {
-      // Set session to expire in 24 hours
-      const expiryTime = Date.now() + (24 * 60 * 60 * 1000);
+      // Set session to expire in 30 minutes from now
+      const expiryTime = Date.now() + SESSION_TIMEOUT;
       localStorage.setItem('currentUser', JSON.stringify(user));
       localStorage.setItem('sessionExpiry', expiryTime.toString());
+      localStorage.setItem('lastActivity', Date.now().toString());
       setCurrentUser(user);
+      console.log(`👤 User session stored for: ${user.email} (expires in 30 min)`);
     } catch (error) {
       console.error('Error storing user session:', error);
       setCurrentUser(user); // Still set in memory even if storage fails
+    }
+  };
+
+  // Helper function to extend session on activity
+  const extendSession = () => {
+    if (currentUser) {
+      try {
+        const newExpiryTime = Date.now() + SESSION_TIMEOUT;
+        localStorage.setItem('sessionExpiry', newExpiryTime.toString());
+        localStorage.setItem('lastActivity', Date.now().toString());
+        console.log('🔄 Session extended due to activity');
+      } catch (error) {
+        console.error('Error extending session:', error);
+      }
+    }
+  };
+
+  // Helper function to check if session is still valid
+  const isSessionValid = () => {
+    try {
+      const sessionExpiry = localStorage.getItem('sessionExpiry');
+      if (!sessionExpiry) return false;
+      
+      const expiryTime = parseInt(sessionExpiry);
+      const currentTime = Date.now();
+      
+      return currentTime < expiryTime;
+    } catch (error) {
+      console.error('Error checking session validity:', error);
+      return false;
     }
   };
 
@@ -67,6 +102,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Clear session storage
     localStorage.removeItem('currentUser');
     localStorage.removeItem('sessionExpiry');
+    localStorage.removeItem('lastActivity');
     setCurrentUser(null);
     console.log('User logged out, session cleared');
   };
@@ -82,16 +118,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const expiryTime = parseInt(sessionExpiry);
           const currentTime = Date.now();
           
-          // Check if session is still valid (24 hours)
+          // Check if session is still valid
           if (currentTime < expiryTime) {
             const user = JSON.parse(storedUser);
             setCurrentUser(user);
+            
+            // Extend session since user is returning to the app
+            extendSession();
             console.log('Restored user session for:', user.email);
           } else {
             // Session expired, clear storage
             localStorage.removeItem('currentUser');
             localStorage.removeItem('sessionExpiry');
-            console.log('Session expired, cleared storage');
+            localStorage.removeItem('lastActivity');
+            console.log('Session expired due to inactivity, cleared storage');
           }
         }
       } catch (error) {
@@ -99,6 +139,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Clear corrupted data
         localStorage.removeItem('currentUser');
         localStorage.removeItem('sessionExpiry');
+        localStorage.removeItem('lastActivity');
       } finally {
         setIsLoading(false);
       }
@@ -106,33 +147,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     checkExistingSession();
 
-    // Set up periodic session validation (every 5 minutes)
+    // Set up periodic session validation (every minute)
     const sessionCheckInterval = setInterval(() => {
-      const sessionExpiry = localStorage.getItem('sessionExpiry');
-      if (sessionExpiry) {
-        const expiryTime = parseInt(sessionExpiry);
-        const currentTime = Date.now();
-        
-        if (currentTime >= expiryTime) {
-          console.log('Session expired during use, logging out');
-          logout();
-        }
+      if (currentUser && !isSessionValid()) {
+        console.log('Session expired due to inactivity, logging out');
+        logout();
       }
-    }, 5 * 60 * 1000); // Check every 5 minutes
+    }, 60 * 1000); // Check every minute
 
     // Clear interval on cleanup
     return () => clearInterval(sessionCheckInterval);
-  }, []);
-  
-  // Listen for window focus to validate session
+  }, [currentUser]);
+
+  // Listen for window focus to validate and extend session
   useEffect(() => {
     const handleWindowFocus = () => {
-      const sessionExpiry = localStorage.getItem('sessionExpiry');
-      if (sessionExpiry && currentUser) {
-        const expiryTime = parseInt(sessionExpiry);
-        const currentTime = Date.now();
-        
-        if (currentTime >= expiryTime) {
+      if (currentUser) {
+        if (isSessionValid()) {
+          // Session is still valid, extend it since user is back
+          extendSession();
+          console.log('Window focused, session extended');
+        } else {
           console.log('Session expired while away, logging out');
           logout();
         }
@@ -141,6 +176,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [currentUser]);
+
+  // Track user activity to extend session
+  useEffect(() => {
+    const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    
+    const handleUserActivity = () => {
+      if (currentUser && isSessionValid()) {
+        extendSession();
+      }
+    };
+
+    // Throttle activity tracking to avoid too frequent updates
+    let activityTimeout: NodeJS.Timeout;
+    const throttledActivityHandler = () => {
+      clearTimeout(activityTimeout);
+      activityTimeout = setTimeout(handleUserActivity, 5 * 60 * 1000); // Extend session max once every 5 minutes
+    };
+
+    // Add event listeners for user activity
+    activityEvents.forEach(event => {
+      document.addEventListener(event, throttledActivityHandler, true);
+    });
+
+    // Cleanup event listeners
+    return () => {
+      clearTimeout(activityTimeout);
+      activityEvents.forEach(event => {
+        document.removeEventListener(event, throttledActivityHandler, true);
+      });
+    };
   }, [currentUser]);
   
   const isAuthenticated = !!currentUser;
