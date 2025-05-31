@@ -10,6 +10,7 @@ import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
 import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 import { format, startOfDay, parseISO } from 'date-fns';
+import { getIndiaDate, getIndiaTodayForValidation } from '../../utils/timezone';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -35,15 +36,22 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     assigneeId: '',
     clientId: '',
     team: currentUser?.team || 'creative',
-    dueDate: new Date().toISOString().split('T')[0]
+    dueDate: getIndiaDate() // Use India timezone for default date
   });
   
   // Set form data when initialData changes
   useEffect(() => {
     if (initialData && Object.keys(initialData).length > 0) {
       setFormData({
-        ...formData,
-        ...initialData
+        title: '',
+        description: '',
+        status: 'not_started',
+        priority: 'medium',
+        assigneeId: '',
+        clientId: '',
+        team: currentUser?.team || 'creative',
+        dueDate: getIndiaDate(), // Use India timezone for default date
+        ...initialData // Override defaults with initial data
       });
     } else {
       // Reset to default values if no initialData
@@ -55,20 +63,20 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         assigneeId: '',
         clientId: '',
         team: currentUser?.team || 'creative',
-        dueDate: new Date().toISOString().split('T')[0]
+        dueDate: getIndiaDate() // Use India timezone for default date
       });
     }
-  }, [initialData, currentUser?.team]);
+  }, [initialData?.id, currentUser?.team]); // Only depend on ID and team, not the entire formData or initialData
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
   
-  // Date validation - minimum date is today
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd');
+  // Date validation - minimum date is today in India timezone
+  const today = getIndiaTodayForValidation();
   
   // If this is an existing task and its dueDate < today, lock it
   const isPastDue = !!initialData?.dueDate &&
-    parseISO(initialData.dueDate) < startOfDay(new Date());
+    parseISO(initialData.dueDate) < startOfDay(new Date(today));
   
   // Get team-specific statuses
   const teamStatuses = getStatusesByTeam(formData.team as TeamType || 'creative');
@@ -81,7 +89,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         status: teamStatuses[0].id as StatusCode
       }));
     }
-  }, [formData.team, teamStatuses, initialData, formData.status]);
+  }, [formData.team, teamStatuses.length, initialData?.id]); // More specific dependencies
 
   // Clear client selection if current client doesn't belong to the selected team
   useEffect(() => {
@@ -170,7 +178,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
       updateTask({
         ...formData,
         id: initialData.id,
-        createdAt: initialData.createdAt || new Date().toISOString().split('T')[0],
+        createdAt: initialData.createdAt || getIndiaDate(),
         createdBy: initialData.createdBy || currentUser?.id || '',
       } as Task);
     } else {

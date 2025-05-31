@@ -22,6 +22,7 @@ import {
   BarChart2 
 } from 'lucide-react';
 import { TeamType } from '../types';
+import { getIndiaDate, getIndiaDateRange, getIndiaMonthRange } from '../utils/timezone';
 
 // Define date filter types
 type DateFilterType = 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'custom';
@@ -41,8 +42,8 @@ const Reports: React.FC = () => {
 
   // Filter states
   const [dateFilter, setDateFilter] = useState<DateFilterType>('today');
-  const [customStartDate, setCustomStartDate] = useState<string>(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
-  const [customEndDate, setCustomEndDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [customStartDate, setCustomStartDate] = useState<string>(getIndiaDateRange(7).startDate);
+  const [customEndDate, setCustomEndDate] = useState<string>(getIndiaDate());
   const [teamFilter, setTeamFilter] = useState<'all' | TeamType>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
@@ -60,7 +61,7 @@ const Reports: React.FC = () => {
     if (!currentUser) return [];
     
     const userTasks = tasks.filter(task => task.assigneeId === currentUser.id);
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const todayStr = getIndiaDate();
     
     return userTasks.filter(task => {
       // Define all possible completed statuses
@@ -87,28 +88,25 @@ const Reports: React.FC = () => {
   }, [tasks, currentUser, taskUpdateTrigger]);
 
   // Get dates based on filter
-  const getFilterDates = () => {
-    const today = new Date();
-    
+  const getFilterDates = () => {    
     switch (dateFilter) {
       case 'today':
-        return { startDate: format(today, 'yyyy-MM-dd'), endDate: format(today, 'yyyy-MM-dd') };
+        const today = getIndiaDate();
+        return { startDate: today, endDate: today };
       case 'yesterday':
-        const yesterday = subDays(today, 1);
-        return { startDate: format(yesterday, 'yyyy-MM-dd'), endDate: format(yesterday, 'yyyy-MM-dd') };
+        const yesterday = getIndiaDateRange(1);
+        return { startDate: yesterday.startDate, endDate: yesterday.startDate };
       case 'last7':
-        return { startDate: format(subDays(today, 6), 'yyyy-MM-dd'), endDate: format(today, 'yyyy-MM-dd') };
+        return getIndiaDateRange(6); // Last 7 days including today
       case 'last30':
-        return { startDate: format(subDays(today, 29), 'yyyy-MM-dd'), endDate: format(today, 'yyyy-MM-dd') };
+        return getIndiaDateRange(29); // Last 30 days including today
       case 'thisMonth':
-        return { 
-          startDate: format(startOfMonth(today), 'yyyy-MM-dd'), 
-          endDate: format(endOfMonth(today), 'yyyy-MM-dd') 
-        };
+        return getIndiaMonthRange();
       case 'custom':
         return { startDate: customStartDate, endDate: customEndDate };
       default:
-        return { startDate: format(today, 'yyyy-MM-dd'), endDate: format(today, 'yyyy-MM-dd') };
+        const defaultToday = getIndiaDate();
+        return { startDate: defaultToday, endDate: defaultToday };
     }
   };
 
@@ -173,8 +171,8 @@ const Reports: React.FC = () => {
   // Filtered reports based on all selected filters
   const filteredReports = getFilteredReports();
   
-  // Get today's date
-  const today = format(new Date(), 'yyyy-MM-dd');
+  // Get today's date in India timezone
+  const today = getIndiaDate();
   
   // Check if current user has submitted a report today
   const hasSubmittedToday = currentUser 

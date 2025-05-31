@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { updateCheckInOut, getDailyWorkEntry } from './dailyReportService';
 import { supabase } from '../utils/supabase';
+import { getIndiaDate, getIndiaTime } from '../utils/timezone';
 
 /**
  * Records the first login time of the day as check-in time
@@ -8,8 +9,8 @@ import { supabase } from '../utils/supabase';
  */
 export const recordLoginAsCheckIn = async (userId: string): Promise<void> => {
   try {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const currentTime = format(new Date(), 'HH:mm');
+    const today = getIndiaDate();
+    const currentTime = getIndiaTime();
     
     // Check if user already has a check-in time for today
     const existingEntry = await getDailyWorkEntry(userId, today);
@@ -32,8 +33,8 @@ export const recordLoginAsCheckIn = async (userId: string): Promise<void> => {
  */
 export const recordCheckOut = async (userId: string, checkOutTime?: string): Promise<void> => {
   try {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const timeToRecord = checkOutTime || format(new Date(), 'HH:mm');
+    const today = getIndiaDate();
+    const timeToRecord = checkOutTime || getIndiaTime();
     
     await updateCheckInOut(userId, today, undefined, timeToRecord);
     console.log(`Check-out recorded for user ${userId} at ${timeToRecord} on ${today}`);
@@ -54,7 +55,7 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
   totalHours?: number;
 }> => {
   try {
-    const targetDate = date || format(new Date(), 'yyyy-MM-dd');
+    const targetDate = date || getIndiaDate();
     const workEntry = await getDailyWorkEntry(userId, targetDate);
     
     let totalHours: number | undefined;
@@ -85,7 +86,7 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
   } catch (error) {
     console.error('Error getting attendance status:', error);
     return {
-      date: date || format(new Date(), 'yyyy-MM-dd'),
+      date: date || getIndiaDate(),
       isAbsent: false
     };
   }
@@ -96,7 +97,7 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
  */
 export const updateCheckInTime = async (userId: string, checkInTime: string, date?: string): Promise<void> => {
   try {
-    const targetDate = date || format(new Date(), 'yyyy-MM-dd');
+    const targetDate = date || getIndiaDate();
     await updateCheckInOut(userId, targetDate, checkInTime, undefined);
     console.log(`Check-in time updated for user ${userId} to ${checkInTime} on ${targetDate}`);
   } catch (error) {
@@ -110,7 +111,7 @@ export const updateCheckInTime = async (userId: string, checkInTime: string, dat
  */
 export const clearAttendance = async (userId: string, date?: string): Promise<void> => {
   try {
-    const targetDate = date || format(new Date(), 'yyyy-MM-dd');
+    const targetDate = date || getIndiaDate();
     await updateCheckInOut(userId, targetDate, undefined, undefined);
     console.log(`Attendance cleared for user ${userId} on ${targetDate}`);
   } catch (error) {
@@ -131,7 +132,7 @@ export const getEmployeesAttendance = async (userIds: string[], date?: string): 
   totalHours?: number;
 }>> => {
   try {
-    const targetDate = date || format(new Date(), 'yyyy-MM-dd');
+    const targetDate = date || getIndiaDate();
     const attendancePromises = userIds.map(userId => getAttendanceStatus(userId, targetDate));
     const attendanceData = await Promise.all(attendancePromises);
     
@@ -240,7 +241,7 @@ export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
   totalEmployees: number;
 }> => {
   try {
-    const today = format(new Date(), 'yyyy-MM-dd');
+    const today = getIndiaDate();
     const attendanceData = await getEmployeesAttendance(userIds, today);
     
     let present = 0;

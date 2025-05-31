@@ -86,19 +86,34 @@ export const getUserById = async (id: string): Promise<User | null> => {
 
 // Check user credentials
 export const checkUserCredentials = async (email: string, password: string): Promise<User | null> => {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .eq('password', password)
-    .single();
-  
-  if (error || !data) {
-    console.error(`Invalid credentials for email ${email}`);
+  try {
+    // First try to get the user with credentials
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email.toLowerCase()) // Case insensitive email
+      .eq('password', password)
+      .eq('is_active', true)
+      .limit(1); // Only get one result
+
+    if (error) {
+      console.error(`Authentication error for ${email}:`, error.message);
+      return null;
+    }
+
+    // If no data or empty array, invalid credentials
+    if (!data || data.length === 0) {
+      console.error(`Invalid credentials for email ${email}`);
+      return null;
+    }
+
+    // Return the first (and should be only) user
+    return mapFromDbUser(data[0]);
+
+  } catch (error) {
+    console.error(`Error checking credentials for ${email}:`, error);
     return null;
   }
-  
-  return mapFromDbUser(data);
 };
 
 // Create a new user

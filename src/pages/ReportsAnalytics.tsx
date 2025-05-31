@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay, isBefore } from 'date-fns';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
@@ -552,17 +552,6 @@ const DailyCard: React.FC<DailyCardProps> = ({
   );
 };
 
-// Memoized version of DailyCard for performance optimization
-const MemoizedDailyCard = React.memo(DailyCard, (prevProps, nextProps) => {
-  return (
-    prevProps.userId === nextProps.userId &&
-    prevProps.date === nextProps.date &&
-    prevProps.isExpanded === nextProps.isExpanded &&
-    prevProps.isToday === nextProps.isToday &&
-    prevProps.isLoading === nextProps.isLoading
-  );
-});
-
 const ReportsAnalytics: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { users, tasks, addTask, getTasksByUser, getTasksByTeam } = useData();
@@ -570,9 +559,9 @@ const ReportsAnalytics: React.FC = () => {
   // State management
   const [selectedTeam, setSelectedTeam] = useState<TeamType>('creative');
   const [selectedUser, setSelectedUser] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [weekStart, setWeekStart] = useState<string>(
-    format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd') // Start from Monday
+    format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
   );
   const [dailyReports, setDailyReports] = useState<{ [key: string]: DailyReport | null }>({});
   const [dayLoadingStates, setDayLoadingStates] = useState<{ [dateStr: string]: boolean }>({});
@@ -580,26 +569,10 @@ const ReportsAnalytics: React.FC = () => {
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [addTaskForUser, setAddTaskForUser] = useState<string>('');
   const [addTaskForDate, setAddTaskForDate] = useState<string>('');
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Refs for scrolling to today
   const todayRef = useRef<HTMLDivElement>(null);
-
-  // Memoize expensive computations
-  const memoizedFilteredUsers = useMemo(() => 
-    users?.filter(user => 
-      user && user.isActive && 
-      (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
-    ) || [], 
-    [users, selectedTeam, isAdmin, currentUser?.id]
-  );
-  
-  const memoizedWeekDays = useMemo(() => 
-    eachDayOfInterval({
-      start: parseISO(weekStart),
-      end: addDays(parseISO(weekStart), 6), // Monday to Sunday
-    }), 
-    [weekStart]
-  );
 
   // Early return if essential data is not loaded
   if (!currentUser || !users || users.length === 0) {
@@ -613,78 +586,109 @@ const ReportsAnalytics: React.FC = () => {
     );
   }
 
-  // Get filtered users with safety check - use memoized version
-  const filteredUsers = memoizedFilteredUsers;
-
-  // Get week days - use memoized version
-  const weekDays = memoizedWeekDays;
-
   // Get week days (Monday to Sunday)
-  const weekDaysOriginal = eachDayOfInterval({
+  const weekDays = eachDayOfInterval({
     start: parseISO(weekStart),
-    end: addDays(parseISO(weekStart), 6), // Monday to Sunday
+    end: addDays(parseISO(weekStart), 6),
   });
 
   // Get filtered users with safety check
-  const filteredUsersOriginal = users.filter(user => 
+  const filteredUsers = users.filter(user => 
     user && user.isActive && 
     (isAdmin ? (user.team === selectedTeam || user.role === 'admin') : user.id === currentUser?.id)
   );
 
-  // Set default user (first user in the team instead of 'all')
+  // ONE-TIME INITIALIZATION - only runs once when component mounts
   useEffect(() => {
-    if (filteredUsersOriginal.length > 0 && !selectedUser) {
-      if (isAdmin) {
-        setSelectedUser(filteredUsersOriginal[0].id); // Set first user as default
-      } else {
+    if (!isInitialized && filteredUsers.length > 0) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      
+      // Set initial user
+      if (isAdmin && filteredUsers.length > 0) {
+        setSelectedUser(filteredUsers[0].id);
+      } else if (!isAdmin) {
         setSelectedUser(currentUser.id);
       }
+      
+      // Set initial date to today
+      setSelectedDate(today);
+      
+      // Set initial week to current week
+      const currentWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      setWeekStart(currentWeekStart);
+      
+      // Mark as initialized to prevent this from running again
+      setIsInitialized(true);
+      
+      console.log('Component initialized with:', { 
+        selectedUser: isAdmin ? filteredUsers[0]?.id : currentUser.id,
+        selectedDate: today,
+        weekStart: currentWeekStart
+      });
     }
-  }, [filteredUsersOriginal, selectedUser, isAdmin, currentUser]);
+  }, [isInitialized, filteredUsers.length, isAdmin, currentUser]);
+
+  // LOAD DATA - only runs when we have a valid selectedUser and selectedDate
+  useEffect(() => {
+    const loadData = async () => {
+      if (!isInitialized || !selectedUser || !selectedDate || filteredUsers.length === 0) {
+        return;
+      }
+
+      console.log('Loading data for:', { selectedUser, selectedDate });
+      
+      const isToday = selectedDate === format(new Date(), 'yyyy-MM-dd');
+      if (isToday && Object.keys(dailyReports).length === 0) {
+        setIsInitialLoading(true);
+      }
+
+      try {
+        await loadDayWithRollover(selectedDate);
+      } catch (error) {
+        console.error('Error loading day with rollover:', error);
+      } finally {
+        if (isToday) {
+          setIsInitialLoading(false);
+        }
+      }
+    };
+
+    loadData();
+  }, [isInitialized, selectedUser, selectedDate, filteredUsers.length]);
+
+  // WEEK ALIGNMENT - ensure selectedDate is within weekDays range
+  useEffect(() => {
+    if (!selectedDate || !isInitialized) return;
+
+    const selectedDateObj = parseISO(selectedDate);
+    const weekStartObj = parseISO(weekStart);
+    const weekEndObj = addDays(weekStartObj, 6);
+
+    // Only adjust week if selectedDate is outside current week window
+    if (selectedDateObj < weekStartObj || selectedDateObj > weekEndObj) {
+      const newWeekStart = format(
+        startOfWeek(selectedDateObj, { weekStartsOn: 1 }),
+        'yyyy-MM-dd'
+      );
+      
+      if (newWeekStart !== weekStart) {
+        console.log('Adjusting week to include selected date:', { selectedDate, newWeekStart });
+        setWeekStart(newWeekStart);
+      }
+    }
+  }, [selectedDate, weekStart, isInitialized]);
 
   // Get users to display
   const usersToDisplay = isAdmin 
-    ? (selectedUser === 'all' ? filteredUsersOriginal : filteredUsersOriginal.filter(u => u.id === selectedUser))
-    : filteredUsersOriginal;
+    ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
+    : filteredUsers;
 
-  // Load only today's data initially
-  const loadTodayData = async () => {
-    setIsInitialLoading(true);
-    try {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      
-      // Get users to process rollover for
-      const currentUsersToDisplay = isAdmin 
-        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
-        : filteredUsers;
-      
-      // 1) Roll every day's unfinished forward up to today for all users
-      await Promise.all(
-        currentUsersToDisplay.map(u => runRolloverChain(u.id, today))
-      );
-      
-      // 2) Then fetch just today's reports
-      await loadSpecificDay(today);
-    } catch (error) {
-      console.error('Error loading today data:', error);
-    } finally {
-      setIsInitialLoading(false);
-    }
+  // 🚀 Simplified function: just load the day, backend handles all rollover automatically
+  const loadDayWithRollover = async (dateStr: string) => {
+    await loadSpecificDay(dateStr);
   };
 
-  // Helper to run rollover chain from week start up to target date
-  const runRolloverChain = async (userId: string, upToDate: string) => {
-    // find index of upToDate in weekDays
-    const idx = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === upToDate);
-    // for each day from Monday (i=1) through idx, move unfinished from day[i-1] → day[i]
-    for (let i = 1; i <= idx; i++) {
-      const from = format(weekDays[i - 1], 'yyyy-MM-dd');
-      const to = format(weekDays[i], 'yyyy-MM-dd');
-      await dailyReportService.moveUnfinishedTasksToNextDay(userId, from, to);
-    }
-  };
-
-  // Load data for a specific day when user expands it
+  // Load data for a specific day - backend now handles all rollover logic automatically
   const loadSpecificDay = async (dateStr: string) => {
     // Set loading state for this specific day
     setDayLoadingStates(prev => ({ ...prev, [dateStr]: true }));
@@ -699,56 +703,18 @@ const ReportsAnalytics: React.FC = () => {
       for (const user of currentUsersToDisplay) {
         const key = `${user.id}-${dateStr}`;
         
-        // Get the index of this date in the week for rollover logic
-        const dayIndex = weekDays.findIndex(day => format(day, 'yyyy-MM-dd') === dateStr);
-        
-        // Sync tasks due on this day from TaskBoard into this day's entry
-        const boardTasks = getTasksByUser(user.id);
-        for (const task of boardTasks) {
-          const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
-          if (taskDueDate !== dateStr) continue; // Only process tasks due on this specific date
-
-          // Define all possible completed statuses
-          const completedStatuses = [
-            'done', 
-            'approved', 
-            'creative_approved',
-            'completed',
-            'web_completed',
-            'handed_over',
-            'web_handed_over'
-          ];
-          
-          const isTaskCompleted = completedStatuses.includes(task.status);
-
-          if (!isTaskCompleted) {
-            // Only assign tasks that are still incomplete/open
-            await dailyReportService.assignTaskToSpecificDay(user.id, dateStr, task.id);
-          } else {
-            // For completed tasks, ensure they stay in the completed list
-            const existingReport = await dailyReportService.getDailyReport(user.id, dateStr);
-            if (existingReport?.workEntry.assignedTasks.includes(task.id)) {
-              // Move from assigned to completed if not already there
-              if (!existingReport.workEntry.completedTasks.includes(task.id)) {
-                await dailyReportService.moveTaskToCompleted(user.id, dateStr, task.id);
-              }
-            }
-          }
-        }
-
         try {
-          const report = await dailyReportService.getDailyReport(user.id, dateStr);
+          // Use the new backend function that handles comprehensive rollover automatically
+          const report = await dailyReportService.getDailyReportWithComprehensiveRollover(user.id, dateStr);
           dayReports[key] = report;
           
-          // *** NEW: if this is Sunday and there's never been an entry in the DB, persist the default ***
+          // Handle Sunday default absent logic
           const dayOfWeek = new Date(dateStr).getDay();
           if (dayOfWeek === 0 && report?.workEntry.isAbsent === false && 
               (!report?.tasks.assigned || report.tasks.assigned.length === 0) && 
               (!report?.tasks.completed || report.tasks.completed.length === 0)) {
-            // this means "no one has ever touched this Sunday before"
             await dailyReportService.markAbsent(user.id, dateStr, true);
-            // re-fetch so UI will see the persisted isAbsent
-            dayReports[key] = await dailyReportService.getDailyReport(user.id, dateStr);
+            dayReports[key] = await dailyReportService.getDailyReportWithComprehensiveRollover(user.id, dateStr);
           }
         } catch (error) {
           console.error(`Error loading report for ${user.name} on ${dateStr}:`, error);
@@ -767,53 +733,26 @@ const ReportsAnalytics: React.FC = () => {
     }
   };
 
-  // Handle day expansion - load data when user clicks to expand
-  const handleDayToggle = async (dateStr: string) => {
-    const isCurrentlyExpanded = selectedDate === dateStr;
-    
-    if (isCurrentlyExpanded) {
-      // Collapse - just update UI state
+  // Handle day expansion - simplified
+  const handleDayToggle = (dateStr: string) => {
+    if (selectedDate === dateStr) {
       setSelectedDate('');
     } else {
-      // Expand - run rollover chain then load data for this day
-      const currentUsersToDisplay = isAdmin 
-        ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
-        : filteredUsers;
-      
-      // 1) Roll forward all missing days up to target date
-      await Promise.all(
-        currentUsersToDisplay.map(u => runRolloverChain(u.id, dateStr))
-      );
-      
-      // 2) Now load that single day
       setSelectedDate(dateStr);
-      await loadSpecificDay(dateStr);
     }
   };
 
   const handleTaskToggle = async (userId: string, date: string, taskId: string, completed: boolean) => {
     try {
-      // Get the task details to find its due date
-      const task = tasks.find(t => t.id === taskId);
-      if (!task) {
-        console.error('Task not found:', taskId);
-        return;
-      }
-      
-      const taskDueDate = format(parseISO(task.dueDate), 'yyyy-MM-dd');
-      
       if (completed) {
-        // Use the new cross-day completion function
-        await dailyReportService.moveTaskToCompletedAcrossDays(userId, date, taskId, taskDueDate);
+        await dailyReportService.moveTaskToCompleted(userId, date, taskId);
       } else {
-        // Use the new cross-day assignment function
-        await dailyReportService.moveTaskToAssignedAcrossDays(userId, date, taskId, taskDueDate);
+        await dailyReportService.moveTaskToAssigned(userId, date, taskId);
       }
       
-      // Reload only the affected day instead of all days
+      // Refresh only the day you're on
       await loadSpecificDay(date);
       
-      // Show success feedback (optional)
       console.log(`Task ${completed ? 'completed' : 'moved back to assigned'} successfully`);
     } catch (error) {
       console.error('Error toggling task:', error);
@@ -823,8 +762,6 @@ const ReportsAnalytics: React.FC = () => {
   const handleAbsentToggle = async (userId: string, date: string, isAbsent: boolean) => {
     try {
       await dailyReportService.markAbsent(userId, date, isAbsent);
-      
-      // Reload the specific day
       await loadSpecificDay(date);
     } catch (error) {
       console.error('Error marking absent:', error);
@@ -834,8 +771,6 @@ const ReportsAnalytics: React.FC = () => {
   const handleCheckInOut = async (userId: string, date: string, checkIn?: string, checkOut?: string) => {
     try {
       await dailyReportService.updateCheckInOut(userId, date, checkIn, checkOut);
-      
-      // Reload the specific day
       await loadSpecificDay(date);
     } catch (error) {
       console.error('Error updating check-in/out:', error);
@@ -848,14 +783,10 @@ const ReportsAnalytics: React.FC = () => {
     setShowAddTaskModal(true);
   };
 
-  // Function to manually assign a task to a specific day
   const handleAssignTaskToDay = async (userId: string, date: string, taskId: string) => {
     try {
       await dailyReportService.assignTaskToSpecificDay(userId, date, taskId);
-      
-      // Reload the specific day
       await loadSpecificDay(date);
-      
       console.log(`Task assigned to ${date} successfully`);
     } catch (error) {
       console.error('Error assigning task to day:', error);
@@ -864,13 +795,31 @@ const ReportsAnalytics: React.FC = () => {
   };
 
   const setThisWeek = () => {
-    setWeekStart(format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const newWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    
+    // Clear any stale states when returning to current week
+    setDayLoadingStates({});
+    setDailyReports({});
+    setWeekStart(newWeekStart);
+    // Clear any expanded day first, then set to today
+    setSelectedDate('');
+    setTimeout(() => setSelectedDate(today), 50);
   };
 
-  const scrollToToday = () => {
-    if (todayRef.current) {
-      todayRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+  const goToToday = () => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const newWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    
+    setWeekStart(newWeekStart);
+    // Clear any expanded day first, then set to today
+    setSelectedDate('');
+    setTimeout(() => setSelectedDate(today), 50);
+    
+    // Scroll to today after a delay
+    setTimeout(() => {
+      todayRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
   };
 
   const navigateWeek = (direction: 'prev' | 'next') => {
@@ -878,23 +827,53 @@ const ReportsAnalytics: React.FC = () => {
     const newWeek = direction === 'next' 
       ? addDays(currentWeek, 7)
       : addDays(currentWeek, -7);
+    
+    // Clear any expanded day when navigating weeks
+    setSelectedDate('');
+    // Clear day loading states to prevent stale loading indicators
+    setDayLoadingStates({});
+    // Clear daily reports to force fresh data load
+    setDailyReports({});
     setWeekStart(format(newWeek, 'yyyy-MM-dd'));
   };
 
-  // Load only today's data initially
-  useEffect(() => {
-    if (filteredUsers.length > 0 && selectedUser) {
-      loadTodayData();
-    }
-  }, [selectedTeam, selectedUser, weekStart]);
+  // Handle manual week date selection
+  const handleWeekDateChange = (newWeekStart: string) => {
+    // Clear any expanded day when manually selecting a week
+    setSelectedDate('');
+    // Clear day loading states to prevent stale loading indicators
+    setDayLoadingStates({});
+    // Clear daily reports to force fresh data load
+    setDailyReports({});
+    setWeekStart(newWeekStart);
+  };
 
-  // Reload today's data when tasks change
-  useEffect(() => {
-    if (filteredUsers.length > 0 && selectedUser) {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      loadSpecificDay(today);
-    }
-  }, [tasks]);
+  // Handle team selection with cleanup
+  const handleTeamChange = (newTeam: TeamType) => {
+    // Clear expanded day when switching teams
+    setSelectedDate('');
+    setSelectedTeam(newTeam);
+    setSelectedUser(''); // Reset user selection
+  };
+
+  // Handle user selection with cleanup
+  const handleUserChange = (newUserId: string) => {
+    // Clear expanded day when switching users
+    setSelectedDate('');
+    setSelectedUser(newUserId);
+  };
+
+  // Show loading state if not initialized
+  if (!isInitialized) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-sm text-gray-600">Initializing...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 p-4 bg-gray-50 min-h-screen">
@@ -930,10 +909,7 @@ const ReportsAnalytics: React.FC = () => {
                 </label>
                 <select
                   value={selectedTeam}
-                  onChange={(e) => {
-                    setSelectedTeam(e.target.value as TeamType);
-                    setSelectedUser(''); // Reset user selection
-                  }}
+                  onChange={(e) => handleTeamChange(e.target.value as TeamType)}
                   className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 >
                   <option value="creative">Creative Team</option>
@@ -950,7 +926,7 @@ const ReportsAnalytics: React.FC = () => {
                 </label>
                 <select
                   value={selectedUser}
-                  onChange={(e) => setSelectedUser(e.target.value)}
+                  onChange={(e) => handleUserChange(e.target.value)}
                   className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 >
                   {filteredUsers.map(user => (
@@ -979,7 +955,7 @@ const ReportsAnalytics: React.FC = () => {
                 <input
                   type="date"
                   value={weekStart}
-                  onChange={(e) => setWeekStart(e.target.value)}
+                  onChange={(e) => handleWeekDateChange(e.target.value)}
                   className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                 />
                 <Button
@@ -1006,7 +982,7 @@ const ReportsAnalytics: React.FC = () => {
                 This Week
               </Button>
               <Button
-                onClick={scrollToToday}
+                onClick={goToToday}
                 variant="secondary"
                 className="flex-1 text-xs py-2 hover:bg-gray-100 transition-all duration-200"
                 size="sm"
@@ -1038,7 +1014,7 @@ const ReportsAnalytics: React.FC = () => {
                   const userTasks = getTasksByUser(user.id);
 
                   return (
-                    <MemoizedDailyCard
+                    <DailyCard
                       key={reportKey}
                       userId={user.id}
                       date={dateStr}

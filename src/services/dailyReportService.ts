@@ -995,4 +995,219 @@ export const getCompletedTasksForDay = async (userId: string, date: string): Pro
     console.error('Error in getCompletedTasksForDay:', error);
     return [];
   }
+};
+
+// ============================================================================
+// BACKEND ROLLOVER SYSTEM - Idempotent task rollover processing
+// ============================================================================
+
+/**
+ * Get or create user rollover tracking record
+ */
+const getOrCreateUserRollover = async (userId: string): Promise<{ user_id: string; last_rollover_date: string }> => {
+  try {
+    // Try to get existing rollover record
+    const { data: rollover, error: fetchError } = await supabase
+      .from('user_rollover')
+      .select('user_id, last_rollover_date')
+      .eq('user_id', userId)
+      .single();
+
+    if (rollover) {
+      return rollover;
+    }
+
+    // Only create if it doesn't exist and no error (avoid infinite retries)
+    if (fetchError && fetchError.code === 'PGRST116') {
+      // Create new rollover record if it doesn't exist
+      const { data: newRollover, error: insertError } = await supabase
+        .from('user_rollover')
+        .insert([{
+          user_id: userId,
+          last_rollover_date: '1970-01-01'
+        }])
+        .select('user_id, last_rollover_date')
+        .single();
+
+      if (insertError) {
+        console.error('Error creating user rollover record:', insertError);
+        // Return default if creation fails
+        return { user_id: userId, last_rollover_date: '1970-01-01' };
+      }
+
+      return newRollover;
+    }
+
+    // Return default for any other errors
+    return { user_id: userId, last_rollover_date: '1970-01-01' };
+  } catch (error) {
+    console.error('Error in getOrCreateUserRollover:', error);
+    // Return default if any error occurs
+    return { user_id: userId, last_rollover_date: '1970-01-01' };
+  }
+};
+
+/**
+ * Update user rollover tracking with the latest processed date
+ */
+const updateUserRollover = async (userId: string, lastRolloverDate: string): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('user_rollover')
+      .upsert([{
+        user_id: userId,
+        last_rollover_date: lastRolloverDate
+      }]);
+
+    if (error) {
+      console.error('Error updating user rollover:', error);
+      // Don't throw error to prevent cascading failures
+    }
+  } catch (error) {
+    console.error('Error in updateUserRollover:', error);
+    // Don't throw error to prevent cascading failures
+  }
+};
+
+/**
+ * Process rollover for a single day: move unfinished tasks from yesterday to today
+ */
+const processRolloverForDay = async (userId: string, fromDate: string, toDate: string): Promise<void> => {
+  try {
+    // Safety check to prevent processing same day twice or invalid dates
+    if (fromDate >= toDate) {
+      return;
+    }
+
+    // Get yesterday's work entry
+    const fromEntry = await getDailyWorkEntry(userId, fromDate);
+    if (!fromEntry) {
+      // No work entry for yesterday, nothing to roll over
+      return;
+    }
+
+    // Find unfinished tasks (in assigned but not in completed)
+    const unfinishedTasks = fromEntry.assignedTasks.filter(taskId => 
+      !fromEntry.completedTasks.includes(taskId)
+    );
+
+    if (unfinishedTasks.length === 0) {
+      // No unfinished tasks to roll over
+      return;
+    }
+
+    // Get or create today's work entry
+    const toEntry = await getOrCreateDailyWorkEntry(userId, toDate);
+    
+    // Add unfinished tasks to today's assigned tasks (avoid duplicates)
+    const currentAssigned = toEntry.assignedTasks || [];
+    const newAssignedTasks = [...new Set([...currentAssigned, ...unfinishedTasks])];
+
+    // Only update if there are actually new tasks to add
+    if (newAssignedTasks.length > currentAssigned.length) {
+      const updatedEntry: DailyWorkEntry = {
+        ...toEntry,
+        assignedTasks: newAssignedTasks,
+        updatedAt: new Date().toISOString()
+      };
+
+      await updateDailyWorkEntry(updatedEntry);
+      
+      console.log(`Rolled over ${unfinishedTasks.length} tasks from ${fromDate} to ${toDate} for user ${userId}`);
+    }
+  } catch (error) {
+    console.error(`Error processing rollover from ${fromDate} to ${toDate} for user ${userId}:`, error);
+    // Don't throw to prevent cascading failures
+  }
+};
+
+/**
+ * Comprehensive rollover: Process all days from last rollover date to target date
+ * This function is idempotent - calling it multiple times for the same date range is safe
+ */
+export const processComprehensiveRollover = async (userId: string, targetDate: string): Promise<void> => {
+  try {
+    // Safety check for valid date
+    const targetDateObj = parseISO(targetDate);
+    if (isNaN(targetDateObj.getTime())) {
+      console.error('Invalid target date:', targetDate);
+      return;
+    }
+
+    // Get user's last rollover date
+    const rolloverRecord = await getOrCreateUserRollover(userId);
+    const lastRolloverDate = parseISO(rolloverRecord.last_rollover_date);
+    const target = targetDateObj;
+
+    // If we've already processed up to or past the target date, nothing to do
+    if (lastRolloverDate >= target) {
+      console.log(`Rollover already processed for user ${userId} up to ${targetDate}`);
+      return;
+    }
+
+    // Safety check to prevent processing too far back
+    const maxDaysBack = 30; // Only process last 30 days to prevent infinite processing
+    const minDate = addDays(target, -maxDaysBack);
+    const startDate = lastRolloverDate < minDate ? minDate : lastRolloverDate;
+
+    // Process each day from the day after last rollover to target date
+    let currentDate = addDays(startDate, 1);
+    
+    console.log(`Processing rollover for user ${userId} from ${format(currentDate, 'yyyy-MM-dd')} to ${targetDate}`);
+    
+    let daysProcessed = 0;
+    const maxDaysToProcess = 31; // Safety limit
+    
+    while (currentDate <= target && daysProcessed < maxDaysToProcess) {
+      const fromDateStr = format(addDays(currentDate, -1), 'yyyy-MM-dd');
+      const toDateStr = format(currentDate, 'yyyy-MM-dd');
+      
+      // Process rollover for this day
+      await processRolloverForDay(userId, fromDateStr, toDateStr);
+      
+      // Move to next day
+      currentDate = addDays(currentDate, 1);
+      daysProcessed++;
+    }
+
+    // Update the rollover tracking to mark we've processed up to target date
+    await updateUserRollover(userId, targetDate);
+    
+    console.log(`Completed comprehensive rollover for user ${userId} up to ${targetDate} (${daysProcessed} days processed)`);
+  } catch (error) {
+    console.error(`Error in comprehensive rollover for user ${userId} to ${targetDate}:`, error);
+    // Don't throw to prevent cascading failures
+  }
+};
+
+/**
+ * Get daily report with automatic comprehensive rollover
+ * This is the main function that frontend should call - it ensures all rollover
+ * is processed before returning the daily report
+ */
+export const getDailyReportWithComprehensiveRollover = async (userId: string, date: string): Promise<DailyReport | null> => {
+  try {
+    // Safety check for valid inputs
+    if (!userId || !date) {
+      console.error('Invalid inputs for getDailyReportWithComprehensiveRollover:', { userId, date });
+      return await getDailyReport(userId, date);
+    }
+
+    // Validate date format
+    const dateObj = parseISO(date);
+    if (isNaN(dateObj.getTime())) {
+      console.error('Invalid date format:', date);
+      return await getDailyReport(userId, date);
+    }
+
+    // First, ensure all rollover is processed up to the requested date
+    await processComprehensiveRollover(userId, date);
+    
+    // Then get the daily report normally
+    return await getDailyReport(userId, date);
+  } catch (error) {
+    console.error(`Error getting daily report with rollover for ${userId} on ${date}:`, error);
+    // Fallback to regular report if rollover fails
+    return await getDailyReport(userId, date);
+  }
 }; 

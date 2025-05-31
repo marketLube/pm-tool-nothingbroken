@@ -25,6 +25,7 @@ import {
   getAttendanceStats 
 } from '../services/attendanceService';
 import { format, subDays, startOfMonth, endOfMonth } from 'date-fns';
+import { getIndiaMonthRange } from '../utils/timezone';
 
 interface AttendanceOverview {
   present: number;
@@ -87,9 +88,8 @@ const Attendance: React.FC = () => {
       setEmployeeAttendanceList(todayAttendance);
 
       // Get monthly stats
-      const startDate = format(startOfMonth(new Date()), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(new Date()), 'yyyy-MM-dd');
-      const stats = await getAttendanceStats(filteredUserIds, startDate, endDate);
+      const monthRange = getIndiaMonthRange();
+      const stats = await getAttendanceStats(filteredUserIds, monthRange.startDate, monthRange.endDate);
       setMonthlyStats(stats);
 
       setLastUpdated(new Date());

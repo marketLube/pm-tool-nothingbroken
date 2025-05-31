@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect, useRef } from 'react';
 import { Role, TeamType, User } from '../types';
 import { isSupabaseConfigured } from '../utils/supabase';
 import * as userService from '../services/userService';
@@ -48,6 +48,12 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true); // Start with loading true to check session
+  const currentUserRef = useRef<User | null>(null);
+  
+  // Update ref whenever currentUser changes
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
   
   // Session timeout in milliseconds (30 minutes)
   const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -70,7 +76,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Helper function to extend session on activity
   const extendSession = () => {
-    if (currentUser) {
+    if (currentUserRef.current) {
       try {
         const newExpiryTime = Date.now() + SESSION_TIMEOUT;
         localStorage.setItem('sessionExpiry', newExpiryTime.toString());
@@ -149,7 +155,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Set up periodic session validation (every minute)
     const sessionCheckInterval = setInterval(() => {
-      if (currentUser && !isSessionValid()) {
+      if (currentUserRef.current && !isSessionValid()) {
         console.log('Session expired due to inactivity, logging out');
         logout();
       }
@@ -157,12 +163,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Clear interval on cleanup
     return () => clearInterval(sessionCheckInterval);
-  }, [currentUser]);
+  }, []); // Remove currentUser dependency to prevent infinite loop
 
   // Listen for window focus to validate and extend session
   useEffect(() => {
     const handleWindowFocus = () => {
-      if (currentUser) {
+      if (currentUserRef.current) {
         if (isSessionValid()) {
           // Session is still valid, extend it since user is back
           extendSession();
@@ -176,14 +182,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [currentUser]);
+  }, []); // Remove currentUser dependency
 
   // Track user activity to extend session
   useEffect(() => {
     const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
     
     const handleUserActivity = () => {
-      if (currentUser && isSessionValid()) {
+      if (currentUserRef.current && isSessionValid()) {
         extendSession();
       }
     };
@@ -207,7 +213,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         document.removeEventListener(event, throttledActivityHandler, true);
       });
     };
-  }, [currentUser]);
+  }, []); // Remove currentUser dependency
   
   const isAuthenticated = !!currentUser;
   const isAdmin = currentUser?.role === 'admin';
@@ -233,36 +239,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
       
-      // For backward compatibility - always allow admin user login
-      if (email.toLowerCase() === 'althameem@marketlube.in' && password === 'Mark@99') {
-        console.log('Using hardcoded admin user login');
-        const adminUser: User = {
-          id: '53419fb2-9e21-40f1-8bcc-9e4575548523',
-          name: 'Althameem',
-          email: 'althameem@marketlube.in',
-          role: 'admin',
-          team: 'creative',
-          joinDate: new Date().toISOString().split('T')[0],
-          isActive: true,
-          allowedStatuses: [
-            'not_started', 'scripting', 'script_confirmed', 'shoot_pending',
-            'shoot_finished', 'edit_pending', 'client_approval', 'approved',
-            'proposal_awaiting', 'ui_started', 'ui_finished', 'development_started', 
-            'development_finished', 'testing', 'handed_over', 'client_reviewing', 
-            'completed', 'in_progress', 'done'
-          ]
-        };
-        
-        storeUserSession(adminUser);
-        
-        // Record automatic check-in
-        await attendanceService.recordLoginAsCheckIn(adminUser.id);
-        
-        console.log('Admin login successful!');
-        return true;
-      }
-      
-      // Check user credentials for normal users
+      // Use standard authentication for all users (including admins)
       const user = await userService.checkUserCredentials(email, password);
       
       if (user && user.isActive) {
