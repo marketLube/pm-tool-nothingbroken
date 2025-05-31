@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS daily_work_entries (
   UNIQUE(user_id, date)
 );
 
--- 2. Create task_completions table
+-- 2. Create task_completions tableeeeee
 CREATE TABLE IF NOT EXISTS task_completions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
