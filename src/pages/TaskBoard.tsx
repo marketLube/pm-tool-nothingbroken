@@ -1,5 +1,29 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { DragDropContext, Droppable, Draggable, DropResult, DraggableProvided, DraggableStateSnapshot, DroppableProvided, DroppableStateSnapshot, ResponderProvided } from 'react-beautiful-dnd';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverEvent,
+  DragOverlay,
+  useDroppable,
+  useDraggable,
+  UniqueIdentifier,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import {
+  CSS,
+} from '@dnd-kit/utilities';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import TaskCard from '../components/tasks/TaskCard';
 import Button from '../components/ui/Button';
@@ -23,8 +47,151 @@ interface Column {
   tasks: Task[];
 }
 
-// IMPORTANT: Using a fixed ID to ensure the DragDropContext doesn't remount
+// IMPORTANT: Using a fixed ID to ensure the DndContext doesn't remount
 const BOARD_ID = 'task-board-fixed';
+
+// Draggable Task Item component for @dnd-kit
+interface DraggableTaskProps {
+  task: Task;
+  index: number;
+  isInitialized: boolean;
+  onClick: (task: Task) => void;
+  onDelete: (taskId: string) => void;
+}
+
+const DraggableTask: React.FC<DraggableTaskProps> = ({ 
+  task, 
+  index, 
+  isInitialized, 
+  onClick, 
+  onDelete 
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: task.id,
+    disabled: !isInitialized
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`mb-3 transform transition-transform duration-150 select-none ${
+        isDragging ? 'z-50 shadow-lg opacity-90 scale-105' : ''
+      }`}
+    >
+      <TaskCard
+        task={task}
+        isDragging={isDragging}
+        onClick={() => onClick(task)}
+        onDelete={onDelete}
+      />
+    </div>
+  );
+};
+
+// Droppable Column component for @dnd-kit
+interface DroppableColumnProps {
+  column: Column;
+  onNewTask: (statusId: StatusCode) => void;
+  onTaskClick: (task: Task) => void;
+  onTaskDelete: (taskId: string) => void;
+  isInitialized: boolean;
+}
+
+const DroppableColumn: React.FC<DroppableColumnProps> = ({
+  column,
+  onNewTask,
+  onTaskClick,
+  onTaskDelete,
+  isInitialized
+}) => {
+  const {
+    isOver,
+    setNodeRef
+  } = useDroppable({
+    id: column.id,
+  });
+
+  return (
+    <div className="h-full flex flex-col">
+      <Card className="flex-1 h-full" hover>
+        <CardHeader className="pb-2 border-b border-gray-100">
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center">
+              <div
+                className="w-3 h-3 rounded-full mr-2"
+                style={{ backgroundColor: column.color }}
+              />
+              <span>{column.name}</span>
+            </div>
+            <span className="bg-gray-100 text-secondary-700 text-xs font-medium rounded-full px-2.5 py-1">
+              {column.tasks.length}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 overflow-hidden flex-1">
+          <div
+            ref={setNodeRef}
+            className={`space-y-2 min-h-[200px] h-full flex flex-col ${
+              isOver ? 'bg-gray-50 rounded-md' : ''
+            }`}
+          >
+            {column.tasks.length === 0 ? (
+              <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
+                <p className="text-sm text-gray-500">No tasks</p>
+              </div>
+            ) : (
+              <div className="flex-1">
+                <SortableContext 
+                  items={column.tasks.map(task => task.id)} 
+                  strategy={verticalListSortingStrategy}
+                >
+                  {column.tasks.map((task, index) => (
+                    <DraggableTask
+                      key={task.id}
+                      task={task}
+                      index={index}
+                      isInitialized={isInitialized}
+                      onClick={onTaskClick}
+                      onDelete={onTaskDelete}
+                    />
+                  ))}
+                </SortableContext>
+              </div>
+            )}
+            
+            {/* Add New Task Button */}
+            <div className="mt-4 flex justify-center">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Plus}
+                onClick={() => onNewTask(column.status)}
+                className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-300"
+              >
+                <span className="text-xs font-medium">New Task</span>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
 
 const TaskBoard: React.FC = () => {
   // ---------------------------------------------------
@@ -56,9 +223,22 @@ const TaskBoard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const [columnsReady, setColumnsReady] = useState(false);
+  const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const initAttemptedRef = useRef(false);
   const columnsRef = useRef<Column[]>([]);
   const forceUpdateRef = useRef(0);
+  
+  // @dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
   
   // ---------------------------------------------------
   // Derived state and memoization
@@ -248,6 +428,7 @@ const TaskBoard: React.FC = () => {
     
     // Clean up any drag operations
     setIsDragging(false);
+    setActiveId(null);
     document.body.style.cursor = '';
     document.body.classList.remove('dragging');
     
@@ -333,82 +514,68 @@ const TaskBoard: React.FC = () => {
   }, []);
   
   // ---------------------------------------------------
-  // Drag and Drop handlers
+  // @dnd-kit Drag and Drop handlers
   // ---------------------------------------------------
   
-  const handleDragStart = useCallback(() => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     if (!isInitialized) {
       console.warn('[Drag] Attempted to drag before initialization');
       return;
     }
     
+    setActiveId(event.active.id);
     setIsDragging(true);
     document.body.style.cursor = 'grabbing';
     document.body.classList.add('dragging');
   }, [isInitialized]);
   
-  const handleDragEnd = useCallback((result: DropResult, provided: ResponderProvided) => {
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    
     setIsDragging(false);
+    setActiveId(null);
     document.body.style.cursor = '';
     document.body.classList.remove('dragging');
     
-    // If there's no destination, do nothing
-    if (!result.destination) {
+    if (!over) {
       return;
     }
     
-    // Identify source and destination columns
-    const sourceColId = result.source.droppableId;
-    const destColId = result.destination.droppableId;
+    const activeId = active.id;
+    const overId = over.id;
     
-    // If dropped in the same place, do nothing
-    if (
-      sourceColId === destColId &&
-      result.source.index === result.destination.index
-    ) {
+    // Find the task that was moved
+    const activeTask = filteredTasks.find(task => task.id === activeId);
+    if (!activeTask) {
+      console.error(`[Drag] Task ${activeId} not found`);
       return;
     }
     
-    console.log(`[Drag] Moving task from ${sourceColId} to ${destColId}`);
+    // Find the target column
+    const targetColumn = columns.find(col => 
+      col.id === overId || col.tasks.some(task => task.id === overId)
+    );
     
-    // Get the task that was moved
-    const sourceColumn = columns.find(col => col.id === sourceColId);
-    if (!sourceColumn) {
-      console.error(`[Drag] Source column ${sourceColId} not found`);
-      return;
-    }
-    
-    const taskId = result.draggableId;
-    const taskToMove = sourceColumn.tasks.find(task => task.id === taskId);
-    if (!taskToMove) {
-      console.error(`[Drag] Task ${taskId} not found in source column`);
-      return;
-    }
-    
-    // Extract team and status from the destination column ID
-    const destColumn = columns.find(col => col.id === destColId);
-    if (!destColumn) {
-      console.error(`[Drag] Destination column ${destColId} not found`);
+    if (!targetColumn) {
+      console.error(`[Drag] Target column not found for ${overId}`);
       return;
     }
     
     // Ensure we're not trying to move a task between teams
-    if (taskToMove.team !== destColumn.team) {
-      console.error(`[Drag] Cannot move task between teams: ${taskToMove.team} to ${destColumn.team}`);
+    if (activeTask.team !== targetColumn.team) {
+      console.error(`[Drag] Cannot move task between teams: ${activeTask.team} to ${targetColumn.team}`);
       return;
     }
     
-    // Get the new status from the destination column
-    const newStatus = destColumn.status;
+    // Get the new status from the target column
+    const newStatus = targetColumn.status;
     
     // Only update if the status changed
-    if (taskToMove.status !== newStatus) {
-      console.log(`[Drag] Updating task ${taskId} status from ${taskToMove.status} to ${newStatus}`);
-      
-      // Update task status
-      updateTaskStatus(taskId, newStatus);
+    if (activeTask.status !== newStatus) {
+      console.log(`[Drag] Updating task ${activeId} status from ${activeTask.status} to ${newStatus}`);
+      updateTaskStatus(activeId as string, newStatus);
     }
-  }, [columns, updateTaskStatus]);
+  }, [columns, filteredTasks, updateTaskStatus]);
   
   // ---------------------------------------------------
   // Render functions
@@ -420,97 +587,6 @@ const TaskBoard: React.FC = () => {
     forceUpdateRef.current += 1;
   }, []);
 
-  // Render a task within a column
-  const renderTask = useCallback((task: Task, index: number) => (
-    <Draggable
-      key={task.id}
-      draggableId={task.id}
-      index={index}
-      isDragDisabled={!isInitialized}
-    >
-      {(provided: DraggableProvided, snapshot: DraggableStateSnapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          className={`mb-3 transform transition-transform duration-150 select-none ${
-            snapshot.isDragging ? 'z-50 shadow-lg opacity-90 scale-105' : ''
-          }`}
-          style={{
-            ...provided.draggableProps.style,
-            cursor: isInitialized ? (snapshot.isDragging ? 'grabbing' : 'grab') : 'not-allowed'
-          }}
-        >
-          <TaskCard
-            task={task}
-            isDragging={snapshot.isDragging}
-            onClick={() => handleTaskClick(task)}
-            onDelete={handleTaskDelete}
-          />
-        </div>
-      )}
-    </Draggable>
-  ), [handleTaskClick, handleTaskDelete, isInitialized]);
-  
-  // Render a column with its tasks
-  const renderColumn = useCallback((column: Column) => (
-    <div key={column.id} className="h-full flex flex-col">
-      <Card className="flex-1 h-full" hover>
-        <CardHeader className="pb-2 border-b border-gray-100">
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div
-                className="w-3 h-3 rounded-full mr-2"
-                style={{ backgroundColor: column.color }}
-              />
-              <span>{column.name}</span>
-            </div>
-            <span className="bg-gray-100 text-secondary-700 text-xs font-medium rounded-full px-2.5 py-1">
-              {column.tasks.length}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 overflow-hidden flex-1">
-          <Droppable droppableId={column.id} type="task">
-            {(provided: DroppableProvided, snapshot: DroppableStateSnapshot) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                className={`space-y-2 min-h-[200px] h-full flex flex-col ${
-                  snapshot.isDraggingOver ? 'bg-gray-50 rounded-md' : ''
-                }`}
-              >
-                {column.tasks.length === 0 ? (
-                  <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
-                    <p className="text-sm text-gray-500">No tasks</p>
-                  </div>
-                ) : (
-                  <div className="flex-1">
-                    {column.tasks.map((task, index) => renderTask(task, index))}
-                  </div>
-                )}
-                {provided.placeholder}
-                
-                {/* Add New Task Button */}
-                <div className="mt-4 flex justify-center">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    icon={Plus}
-                    onClick={() => handleNewTaskInStatus(column.status)}
-                    className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-300"
-                  >
-                    <span className="text-xs font-medium">New Task</span>
-                  </Button>
-                </div>
-              </div>
-            )}
-          </Droppable>
-        </CardContent>
-      </Card>
-    </div>
-  ), [handleNewTaskInStatus, renderTask]);
-  
   // Render loading state
   const renderLoading = useCallback(() => (
     <div className="flex items-center justify-center h-64">
@@ -525,6 +601,12 @@ const TaskBoard: React.FC = () => {
   const getRenderKey = useCallback(() => {
     return `${BOARD_ID}-${teamFilter}-${forceUpdateRef.current}`;
   }, [teamFilter, forceUpdateRef.current]);
+
+  // Get the currently dragged task for DragOverlay
+  const activeTask = useMemo(() => {
+    if (!activeId) return null;
+    return filteredTasks.find(task => task.id === activeId);
+  }, [activeId, filteredTasks]);
   
   // ---------------------------------------------------
   // Main render
@@ -595,7 +677,7 @@ const TaskBoard: React.FC = () => {
                   { value: 'creative', label: 'Creative', icon: Palette },
                   { value: 'web', label: 'Web', icon: Code }
                 ]}
-                    value={teamFilter}
+                value={teamFilter}
                 onChange={(value) => handleTeamFilterChange(value as TeamType)}
                 customStyles={{
                   creative: 'bg-purple-600 text-white hover:bg-purple-700',
@@ -769,9 +851,11 @@ const TaskBoard: React.FC = () => {
           </>
         )}
         
-        {/* DragDropContext with unique key for each team to ensure proper initialization */}
-        <DragDropContext 
+        {/* DndContext with unique key for each team to ensure proper initialization */}
+        <DndContext
           key={getRenderKey()}
+          sensors={sensors}
+          collisionDetection={closestCenter}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
@@ -793,14 +877,37 @@ const TaskBoard: React.FC = () => {
             }}
           >
               {/* Render columns */}
-              {columns.map(column => renderColumn(column))}
+              {columns.map(column => (
+                <DroppableColumn
+                  key={column.id}
+                  column={column}
+                  onNewTask={handleNewTaskInStatus}
+                  onTaskClick={handleTaskClick}
+                  onTaskDelete={handleTaskDelete}
+                  isInitialized={isInitialized}
+                />
+              ))}
                     </div>
           ) : (
             <div className="flex justify-center items-center py-10 border-2 border-dashed border-gray-200 rounded-lg">
               <p className="text-gray-500">No columns found for {teamFilter} team</p>
                       </div>
                     )}
-        </DragDropContext>
+
+          {/* DragOverlay for better drag experience */}
+          <DragOverlay>
+            {activeTask ? (
+              <div className="opacity-90 scale-105 rotate-2">
+                <TaskCard
+                  task={activeTask}
+                  isDragging={true}
+                  onClick={() => {}}
+                  onDelete={() => {}}
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
       
       {/* Modals */}
