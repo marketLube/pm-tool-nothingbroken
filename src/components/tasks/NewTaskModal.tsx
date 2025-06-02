@@ -6,6 +6,7 @@ import Button from '../ui/Button';
 import { useData } from '../../contexts/DataContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useStatus } from '../../contexts/StatusContext';
+import { useNotification } from '../../contexts/NotificationContext';
 import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
 import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
@@ -26,6 +27,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const { clients, users, addTask, updateTask, deleteTask } = useData();
   const { currentUser } = useAuth();
   const { getStatusesByTeam, statuses } = useStatus();
+  const { showError } = useNotification();
   
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Task>>({
@@ -210,7 +212,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         onClose();
       } catch (error) {
         console.error('Error deleting task:', error);
-        alert(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
+        showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
       } finally {
         setIsDeleting(false);
       }

@@ -186,7 +186,7 @@ export const checkUserCredentials = async (email: string, password: string): Pro
 // Create a new user
 export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
   try {
-    const id = crypto.randomUUID();
+    const id = uuidv4();
     
     // Validate required fields
     if (!user.name?.trim()) {
@@ -199,16 +199,98 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
       throw new Error('Password is required');
     }
     
-    const userDbData = mapToDbUser({ ...user, id } as User, false);
+    const email = user.email.toLowerCase().trim();
+    const password = user.password.trim();
     
     console.log('Creating user with data:', {
-      email: userDbData.email,
-      name: userDbData.name,
-      role: userDbData.role,
-      team: userDbData.team,
-      hasPassword: !!userDbData.password
+      email: email,
+      name: user.name.trim(),
+      role: user.role,
+      team: user.team,
+      hasPassword: !!password
     });
     
+    let authUserId = id; // Fallback to generated ID
+    let authUserCreated = false;
+    
+    // Step 1: Try to create the authentication user in Supabase Auth
+    try {
+      console.log('Attempting to create auth user in Supabase Auth...');
+      
+      // Try multiple methods to create auth user
+      let authResult = null;
+      
+      // Method 1: Try admin.createUser if available
+      if (supabase.auth.admin?.createUser) {
+        console.log('Using supabase.auth.admin.createUser...');
+        authResult = await supabase.auth.admin.createUser({
+          email: email,
+          password: password,
+          email_confirm: true, // Auto-confirm email
+          user_metadata: {
+            name: user.name.trim(),
+            role: user.role,
+            team: user.team
+          }
+        });
+      }
+      
+      // Method 2: Try regular signUp if admin not available
+      if (!authResult || authResult.error) {
+        console.log('Admin method failed or unavailable, trying signUp...');
+        authResult = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              name: user.name.trim(),
+              role: user.role,
+              team: user.team
+            }
+          }
+        });
+        
+        // Sign out immediately after signup to avoid session conflicts
+        if (authResult.data.user && !authResult.error) {
+          await supabase.auth.signOut();
+        }
+      }
+
+      if (authResult?.error) {
+        console.warn('Supabase Auth error:', authResult.error.message);
+        
+        // Check if user already exists in Auth
+        if (authResult.error.message?.includes('already registered') || 
+            authResult.error.message?.includes('already been registered') ||
+            authResult.error.message?.includes('User already registered')) {
+          throw new Error('A user with this email already exists');
+        }
+        
+        // For other errors, continue with database-only creation
+        console.log('Continuing with database-only user creation...');
+      } else if (authResult?.data?.user) {
+        authUserId = authResult.data.user.id;
+        authUserCreated = true;
+        console.log('Auth user created successfully with ID:', authUserId);
+      }
+    } catch (authError: any) {
+      console.warn('Auth user creation failed:', authError.message);
+      
+      // Check if it's a duplicate user error
+      if (authError.message?.includes('already registered') || 
+          authError.message?.includes('already been registered') ||
+          authError.message?.includes('User already registered')) {
+        throw new Error('A user with this email already exists');
+      }
+      
+      // For other errors, continue with database-only creation
+      console.log('Continuing with database-only user creation...');
+    }
+    
+    // Step 2: Create the user record in the database
+    const userDbData = mapToDbUser({ ...user, id: authUserId } as User, false);
+    
+    console.log('Creating user record in database...');
     const { data, error } = await supabase
       .from('users')
       .insert([userDbData])
@@ -216,15 +298,38 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
       .single();
 
     if (error) {
-      console.error('Supabase error creating user:', error);
+      console.error('Database error creating user record:', error);
+      
+      // If database creation fails and we created an auth user, try to clean it up
+      if (authUserCreated) {
+        try {
+          if (supabase.auth.admin?.deleteUser) {
+            await supabase.auth.admin.deleteUser(authUserId);
+            console.log('Cleaned up auth user after database error');
+          }
+        } catch (cleanupError) {
+          console.error('Failed to cleanup auth user:', cleanupError);
+        }
+      }
+      
       if (error.code === '23505') {
         throw new Error('A user with this email already exists');
       }
-      throw new Error(`Failed to create user: ${error.message}`);
+      throw new Error(`Failed to create user record: ${error.message}`);
     }
 
-    console.log('User created successfully:', data.id);
-    return mapFromDbUser(data);
+    const createdUser = mapFromDbUser(data);
+    
+    if (authUserCreated) {
+      console.log('✅ User created successfully in both Supabase Auth and Database:', data.id);
+    } else {
+      console.log('⚠️ User created in Database only (Auth creation failed or unavailable):', data.id);
+      console.log('Note: User may need to be manually added to Supabase Auth for login to work');
+      console.log('Alternative: You can enable database-only authentication as a fallback');
+    }
+    
+    return createdUser;
+    
   } catch (error) {
     console.error('Error creating user:', error);
     throw error;
@@ -392,7 +497,7 @@ export const createUserInSupabase = async (userData: {
 }): Promise<User | null> => {
   try {
     const newUser: User = {
-      id: userData.id || crypto.randomUUID(),
+      id: userData.id || uuidv4(),
       email: userData.email,
       name: userData.name,
       role: (userData.role as Role) || 'employee',

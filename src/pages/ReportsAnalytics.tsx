@@ -998,7 +998,7 @@ const ReportsAnalytics: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900 flex items-center transition-all duration-300 group">
             <BarChart3 className="h-8 w-8 mr-4 text-blue-600 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3" />
             <span className="bg-gradient-to-r from-gray-900 to-blue-800 bg-clip-text text-transparent">
-              Reports & Analytics
+            Reports & Analytics
             </span>
           </h1>
           <p className="text-base text-gray-600 font-medium">Track daily work progress and team performance</p>
@@ -1009,8 +1009,8 @@ const ReportsAnalytics: React.FC = () => {
             <div className="flex items-center space-x-2">
               <Calendar className="h-5 w-5 text-blue-600" />
               <span className="font-semibold text-blue-900 text-base">
-                Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
-              </span>
+              Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
+            </span>
             </div>
           </div>
         </div>
@@ -1028,14 +1028,14 @@ const ReportsAnalytics: React.FC = () => {
                   Team
                 </label>
                 <div className="relative group">
-                  <select
-                    value={selectedTeam}
-                    onChange={(e) => handleTeamChange(e.target.value as TeamType)}
+                <select
+                  value={selectedTeam}
+                  onChange={(e) => handleTeamChange(e.target.value as TeamType)}
                     className="w-full text-sm border-2 border-gray-200 rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md hover:border-gray-300 appearance-none cursor-pointer font-medium"
-                  >
-                    <option value="creative">Creative Team</option>
-                    <option value="web">Web Team</option>
-                  </select>
+                >
+                  <option value="creative">Creative Team</option>
+                  <option value="web">Web Team</option>
+                </select>
                   <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none transition-transform duration-200 group-hover:text-gray-600" />
                 </div>
               </div>
@@ -1049,17 +1049,17 @@ const ReportsAnalytics: React.FC = () => {
                   User
                 </label>
                 <div className="relative group">
-                  <select
-                    value={selectedUser}
-                    onChange={(e) => handleUserChange(e.target.value)}
+                <select
+                  value={selectedUser}
+                  onChange={(e) => handleUserChange(e.target.value)}
                     className="w-full text-sm border-2 border-gray-200 rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md hover:border-gray-300 appearance-none cursor-pointer font-medium"
-                  >
-                    {filteredUsers.map(user => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} ({user.role})
-                      </option>
-                    ))}
-                  </select>
+                >
+                  {filteredUsers.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} ({user.role})
+                    </option>
+                  ))}
+                </select>
                   <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none transition-transform duration-200 group-hover:text-gray-600" />
                 </div>
               </div>
@@ -1105,14 +1105,14 @@ const ReportsAnalytics: React.FC = () => {
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
                 <button
-                  onClick={setThisWeek}
+                onClick={setThisWeek}
                   className="w-full h-12 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white transition-all duration-300 shadow-sm hover:shadow-lg rounded-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 font-medium text-sm button-focus overflow-hidden"
                 >
                   <Calendar className="h-4 w-4 flex-shrink-0" />
                   <span className="truncate">This Week</span>
                 </button>
                 <button
-                  onClick={goToToday}
+                onClick={goToToday}
                   className="w-full h-12 px-4 bg-white hover:bg-gray-50 border-2 border-gray-300 hover:border-gray-400 transition-all duration-300 shadow-sm hover:shadow-md rounded-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 font-medium text-gray-700 hover:text-gray-900 text-sm button-focus overflow-hidden"
                 >
                   <Target className="h-4 w-4 flex-shrink-0" />

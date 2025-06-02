@@ -33,6 +33,7 @@ import NewClientModal from '../components/clients/NewClientModal';
 import { useData } from '../contexts/DataContext';
 import { useStatus } from '../contexts/StatusContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotification } from '../contexts/NotificationContext';
 import { Task, Status, TeamType, StatusCode } from '../types';
 import { Plus, Search, Filter, Users, Briefcase, ChevronLeft, ChevronRight, ChevronDown, Palette, Code } from 'lucide-react';
 import Avatar from '../components/ui/Avatar';
@@ -120,12 +121,17 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
   onTaskDelete,
   isInitialized
 }) => {
+  const { currentUser, isAdmin } = useAuth();
+  
   const {
     isOver,
     setNodeRef
   } = useDroppable({
     id: column.id,
   });
+
+  // Check if user has permission to create tasks in this status
+  const canCreateTaskInStatus = isAdmin || (currentUser?.allowedStatuses?.includes(column.status) || false);
 
   return (
     <div className="h-full flex flex-col">
@@ -175,18 +181,29 @@ const DroppableColumn: React.FC<DroppableColumnProps> = ({
               </div>
             )}
             
-            {/* Add New Task Button */}
-            <div className="mt-4 flex justify-center">
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={Plus}
-                onClick={() => onNewTask(column.status)}
-                className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-300"
-              >
-                <span className="text-xs font-medium">New Task</span>
-              </Button>
-            </div>
+            {/* Add New Task Button - Only show if user has permission */}
+            {canCreateTaskInStatus && (
+              <div className="mt-4 flex justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Plus}
+                  onClick={() => onNewTask(column.status)}
+                  className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-300"
+                >
+                  <span className="text-xs font-medium">New Task</span>
+                </Button>
+              </div>
+            )}
+            
+            {/* Show permission notice for non-permitted users */}
+            {!canCreateTaskInStatus && (
+              <div className="mt-4 flex justify-center">
+                <div className="text-xs text-gray-400 text-center py-2">
+                  No permission to create tasks in this status
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -201,6 +218,7 @@ const TaskBoard: React.FC = () => {
   const { tasks: allTasks, updateTaskStatus, getTasksByTeam, getTasksByUser, clients, users, getClientById, searchTasks } = useData();
   const { getStatusesByTeam } = useStatus();
   const { currentUser, isAdmin } = useAuth();
+  const { showError } = useNotification();
   
   // UI state
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
@@ -271,10 +289,22 @@ const TaskBoard: React.FC = () => {
   
   // Current team status columns
   const statusColumns = useMemo(() => {
-    const columns = getStatusesByTeam(teamFilter);
-    console.log(`[Status Columns] Loaded ${columns.length} columns for ${teamFilter} team`);
-    return columns;
-  }, [getStatusesByTeam, teamFilter]);
+    const allColumns = getStatusesByTeam(teamFilter);
+    console.log(`[Status Columns] Loaded ${allColumns.length} columns for ${teamFilter} team`);
+    
+    // Filter columns based on user permissions (non-admin users only see allowed statuses)
+    if (!isAdmin && currentUser?.allowedStatuses) {
+      const filteredColumns = allColumns.filter(column => 
+        currentUser.allowedStatuses?.includes(column.id) || false
+      );
+      console.log(`[Status Permissions] User ${currentUser.name} has access to ${filteredColumns.length}/${allColumns.length} status columns:`, 
+        filteredColumns.map(c => c.name));
+      return filteredColumns;
+    }
+    
+    // Admin users see all columns
+    return allColumns;
+  }, [getStatusesByTeam, teamFilter, isAdmin, currentUser?.allowedStatuses, currentUser?.name]);
   
   // Filtered tasks based on view mode and filters
   // Database search effect - replaces client-side filtering
@@ -340,6 +370,12 @@ const TaskBoard: React.FC = () => {
     
     // Distribute all filtered tasks to their respective columns
     filteredTasks.forEach(task => {
+      // For non-admin users, check if they have permission to see this task's status
+      if (!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(task.status)) {
+        console.log(`[Task Filter] User ${currentUser.name} does not have permission to see task ${task.id} with status ${task.status}`);
+        return; // Skip this task
+      }
+      
       // Find the column this task belongs to
       const column = columnMap.find(
         col => col.team === task.team && col.status === task.status
@@ -365,7 +401,7 @@ const TaskBoard: React.FC = () => {
     }
     
     return columnMap;
-  }, [statusColumns, filteredTasks, teamFilter, isSearching, columnsReady]);
+  }, [statusColumns, filteredTasks, teamFilter, isSearching, columnsReady, isAdmin, currentUser?.allowedStatuses, currentUser?.name]);
   
   // ---------------------------------------------------
   // Effects
@@ -556,6 +592,13 @@ const TaskBoard: React.FC = () => {
       return;
     }
     
+    // Check if user has permission to move task to the target status
+    if (!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(targetColumn.status)) {
+      console.error(`[Drag] User ${currentUser.name} does not have permission to move task to status ${targetColumn.status}`);
+      showError(`You don't have permission to move tasks to "${targetColumn.name}" status. Please contact your administrator.`);
+      return;
+    }
+    
     // Get the new status from the target column
     const newStatus = targetColumn.status;
     
@@ -564,7 +607,7 @@ const TaskBoard: React.FC = () => {
       console.log(`[Drag] Updating task ${activeId} status from ${activeTask.status} to ${newStatus}`);
       updateTaskStatus(activeId as string, newStatus);
     }
-  }, [columns, filteredTasks, updateTaskStatus]);
+  }, [columns, filteredTasks, updateTaskStatus, isAdmin, currentUser?.allowedStatuses, showError]);
   
   // ---------------------------------------------------
   // Render functions

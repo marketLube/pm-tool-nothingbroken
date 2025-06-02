@@ -16,6 +16,8 @@ import { useData } from '../../contexts/DataContext';
 import { format, parseISO, startOfDay, isBefore } from 'date-fns';
 import { getIndiaDateTime } from '../../utils/timezone';
 import { useStatus } from '../../contexts/StatusContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { useNotification } from '../../contexts/NotificationContext';
 
 // Import BadgeVariant type
 type BadgeVariant = 
@@ -49,6 +51,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const [showActions, setShowActions] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
+  const { showError } = useNotification();
 
   // Close action menu when clicking outside
   useEffect(() => {
@@ -186,20 +189,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   // Handle delete task
   const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
+    e.preventDefault();
+    e.stopPropagation();
     
-    if (window.confirm(`Are you sure you want to delete the task "${task.title}"?\n\nThis will remove the task from:\n• TaskBoard\n• All daily reports (assigned tasks only)\n• Historical completion records will be preserved\n\nThis action cannot be undone.`)) {
-      setIsDeleting(true);
+    if (window.confirm('Are you sure you want to delete this task?')) {
       try {
         await deleteTask(task.id);
-        if (onDelete) {
-          onDelete(task.id);
-        }
       } catch (error) {
-        console.error('Error deleting task:', error);
-        alert(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
-      } finally {
-        setIsDeleting(false);
+        console.error('Failed to delete task:', error);
+        showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
       }
     }
   };

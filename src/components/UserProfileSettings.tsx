@@ -71,12 +71,14 @@ const UserProfileSettings: React.FC = () => {
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-6">
-          <div className="flex flex-col items-center mb-4">
+          <div className="flex justify-center">
             <FileUpload 
               label="Profile Picture"
               onChange={handleFileChange}
               preview={currentUser.avatar}
               maxSizeInMb={2}
+              compact={true}
+              className="w-full max-w-sm"
             />
           </div>
           

@@ -60,8 +60,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             role: user.role,
             team: user.team,
             joinDate: user.created_at?.split('T')[0] || '2023-01-01',
-            avatar: user.avatar || '',
+            avatar: user.avatar_url || '',
             isActive: user.is_active ?? true,
+            allowedStatuses: user.allowed_statuses || [],
             password: '' // Don't store passwords in client
           }));
           setSupabaseUsers(mappedUsers);
@@ -144,47 +145,57 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return false;
       }
 
-      // For development: Check against mock data password if provided
-      if (user.password && user.password !== password) {
-        console.log('❌ Invalid password (mock data check)');
-        return false;
-      }
-
-      // Attempt Supabase authentication
+      // Method 1: Try Supabase authentication first
+      console.log('🔑 Attempting Supabase Auth login...');
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.toLowerCase(),
         password: password
       });
 
-      if (error) {
-        console.log('❌ Supabase auth error:', error.message);
-        
-        // For development: Allow mock data fallback if Supabase fails
-        if (user.password === password) {
-          console.log('🔄 Falling back to mock data authentication');
-          setCurrentUser(user);
-          setIsLoggedIn(true);
-          
-          console.log(`✅ Login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
-          console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
-          console.log(`🚫 REMOVED: Automatic check-in on login. Users must manually check-in via Attendance module.`);
-          
-          return true;
-        }
-        return false;
-      }
-
-      if (data.user) {
+      if (!error && data.user) {
+        // Supabase Auth successful
         setCurrentUser(user);
         setIsLoggedIn(true);
         
-        console.log(`✅ Login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+        console.log(`✅ Supabase Auth login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
         console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
-        console.log(`🚫 REMOVED: Automatic check-in on login. Users must manually check-in via Attendance module.`);
         
         return true;
       }
 
+      // Method 2: Fallback to database-only authentication
+      console.log('🔄 Supabase Auth failed, trying database authentication...');
+      console.log(`   Auth error: ${error?.message || 'Unknown error'}`);
+      
+      // Import the user service to check credentials against database
+      const { checkUserCredentials } = await import('../services/userService');
+      const dbUser = await checkUserCredentials(email, password);
+      
+      if (dbUser) {
+        // Database authentication successful
+        setCurrentUser(user);
+        setIsLoggedIn(true);
+        
+        console.log(`✅ Database auth login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+        console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+        console.log(`⚠️ Note: User exists in database but not in Supabase Auth. Consider recreating user for full functionality.`);
+        
+        return true;
+      }
+
+      // Method 3: Final fallback for development - check password against local data
+      if (user.password && user.password === password) {
+        console.log('🔄 Falling back to local data authentication');
+        setCurrentUser(user);
+        setIsLoggedIn(true);
+        
+        console.log(`✅ Local data login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+        console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+        
+        return true;
+      }
+
+      console.log('❌ All authentication methods failed');
       return false;
     } catch (error) {
       console.error('❌ Login error:', error);

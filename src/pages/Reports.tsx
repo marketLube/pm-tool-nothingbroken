@@ -9,6 +9,7 @@ import Input from '../components/ui/Input';
 import { useData } from '../contexts/DataContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useStatus } from '../contexts/StatusContext';
+import { useNotification } from '../contexts/NotificationContext';
 import { 
   FileText, 
   CheckCircle, 
@@ -29,7 +30,16 @@ import {
   Eye,
   ThumbsUp,
   ThumbsDown,
-  Search
+  Search,
+  Send,
+  X,
+  Check,
+  Save,
+  Trash2,
+  Palette,
+  Code,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { TeamType, Report } from '../types';
 import { getIndiaDate, getIndiaDateRange, getIndiaMonthRange } from '../utils/timezone';
@@ -43,6 +53,7 @@ const Reports: React.FC = () => {
   const { users, tasks, clients, getUserById, getTaskById, approveReport, submitReport, searchReports } = useData();
   const { statuses } = useStatus();
   const { currentUser, isAdmin } = useAuth();
+  const { showWarning, showSuccess, showError } = useNotification();
   
   // State for the report creation form
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -245,7 +256,7 @@ const Reports: React.FC = () => {
       const validTasks = selectedTasks.filter(task => task.taskId && task.hours > 0);
       
       if (validTasks.length === 0) {
-        alert('Please add at least one task with hours');
+        showWarning('Please add at least one task with hours');
         return;
       }
       
@@ -262,7 +273,7 @@ const Reports: React.FC = () => {
       
       // Reset form
       setSelectedTasks([{ taskId: '', hours: 0, notes: '' }]);
-      alert('Report submitted successfully!');
+      showSuccess('Report submitted successfully!');
       
       // Refresh reports data
       const { startDate, endDate } = getFilterDates();
@@ -279,7 +290,7 @@ const Reports: React.FC = () => {
       
     } catch (error) {
       console.error('Error submitting report:', error);
-      alert('Failed to submit report. Please try again.');
+      showError('Failed to submit report. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -306,7 +317,7 @@ const Reports: React.FC = () => {
       setFeedbackText('');
     } catch (error) {
       console.error('Error approving report:', error);
-      alert('Failed to update report status.');
+      showError('Failed to update report status.');
     }
   };
 

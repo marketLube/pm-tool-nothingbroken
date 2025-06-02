@@ -11,12 +11,12 @@ import ExportAttendanceModal from '../components/modals/ExportAttendanceModal';
 import Toast from '../components/ui/Toast';
 import { 
   ArrowLeft,
-  Users,
+  Users, 
   Clock,
   Calendar,
   CheckCircle2,
-  UserCheck,
-  UserX,
+  UserCheck, 
+  UserX, 
   Timer,
   AlertTriangle,
   TrendingUp,
@@ -28,9 +28,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import {
+import { useNotification } from '../contexts/NotificationContext';
+import { 
   getAttendanceStatus,
-  getEmployeesAttendance,
+  getEmployeesAttendance, 
   getTodayAttendanceOverview,
   getAttendanceStats,
   recordManualCheckIn,
@@ -83,6 +84,7 @@ interface PDFReportData {
 const Attendance: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { users } = useData();
+  const { showError, showSuccess, showWarning, showInfo } = useNotification();
   const navigate = useNavigate();
   
   // State declarations
@@ -119,7 +121,7 @@ const Attendance: React.FC = () => {
     warnings: string[];
     currentDate: string;
   } | null>(null);
-
+  
   // Get filtered users based on role permissions
   const filteredUsersByRole = currentUser ? getFilteredUsersForAttendance(
     users,
@@ -136,7 +138,7 @@ const Attendance: React.FC = () => {
   });
 
   const filteredUserIds = filteredUsers.map(user => user.id);
-
+  
   // Helper function to get user by ID
   const getUserById = (userId: string) => users.find(user => user.id === userId);
 
@@ -351,14 +353,13 @@ const Attendance: React.FC = () => {
 
   const handleCheckIn = async () => {
     if (!currentUser) {
-      alert('❌ User session not found. Please refresh and try again.');
+      showError('User session not found. Please refresh and try again.');
       return;
     }
     
     try {
       setIsCheckingIn(true);
       const currentTimeString = getIndiaTime();
-      
       console.log(`🔄 Attempting check-in for user ${currentUser.id} at ${currentTimeString} IST`);
       
       await recordManualCheckIn(currentUser.id);
@@ -367,15 +368,15 @@ const Attendance: React.FC = () => {
       await loadAttendanceData();
       
       const [hour, minute] = currentTimeString.split(':').map(Number);
-      let message = `✅ Successfully checked in at ${currentTimeString} IST`;
+      let message = `Successfully checked in at ${currentTimeString} IST`;
       if (hour >= 10) {
-        message += '\n⚠️ Note: This is considered a late check-in (after 10:00 AM)';
+        message += '\nNote: This is considered a late check-in (after 10:00 AM)';
       }
-      alert(message);
+      showSuccess(message);
       
     } catch (error: any) {
       console.error('❌ Error during manual check-in:', error);
-      alert(`❌ Check-in failed: ${error.message || 'Database connection issue. Please try again.'}`);
+      showError(`Check-in failed: ${error.message || 'Database connection issue. Please try again.'}`);
     } finally {
       setIsCheckingIn(false);
     }
@@ -383,17 +384,17 @@ const Attendance: React.FC = () => {
 
   const handleCheckOut = async () => {
     if (!currentUser) {
-      alert('❌ User session not found. Please refresh and try again.');
+      showError('User session not found. Please refresh and try again.');
       return;
     }
     
     if (!userCheckInStatus) {
-      alert('❌ You must check in first before you can check out.');
+      showWarning('You must check in first before you can check out.');
       return;
     }
     
     if (userCheckOutStatus) {
-      alert('ℹ️ You have already checked out for today.');
+      showInfo('You have already checked out for today.');
       return;
     }
     
@@ -408,11 +409,11 @@ const Attendance: React.FC = () => {
       // Refresh data to get updated status
       await loadAttendanceData();
       
-      alert(`✅ Successfully checked out at ${currentTimeString} IST`);
+      showSuccess(`Successfully checked out at ${currentTimeString} IST`);
       
     } catch (error: any) {
       console.error('❌ Error during check-out:', error);
-      alert(`❌ Check-out failed: ${error.message || 'Database connection issue. Please try again.'}`);
+      showError(`Check-out failed: ${error.message || 'Database connection issue. Please try again.'}`);
     } finally {
       setIsCheckingOut(false);
     }
@@ -432,12 +433,31 @@ const Attendance: React.FC = () => {
       const allUserIds = users.map(u => u.id);
       await clearTodayAttendanceForAllUsers(allUserIds);
       await loadAttendanceData(); // Refresh data
-      alert('✅ Successfully cleared today\'s attendance for all users');
+      showSuccess('Successfully cleared today\'s attendance for all users');
     } catch (error) {
       console.error('❌ Error clearing all attendance:', error);
-      alert('❌ Failed to clear attendance. Please try again.');
+      showError('❌ Failed to clear attendance. Please try again.');
     } finally {
       setIsClearingAll(false);
+    }
+  };
+
+  const handleClearTodayAttendance = async () => {
+    if (!isAdmin) {
+      showError('Access denied. Admin privileges required.');
+      return;
+    }
+
+    if (window.confirm('Are you sure you want to clear today\'s attendance for all users? This action cannot be undone.')) {
+      try {
+        const allUserIds = users.map(u => u.id);
+        await clearTodayAttendanceForAllUsers(allUserIds);
+        await loadAttendanceData();
+        showSuccess('Successfully cleared today\'s attendance for all users');
+      } catch (error) {
+        console.error('Failed to clear attendance:', error);
+        showError('Failed to clear attendance. Please try again.');
+      }
     }
   };
 
@@ -460,7 +480,7 @@ const Attendance: React.FC = () => {
 
   const handleExportAttendance = async () => {
     if (!isAdmin || !currentUser) {
-      alert('❌ Access denied. Admin privileges required.');
+      showError('Access denied. Admin privileges required.');
       return;
     }
 
@@ -714,46 +734,46 @@ const Attendance: React.FC = () => {
             <p className="text-sm text-gray-500">
               Last updated: {format(lastUpdated, 'MMM dd, yyyy at h:mm a')} IST
             </p>
+            </div>
           </div>
-        </div>
         <div className="flex items-center gap-4">
           {/* Enhanced Check-In Button with Real Status */}
           {currentUser && (
             <div className="flex items-center gap-3">
-              <Button
-                onClick={handleCheckIn}
+            <Button
+              onClick={handleCheckIn}
                 variant={userCheckInStatus ? "secondary" : "primary"}
                 disabled={userCheckInStatus || isCheckingIn}
-                className={`
-                  relative overflow-hidden transition-all duration-300 
+              className={`
+                relative overflow-hidden transition-all duration-300 
                   ${userCheckInStatus 
                     ? 'bg-green-100 text-green-700 border-green-300 cursor-not-allowed hover:bg-green-100' 
-                    : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-                  }
-                  ${isCheckingIn ? 'animate-pulse' : ''}
-                  px-6 py-3 font-semibold rounded-lg border-2
-                `}
-              >
-                <div className="flex items-center gap-2">
+                  : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
+                }
+                ${isCheckingIn ? 'animate-pulse' : ''}
+                px-6 py-3 font-semibold rounded-lg border-2
+              `}
+            >
+              <div className="flex items-center gap-2">
                   {userCheckInStatus ? (
-                    <>
+                  <>
                       <CheckCircle2 className="w-5 h-5 text-green-600" />
-                      <span>Checked In ✓</span>
-                    </>
-                  ) : (
-                    <>
-                      <Timer className={`w-5 h-5 ${isCheckingIn ? 'animate-spin' : ''}`} />
-                      <span>{isCheckingIn ? 'Checking In...' : 'Check In Now'}</span>
-                    </>
-                  )}
-                </div>
+                    <span>Checked In ✓</span>
+                  </>
+                ) : (
+                  <>
+                    <Timer className={`w-5 h-5 ${isCheckingIn ? 'animate-spin' : ''}`} />
+                    <span>{isCheckingIn ? 'Checking In...' : 'Check In Now'}</span>
+                  </>
+                )}
+              </div>
                 {!userCheckInStatus && !isCheckingIn && (
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-20 transform -skew-x-12 translate-x-[-100%] animate-shimmer"></div>
-                )}
+          )}
               </Button>
-
+          
               {/* Enhanced Check-Out Button */}
-              <Button
+            <Button
                 onClick={handleCheckOut}
                 variant={userCheckOutStatus ? "secondary" : (!userCheckInStatus ? "secondary" : "primary")}
                 disabled={!userCheckInStatus || userCheckOutStatus || isCheckingOut}
@@ -768,8 +788,8 @@ const Attendance: React.FC = () => {
                   ${isCheckingOut ? 'animate-pulse' : ''}
                   px-6 py-3 font-semibold rounded-lg border-2
                 `}
-              >
-                <div className="flex items-center gap-2">
+            >
+              <div className="flex items-center gap-2">
                   {userCheckOutStatus ? (
                     <>
                       <CheckCircle2 className="w-5 h-5 text-orange-600" />
@@ -786,11 +806,11 @@ const Attendance: React.FC = () => {
                       <span>{isCheckingOut ? 'Checking Out...' : 'Check Out Now'}</span>
                     </>
                   )}
-                </div>
+              </div>
                 {userCheckInStatus && !userCheckOutStatus && !isCheckingOut && (
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-20 transform -skew-x-12 translate-x-[-100%] animate-shimmer"></div>
                 )}
-              </Button>
+            </Button>
             </div>
           )}
 

@@ -56,7 +56,7 @@ const CalendarExport: React.FC = () => {
       if (error) {
         if (error.code === 'PGRST116') {
           setError('Calendar export not found or has expired.');
-        } else {
+      } else {
           setError('Failed to load calendar export.');
         }
         return;
@@ -68,7 +68,7 @@ const CalendarExport: React.FC = () => {
         return;
       }
 
-      setExportData(data);
+        setExportData(data);
     } catch (err) {
       console.error('Error loading export data:', err);
       setError('Failed to load calendar export.');
@@ -154,10 +154,10 @@ const CalendarExport: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <CalendarIcon className="h-8 w-8 text-blue-600" />
-              <div>
+            <div>
                 <h1 className="text-2xl font-bold text-gray-900">
                   {exportData.client_name} Calendar
-                </h1>
+              </h1>
                 <div className="flex items-center space-x-4 mt-1">
                   <div className="flex items-center space-x-1">
                     <Building className="h-4 w-4 text-gray-500" />
@@ -171,9 +171,9 @@ const CalendarExport: React.FC = () => {
                     <Clock className="h-4 w-4 text-gray-500" />
                     <span className="text-sm text-gray-600">
                       Expires {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
-                    </span>
-                  </div>
-                </div>
+                </span>
+              </div>
+            </div>
               </div>
             </div>
             <div className="text-right">
@@ -196,51 +196,51 @@ const CalendarExport: React.FC = () => {
               </h2>
             </div>
           </CardHeader>
-          
-          <CardContent className="p-0">
-            {/* Week Days Header */}
-            <div className="grid grid-cols-7 bg-gray-50 border-b">
-              {weekDays.map(day => (
-                <div key={day} className="p-4 text-center font-semibold text-gray-700 border-r last:border-r-0">
-                  {day}
-                </div>
-              ))}
-            </div>
             
-            {/* Calendar Grid */}
-            <div className="grid grid-cols-7">
-              {calendarDays.map((day, index) => {
-                const dayTasks = getTasksForDate(day);
-                const isCurrentMonth = isSameMonth(day, currentDate);
-                const isCurrentDay = isToday(day);
-                
-                return (
-                  <div
-                    key={index}
+          <CardContent className="p-0">
+              {/* Week Days Header */}
+              <div className="grid grid-cols-7 bg-gray-50 border-b">
+                {weekDays.map(day => (
+                  <div key={day} className="p-4 text-center font-semibold text-gray-700 border-r last:border-r-0">
+                    {day}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Calendar Grid */}
+              <div className="grid grid-cols-7">
+                {calendarDays.map((day, index) => {
+                  const dayTasks = getTasksForDate(day);
+                  const isCurrentMonth = isSameMonth(day, currentDate);
+                  const isCurrentDay = isToday(day);
+                  
+                  return (
+                    <div
+                      key={index}
                     className={`min-h-[120px] p-2 border-r border-b last:border-r-0 relative ${
-                      isCurrentMonth ? 'bg-white' : 'bg-gray-50'
-                    } ${isCurrentDay ? 'bg-blue-50 ring-2 ring-blue-200' : ''}`}
-                  >
-                    {/* Date Header */}
+                        isCurrentMonth ? 'bg-white' : 'bg-gray-50'
+                      } ${isCurrentDay ? 'bg-blue-50 ring-2 ring-blue-200' : ''}`}
+                    >
+                      {/* Date Header */}
                     <div className="flex items-center justify-between mb-2">
-                      <span className={`text-sm font-medium ${
-                        isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
-                      } ${isCurrentDay ? 'text-blue-600 font-bold' : ''}`}>
-                        {format(day, 'd')}
-                      </span>
-                    </div>
-                    
-                    {/* Tasks */}
-                    <div className="space-y-1">
+                        <span className={`text-sm font-medium ${
+                          isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
+                        } ${isCurrentDay ? 'text-blue-600 font-bold' : ''}`}>
+                          {format(day, 'd')}
+                        </span>
+                      </div>
+                      
+                      {/* Tasks */}
+                      <div className="space-y-1">
                       {dayTasks.slice(0, 4).map(task => (
-                        <div
-                          key={task.id}
+                          <div
+                            key={task.id}
                           className={`text-xs p-1.5 rounded text-white truncate ${getTeamColor(task.team)}`}
                           title={task.title}
-                        >
+                          >
                           {task.title}
-                        </div>
-                      ))}
+                          </div>
+                        ))}
                       
                       {/* Show more indicator */}
                       {dayTasks.length > 4 && (
@@ -248,10 +248,10 @@ const CalendarExport: React.FC = () => {
                           +{dayTasks.length - 4} more
                         </div>
                       )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </CardContent>
         </Card>
@@ -263,16 +263,16 @@ const CalendarExport: React.FC = () => {
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">{exportData.tasks.length}</div>
                 <div className="text-sm text-gray-600">Total Tasks</div>
-              </div>
+          </div>
             </CardContent>
           </Card>
-          
+            
           <Card>
             <CardContent className="p-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">{getTeamLabel(exportData.team)}</div>
                 <div className="text-sm text-gray-600">Team</div>
-              </div>
+                        </div>
             </CardContent>
           </Card>
           
@@ -283,10 +283,10 @@ const CalendarExport: React.FC = () => {
                   {format(parseISO(exportData.expires_at), 'MMM d')}
                 </div>
                 <div className="text-sm text-gray-600">Expires</div>
-              </div>
+            </div>
             </CardContent>
           </Card>
-        </div>
+          </div>
 
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-gray-500">

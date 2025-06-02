@@ -15,141 +15,277 @@ import { useStatus } from '../contexts/StatusContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAvatarManager } from '../utils/avatar';
 import { User, Role, TeamType } from '../types';
-import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff, UserCheck, UserX, Calendar, Mail, Phone, MapPin, Building, Shield, ChevronDown, Loader2 } from 'lucide-react';
+import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff, UserCheck, UserX, Calendar, Mail, Phone, MapPin, Building, Shield, ChevronDown, Loader2, AlertCircle, CheckCircle, User as UserIcon, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { isValidEmail } from '../utils/validation';
 import { generateUserFriendlyPassword, copyToClipboard } from '../utils/passwordGenerator';
 import { getIndiaDate } from '../utils/timezone';
 import PermissionGuard from '../components/auth/PermissionGuard';
 import { useDebounce } from '../hooks/useDebounce';
-import { updateUser, createUser, getUsersByTeam, toggleUserStatus, updateUserPassword } from '../services/userService';
+import { updateUser, createUser, getUsersByTeam, toggleUserStatus, updateUserPassword, deleteUser } from '../services/userService';
+import { getTasksByUser } from '../services/taskService';
+
+// Toast notification component for better user feedback
+const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 5000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bgColor = type === 'success' ? 'bg-green-50 border-green-200' : type === 'error' ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200';
+  const textColor = type === 'success' ? 'text-green-700' : type === 'error' ? 'text-red-700' : 'text-blue-700';
+  const icon = type === 'success' ? <CheckCircle className="h-4 w-4" /> : type === 'error' ? <AlertCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />;
+
+  return (
+    <div className={`fixed top-4 right-4 z-50 p-4 rounded-md border ${bgColor} ${textColor} flex items-center space-x-2 shadow-lg`}>
+      {icon}
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="ml-2 hover:opacity-70">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
+
+// Delete confirmation modal component
+const DeleteUserModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  user: User | null;
+  onConfirm: () => void;
+  isLoading: boolean;
+  hasActiveTasks: boolean;
+  activeTaskCount: number;
+}> = ({ isOpen, onClose, user, onConfirm, isLoading, hasActiveTasks, activeTaskCount }) => {
+  if (!user) return null;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Delete User"
+      size="md"
+    >
+      <div className="space-y-4">
+        <div className="flex items-start space-x-3">
+          <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${hasActiveTasks ? 'bg-red-100' : 'bg-amber-100'}`}>
+            {hasActiveTasks ? (
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-amber-600" />
+            )}
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-medium text-gray-900">
+              {hasActiveTasks ? 'Cannot Delete User' : 'Confirm User Deletion'}
+            </h3>
+            {hasActiveTasks ? (
+              <div className="mt-2 space-y-2">
+                <p className="text-sm text-gray-600">
+                  <strong>{user.name}</strong> cannot be deleted because they have <strong>{activeTaskCount} active task{activeTaskCount !== 1 ? 's' : ''}</strong> assigned.
+                </p>
+                <p className="text-sm text-red-600 font-medium">
+                  To delete this user, first reassign or complete their active tasks.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-2 space-y-2">
+                <p className="text-sm text-gray-600">
+                  Are you sure you want to delete <strong>{user.name}</strong>? This action cannot be undone.
+                </p>
+                <div className="bg-gray-50 p-3 rounded-md">
+                  <div className="flex items-center">
+                    <Avatar src={user.avatar} name={user.name} size="sm" />
+                    <div className="ml-3">
+                      <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="text-xs text-gray-400">{user.role} • {user.team} team</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <Button
+            variant="secondary"
+            onClick={onClose}
+            disabled={isLoading}
+          >
+            {hasActiveTasks ? 'Close' : 'Cancel'}
+          </Button>
+          {!hasActiveTasks && (
+            <Button
+              variant="danger"
+              onClick={onConfirm}
+              disabled={isLoading}
+              icon={isLoading ? Loader2 : Trash2}
+              className={isLoading ? 'animate-spin' : ''}
+            >
+              {isLoading ? 'Deleting...' : 'Delete User'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+};
 
 const UserModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  user?: User;
-}> = ({ isOpen, onClose, user }) => {
-  const { addUser, updateUser } = useData();
+  user?: User | null;
+  onSuccess: (user: User, action: 'created' | 'updated') => void;
+}> = ({ isOpen, onClose, user, onSuccess }) => {
   const { statuses, getStatusesByTeam } = useStatus();
   const { updateAvatar } = useAvatarManager();
   
-  const [formData, setFormData] = useState<Partial<User>>(
-    user || {
-      name: '',
-      email: '',
-      role: 'employee' as Role,
-      team: 'creative' as TeamType,
-      isActive: true,
-      allowedStatuses: [],
-      joinDate: getIndiaDate(),
-      password: ''
-    }
-  );
+  // Form state
+  const [formData, setFormData] = useState<Partial<User>>({
+    name: '',
+    email: '',
+    role: 'employee' as Role,
+    team: 'creative' as TeamType,
+    isActive: true,
+    allowedStatuses: [],
+    joinDate: getIndiaDate(),
+    password: ''
+  });
   
+  // UI state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordGenerated, setPasswordGenerated] = useState(false);
-  const [passwordSaved, setPasswordSaved] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isSavingPassword, setIsSavingPassword] = useState(false);
-  const [autoSavedFields, setAutoSavedFields] = useState<Record<string, boolean>>({});
-  const [hasFormChanges, setHasFormChanges] = useState(false);
-  const [originalFormData, setOriginalFormData] = useState<Partial<User>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<'basic' | 'password' | 'permissions'>('basic');
   
-  // Reset form data when the user prop changes (for editing different users)
-  useEffect(() => {
-    if (user) {
-      const userData = { ...user };
-      setFormData(userData);
-      setOriginalFormData(userData); // Store original data for comparison
-      setSelectedFile(null);
-      setPasswordGenerated(false);
-      setPasswordSaved(false);
-      setAutoSavedFields({});
-      setHasFormChanges(false);
-    } else {
-      const newUserData: Partial<User> = {
-        name: '',
-        email: '',
-        role: 'employee' as Role,
-        team: 'creative' as TeamType,
-        isActive: true,
-        allowedStatuses: [],
-        joinDate: getIndiaDate(),
-        password: ''
-      };
-      setFormData(newUserData);
-      setOriginalFormData({});
-      setSelectedFile(null);
-      setPasswordGenerated(false);
-      setPasswordSaved(false);
-      setAutoSavedFields({});
-      setHasFormChanges(false);
-    }
-  }, [user]);
-  
-  // Check if form has changes
-  useEffect(() => {
-    if (!user) {
-      // For new users, consider form changed if required fields are filled
-      const hasRequiredFields = formData.name && formData.email && formData.password;
-      setHasFormChanges(!!hasRequiredFields);
-      return;
-    }
+  // Enhanced password generation state with persistent display
+  const [passwordState, setPasswordState] = useState({
+    generated: false,
+    saved: false,
+    saving: false,
+    generating: false,
+    copied: false,
+    autoSaveTimer: null as NodeJS.Timeout | null,
+    displayTimer: null as NodeJS.Timeout | null,
+    persistentDisplay: false
+  });
 
-    // For existing users, compare with original data
-    const hasChanges = 
-      formData.name !== originalFormData.name ||
-      formData.email !== originalFormData.email ||
-      formData.role !== originalFormData.role ||
-      formData.team !== originalFormData.team ||
-      formData.joinDate !== originalFormData.joinDate ||
-      JSON.stringify(formData.allowedStatuses?.sort()) !== JSON.stringify(originalFormData.allowedStatuses?.sort()) ||
-      passwordGenerated || // If password was generated, consider it a change
-      selectedFile !== null; // If avatar file was selected
-    
-    setHasFormChanges(hasChanges);
-  }, [formData, originalFormData, passwordGenerated, selectedFile, user]);
-  
-  // Clear auto-saved field indicators after 3 seconds
+  // Reset form when user changes or modal opens/closes
   useEffect(() => {
-    const fieldNames = Object.keys(autoSavedFields).filter(field => autoSavedFields[field]);
-    if (fieldNames.length > 0) {
-      const timer = setTimeout(() => {
-        setAutoSavedFields(prev => {
-          const updated = { ...prev };
-          fieldNames.forEach(field => {
-            updated[field] = false;
-          });
-          return updated;
+    if (isOpen) {
+      if (user) {
+        // Editing existing user
+        const userData = { ...user };
+        
+        // If editing an admin user, ensure they have all status permissions
+        if (userData.role === 'admin') {
+          const creativeStatuses = getStatusesByTeam('creative');
+          const webStatuses = getStatusesByTeam('web');
+          const allStatuses = [...creativeStatuses, ...webStatuses].map(s => s.id);
+          userData.allowedStatuses = allStatuses;
+        }
+        
+        setFormData(userData);
+        setShowPassword(false);
+        setActiveTab('basic');
+      } else {
+        // Creating new user
+        setFormData({
+          name: '',
+          email: '',
+          role: 'employee' as Role,
+          team: 'creative' as TeamType,
+          isActive: true,
+          allowedStatuses: [],
+          joinDate: getIndiaDate(),
+          password: ''
         });
-      }, 3000);
+        setShowPassword(false);
+        setActiveTab('basic');
+      }
       
-      return () => clearTimeout(timer);
+      // Reset all other states
+      setSelectedFile(null);
+      setErrors({});
+      setIsSubmitting(false);
+      
+      // Clear any existing timers
+      if (passwordState.autoSaveTimer) {
+        clearTimeout(passwordState.autoSaveTimer);
+      }
+      if (passwordState.displayTimer) {
+        clearTimeout(passwordState.displayTimer);
+      }
+      
+      setPasswordState({
+        generated: false,
+        saved: false,
+        saving: false,
+        generating: false,
+        copied: false,
+        autoSaveTimer: null,
+        displayTimer: null,
+        persistentDisplay: false
+      });
     }
-  }, [autoSavedFields]);
+  }, [user, isOpen, getStatusesByTeam]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (passwordState.autoSaveTimer) {
+        clearTimeout(passwordState.autoSaveTimer);
+      }
+      if (passwordState.displayTimer) {
+        clearTimeout(passwordState.displayTimer);
+      }
+    };
+  }, [passwordState.autoSaveTimer, passwordState.displayTimer]);
   
-  // Get statuses for the selected team
+  // Get statuses for the selected team or all statuses for admin
   const teamStatuses = useMemo(() => {
+    if (formData.role === 'admin') {
+      // Admins get all statuses from both teams
+      const creativeStatuses = getStatusesByTeam('creative');
+      const webStatuses = getStatusesByTeam('web');
+      return [...creativeStatuses, ...webStatuses];
+    }
+    
     if (!formData.team) return [];
     return getStatusesByTeam(formData.team as TeamType);
-  }, [formData.team, getStatusesByTeam]);
-  
+  }, [formData.team, formData.role, getStatusesByTeam]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // If team changes, reset the allowed statuses
-    if (name === 'team') {
-      setFormData(prev => ({ 
-        ...prev, 
-        [name]: value as TeamType, 
-        allowedStatuses: [] 
-      }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
+    setFormData(prev => {
+      const updated = { ...prev, [name]: value };
+      
+      // Special handling for admin role
+      if (name === 'role' && value === 'admin') {
+        // Admins automatically get access to both teams and all statuses
+        const creativeStatuses = getStatusesByTeam('creative');
+        const webStatuses = getStatusesByTeam('web');
+        const allStatuses = [...creativeStatuses, ...webStatuses].map(s => s.id);
+        
+        updated.team = 'creative'; // Set a default team (though admin can access both)
+        updated.allowedStatuses = allStatuses;
+      } else if (name === 'role' && value !== 'admin') {
+        // Non-admin users: reset to current team's statuses only
+        if (prev.role === 'admin') {
+          const currentTeamStatuses = getStatusesByTeam(updated.team as TeamType);
+          updated.allowedStatuses = currentTeamStatuses.map(s => s.id);
+        }
+      } else if (name === 'team' && updated.role !== 'admin') {
+        // Only reset statuses for non-admin users when team changes
+        updated.allowedStatuses = [];
+      }
+      
+      return updated;
+    });
     
     // Clear error for the field being changed
     if (errors[name]) {
@@ -159,152 +295,146 @@ const UserModal: React.FC<{
         return newErrors;
       });
     }
-
-    // Auto-save for existing users (except password)
-    if (user && name !== 'password') {
-      handleAutoSave(name, value);
-    }
   };
 
-  const handleAutoSave = async (fieldName: string, value: string) => {
-    if (!user || isUpdating) return;
-    
-    try {
-      setIsUpdating(true);
-      let updatedUser: User = {
-        ...user,
-        [fieldName]: fieldName === 'team' ? value as TeamType : value
-      } as User;
-      
-      // If team changes, reset allowedStatuses and update form data
-      if (fieldName === 'team') {
-        updatedUser.allowedStatuses = [];
-        setFormData(prev => ({ ...prev, allowedStatuses: [] }));
-      }
-      
-      await updateUser(updatedUser);
-      console.log(`Auto-saved ${fieldName} for user ${user.email}`);
-      setAutoSavedFields(prev => ({ ...prev, [fieldName]: true }));
-    } catch (error) {
-      console.error(`Error auto-saving ${fieldName}:`, error);
-      // Show user-friendly error
-      setErrors(prev => ({
-        ...prev,
-        [fieldName]: `Failed to save ${fieldName}. Please try again.`
-      }));
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-  
   const handleFileChange = (file: File | null) => {
     setSelectedFile(file);
   };
 
-  const handleGeneratePassword = () => {
-    const newPassword = generateUserFriendlyPassword(10);
-    setFormData(prev => ({ ...prev, password: newPassword }));
-    setPasswordGenerated(true);
-    setPasswordSaved(false);
-    setShowPassword(true);
+  // Enhanced password generation with better UX
+  const handleGeneratePassword = async () => {
+    if (passwordState.generating || passwordState.saving) return;
     
-    // If editing existing user, immediately save password to database
-    if (user) {
-      handleSavePassword(newPassword);
+    setPasswordState(prev => ({ 
+      ...prev, 
+      generating: true, 
+      copied: false,
+      persistentDisplay: false
+    }));
+    
+    try {
+      const newPassword = generateUserFriendlyPassword(12);
+      setFormData(prev => ({ ...prev, password: newPassword }));
+      setShowPassword(true);
+      
+      setPasswordState(prev => ({
+        ...prev,
+        generated: true,
+        saved: false,
+        generating: false,
+        persistentDisplay: true
+      }));
+      
+      // For existing users, set up auto-save with 3 second delay to allow user to see the password
+      if (user) {
+        const autoSaveTimer = setTimeout(async () => {
+          await handleSavePassword(newPassword);
+        }, 3000);
+        
+        setPasswordState(prev => ({ ...prev, autoSaveTimer }));
+      }
+      
+      // For new users, show password persistently until they manually close or copy
+      if (!user) {
+        setPasswordState(prev => ({ ...prev, persistentDisplay: true }));
+      }
+      
+    } catch (error) {
+      console.error('Error generating password:', error);
+      setErrors(prev => ({
+        ...prev,
+        password: 'Failed to generate password. Please try again.'
+      }));
+      setPasswordState(prev => ({ 
+        ...prev, 
+        generating: false,
+        persistentDisplay: false
+      }));
     }
   };
 
   const handleSavePassword = async (passwordToSave?: string) => {
     const password = passwordToSave || formData.password;
-    if (!user || !password || isSavingPassword) return;
+    if (!user || !password || passwordState.saving) return;
+    
+    // Clear auto-save timer if exists
+    if (passwordState.autoSaveTimer) {
+      clearTimeout(passwordState.autoSaveTimer);
+    }
+    
+    setPasswordState(prev => ({ 
+      ...prev, 
+      saving: true,
+      autoSaveTimer: null
+    }));
+    setErrors(prev => ({ ...prev, password: '' }));
     
     try {
-      setIsSavingPassword(true);
-      setErrors(prev => ({ ...prev, password: '' })); // Clear previous errors
-      
       await updateUserPassword(user.id, password);
-      setPasswordSaved(true);
-      setPasswordGenerated(false); // Reset password generated flag after saving
+      setPasswordState(prev => ({
+        ...prev,
+        saved: true,
+        saving: false,
+        generated: false,
+        persistentDisplay: true // Keep showing success message
+      }));
       
-      // Update original form data to reflect the saved password
-      setOriginalFormData(prev => ({ ...prev, password }));
+      // Auto-hide success message after 5 seconds
+      const displayTimer = setTimeout(() => {
+        setPasswordState(prev => ({ 
+          ...prev, 
+          persistentDisplay: false,
+          saved: false
+        }));
+      }, 5000);
       
-      console.log('Password saved successfully for user:', user.email);
+      setPasswordState(prev => ({ ...prev, displayTimer }));
       
-      // Show success message briefly
-      setTimeout(() => {
-        setPasswordSaved(false);
-      }, 3000);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving password:', error);
-      const errorMessage = error.message || 'Failed to save password. Please try again.';
       setErrors(prev => ({
         ...prev,
-        password: errorMessage
+        password: 'Failed to save password. Please try again.'
       }));
-    } finally {
-      setIsSavingPassword(false);
+      setPasswordState(prev => ({ 
+        ...prev, 
+        saving: false,
+        persistentDisplay: true
+      }));
     }
   };
 
   const handleCopyPassword = async () => {
-    if (formData.password) {
-      const success = await copyToClipboard(formData.password);
-      if (success) {
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
-      }
+    if (!formData.password) return;
+    
+    try {
+      await copyToClipboard(formData.password);
+      setPasswordState(prev => ({ ...prev, copied: true }));
+      
+      // Reset copied state after 2 seconds
+      setTimeout(() => {
+        setPasswordState(prev => ({ ...prev, copied: false }));
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy password:', error);
     }
   };
-  
+
   const handleStatusToggle = (statusId: string) => {
     setFormData(prev => {
-      const currentStatuses = prev.allowedStatuses || [];
+      const allowedStatuses = prev.allowedStatuses || [];
+      const isSelected = allowedStatuses.includes(statusId);
       
-      let newStatuses: string[];
-      if (currentStatuses.includes(statusId)) {
-        // Remove status if already selected
-        newStatuses = currentStatuses.filter(id => id !== statusId);
-      } else {
-        // Add status if not already selected
-        newStatuses = [...currentStatuses, statusId];
-      }
-      
-      const updatedFormData = {
+      return {
         ...prev,
-        allowedStatuses: newStatuses
+        allowedStatuses: isSelected
+          ? allowedStatuses.filter(id => id !== statusId)
+          : [...allowedStatuses, statusId]
       };
-      
-      // Auto-save for existing users
-      if (user && !isUpdating) {
-        handleAutoSaveStatuses(newStatuses);
-      }
-      
-      return updatedFormData;
     });
   };
 
-  const handleAutoSaveStatuses = async (newStatuses: string[]) => {
-    if (!user || isUpdating) return;
-    
-    try {
-      setIsUpdating(true);
-      const updatedUser: User = {
-        ...user,
-        allowedStatuses: newStatuses
-      } as User;
-      
-      await updateUser(updatedUser);
-      console.log(`Auto-saved status permissions for user ${user.email}`);
-      setAutoSavedFields(prev => ({ ...prev, allowedStatuses: true }));
-    } catch (error) {
-      console.error('Error auto-saving status permissions:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-  
-  const validate = () => {
+  const validateForm = () => {
     const newErrors: Record<string, string> = {};
     
     if (!formData.name?.trim()) {
@@ -314,119 +444,106 @@ const UserModal: React.FC<{
     if (!formData.email?.trim()) {
       newErrors.email = 'Email is required';
     } else if (!isValidEmail(formData.email)) {
-      newErrors.email = 'Email is invalid';
+      newErrors.email = 'Please enter a valid email address';
+    }
+    
+    if (!formData.role) {
+      newErrors.role = 'Role is required';
+    }
+    
+    if (!formData.team) {
+      newErrors.team = 'Team is required';
+    }
+    
+    // Password validation for new users
+    if (!user && !formData.password) {
+      newErrors.password = 'Password is required for new users';
+    } else if (formData.password && formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters long';
     }
     
     if (!formData.joinDate) {
       newErrors.joinDate = 'Join date is required';
     }
     
-    // Only validate password when creating a new user
-    if (!user && (!formData.password || formData.password.length < 6)) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-    
-    // Check if at least one status is selected for non-admin users
-    if (formData.role !== 'admin' && (!formData.allowedStatuses || formData.allowedStatuses.length === 0)) {
-      newErrors.allowedStatuses = 'At least one status must be selected';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return newErrors;
   };
-  
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validate()) {
-      console.error('Validation failed with errors:', errors);
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
       return;
     }
     
-    // Don't submit if no changes for existing users
-    if (user && !hasFormChanges) {
-      console.log('No changes detected, skipping update');
-      return;
-    }
+    setIsSubmitting(true);
+    setErrors({});
     
     try {
-      setIsUpdating(true);
-      
-      // Process avatar file if available
-      let avatarUrl = formData.avatar || '';
-      if (selectedFile) {
-        avatarUrl = URL.createObjectURL(selectedFile);
-      }
+      let updatedUser: User;
       
       if (user) {
-        // Updating existing user
-        const updatedUser: User = {
-          ...user,
-          ...formData,
-          avatar: avatarUrl,
-          allowedStatuses: formData.allowedStatuses || [],
-          // Don't include password in regular updates - it's handled separately
-          password: undefined
-        } as User;
+        // Update existing user
+        const updateData = { ...formData };
+        delete updateData.password; // Don't include password in user update
         
-        // Remove password field for regular updates since it's handled separately
-        delete updatedUser.password;
-        
-        await updateUser(updatedUser);
-        
-        // Update original form data to reflect saved changes
-        setOriginalFormData({ ...formData, password: originalFormData.password });
-        setHasFormChanges(false);
-        
-        console.log('User updated successfully');
+        updatedUser = await updateUser({ ...user, ...updateData } as User);
       } else {
-        // Creating new user - include password
-        const newUser: Omit<User, 'id'> = {
-          name: formData.name || '',
-          email: formData.email || '',
-          role: formData.role as Role,
-          team: formData.team as TeamType,
-          joinDate: formData.joinDate || getIndiaDate(),
-          avatar: avatarUrl,
-          isActive: true,
-          allowedStatuses: formData.allowedStatuses || [],
-          password: formData.password || ''
-        };
-        
-        console.log('Attempting to create user:', {
-          name: newUser.name,
-          email: newUser.email,
-          role: newUser.role,
-          team: newUser.team,
-          hasPassword: !!newUser.password,
-          hasAllowedStatuses: (newUser.allowedStatuses || []).length > 0
-        });
-        
+        // Create new user
+        updatedUser = await createUser(formData as Omit<User, 'id'>);
+      }
+      
+      // Handle avatar upload if file is selected
+      if (selectedFile && updatedUser.id) {
         try {
-          await addUser(newUser);
-          console.log('User created successfully');
-        } catch (err) {
-          console.error('Failed to create user:', err);
-          setErrors(prev => ({
-            ...prev,
-            form: 'Failed to create user. Please check the console for details.'
-          }));
-          return;
+          const avatarUrl = updateAvatar(updatedUser, selectedFile);
+          updatedUser.avatar = avatarUrl;
+        } catch (error) {
+          console.error('Error uploading avatar:', error);
+          // Don't fail the entire operation for avatar upload issues
         }
       }
       
+      onSuccess(updatedUser, user ? 'updated' : 'created');
       onClose();
     } catch (error) {
       console.error('Error saving user:', error);
-      setErrors(prev => ({
-        ...prev,
-        form: `Failed to ${user ? 'update' : 'create'} user. Please try again.`
-      }));
+      if (error instanceof Error) {
+        setErrors({ form: error.message });
+      } else {
+        setErrors({ form: 'An unexpected error occurred. Please try again.' });
+      }
     } finally {
-      setIsUpdating(false);
+      setIsSubmitting(false);
     }
   };
-  
+
+  // Enhanced password clearing with timer cleanup
+  const clearPassword = () => {
+    // Clear any existing timers
+    if (passwordState.autoSaveTimer) {
+      clearTimeout(passwordState.autoSaveTimer);
+    }
+    if (passwordState.displayTimer) {
+      clearTimeout(passwordState.displayTimer);
+    }
+    
+    setFormData(prev => ({ ...prev, password: '' }));
+    setPasswordState({
+      generated: false,
+      saved: false,
+      saving: false,
+      generating: false,
+      copied: false,
+      autoSaveTimer: null,
+      displayTimer: null,
+      persistentDisplay: false
+    });
+    setShowPassword(false);
+  };
+
   const roleOptions = [
     { value: 'admin', label: 'Admin' },
     { value: 'manager', label: 'Manager' },
@@ -438,7 +555,6 @@ const UserModal: React.FC<{
     { value: 'web', label: 'Web Team' }
   ];
 
-  // Determine if we need to show status permissions (not needed for admins)
   const showStatusPermissions = formData.role !== 'admin';
 
   return (
@@ -446,402 +562,483 @@ const UserModal: React.FC<{
       isOpen={isOpen}
       onClose={onClose}
       title={user ? 'Edit User' : 'Add New User'}
-      size="md"
+      size="md" // Changed from "lg" to "md" for more compact design
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex flex-col items-center mb-4">
-          <FileUpload 
-            label="Profile Picture"
-            onChange={handleFileChange}
-            preview={formData.avatar}
-            maxSizeInMb={2}
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="space-y-4"> {/* Reduced spacing from space-y-6 */}
         
-        <div className="relative">
-          <Input
-            label="Name"
-            name="name"
-            value={formData.name || ''}
-            onChange={handleChange}
-            error={errors.name}
-            fullWidth
-            required
-          />
-          {user && autoSavedFields.name && (
-            <div className="absolute top-0 right-0 mt-1 mr-1">
-              <div className="bg-green-100 text-green-600 rounded-full p-1">
-                <Check className="h-3 w-3" />
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="relative">
-          <Input
-            label="Email"
-            name="email"
-            type="email"
-            value={formData.email || ''}
-            onChange={handleChange}
-            error={errors.email}
-            fullWidth
-            required
-          />
-          {user && autoSavedFields.email && (
-            <div className="absolute top-0 right-0 mt-1 mr-1">
-              <div className="bg-green-100 text-green-600 rounded-full p-1">
-                <Check className="h-3 w-3" />
-              </div>
-            </div>
-          )}
-        </div>
-        
-        {/* Password field - show for new users or when editing with reset option */}
-        {(!user || passwordGenerated) && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password {user ? '(New Password)' : ''}
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                name="password"
-                value={formData.password || ''}
-                onChange={handleChange}
-                className={`block w-full pr-20 py-2.5 px-3 border rounded-md transition-all duration-200 ${
-                  errors.password 
-                    ? 'border-red-300 focus:ring-red-400 focus:border-red-500' 
-                    : 'border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'
-                } bg-white focus:outline-none focus:ring-2 focus:shadow-sm text-sm`}
-                placeholder="Minimum 6 characters"
-                required={!user}
-              />
-              <div className="absolute inset-y-0 right-0 flex items-center space-x-1 pr-3">
-                {formData.password && (
-                  <button
-                    type="button"
-                    onClick={handleCopyPassword}
-                    className={`p-1 rounded transition-colors ${
-                      copySuccess 
-                        ? 'text-green-600 hover:text-green-800' 
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                    title="Copy password"
-                  >
-                    {copySuccess ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
-                  title={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            {errors.password && (
-              <p className="mt-1 text-sm text-red-600">{errors.password}</p>
+        {/* Compact Tab Navigation */}
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8">
+            <button
+              type="button"
+              onClick={() => setActiveTab('basic')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'basic'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <UserIcon className="h-4 w-4 inline mr-1" />
+              Basic Info
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('password')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'password'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Key className="h-4 w-4 inline mr-1" />
+              Password
+            </button>
+            {showStatusPermissions && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('permissions')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'permissions'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Shield className="h-4 w-4 inline mr-1" />
+                Permissions
+              </button>
             )}
+          </nav>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'basic' && (
+          <div className="space-y-6">
+            {/* Profile Picture Section - Improved Layout */}
+            <div className="flex justify-center">
+              <FileUpload 
+                label="Profile Picture"
+                onChange={handleFileChange}
+                preview={formData.avatar}
+                maxSizeInMb={2}
+                compact={true}
+                className="w-full max-w-xs"
+              />
+            </div>
             
-            {/* Password generation actions for existing users */}
-            {user && passwordGenerated && !passwordSaved && (
-              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-3">
-                <p className="text-sm text-blue-700">
-                  New password generated and saved! User can now login with this password.
-                </p>
-                <div className="flex items-center text-green-600">
-                  <Check className="h-4 w-4 mr-1" />
-                  <span className="text-sm font-medium">Auto-saved</span>
+            {/* Basic Information - Optimized Layout */}
+            <div className="space-y-4">
+              <div>
+                <Input
+                  label="Full Name"
+                  name="name"
+                  value={formData.name || ''}
+                  onChange={handleChange}
+                  error={errors.name}
+                  required
+                  fullWidth
+                />
+              </div>
+              
+              <div>
+                <Input
+                  label="Email Address"
+                  name="email"
+                  type="email"
+                  value={formData.email || ''}
+                  onChange={handleChange}
+                  error={errors.email}
+                  required
+                  fullWidth
+                />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Select
+                    label="Role"
+                    name="role"
+                    options={roleOptions}
+                    value={formData.role as string || ''}
+                    onChange={handleChange}
+                    required
+                    fullWidth
+                  />
+                </div>
+                
+                <div>
+                  <Select
+                    label="Team"
+                    name="team"
+                    options={teamOptions}
+                    value={formData.team as string || ''}
+                    onChange={handleChange}
+                    required
+                    fullWidth
+                  />
                 </div>
               </div>
-            )}
-            
-            {/* Manual save button for new users or when editing password */}
-            {(!user || (passwordGenerated && !passwordSaved)) && (
-              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-3">
-                <p className="text-sm text-blue-700">
-                  {user ? 'New password generated! Copy it and click Save Password to apply.' : 'New password generated! Copy it - it will be saved when you create the user.'}
-                </p>
-                {user && (
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="sm"
-                    icon={isSavingPassword ? Loader2 : Check}
-                    onClick={() => handleSavePassword()}
-                    disabled={isSavingPassword || !formData.password}
-                    className={`ml-3 ${isSavingPassword ? 'animate-spin' : ''}`}
-                  >
-                    {isSavingPassword ? 'Saving...' : 'Save Password'}
-                  </Button>
-                )}
+              
+              {/* Admin notice spanning full width across both fields */}
+              {formData.role === 'admin' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2 -mt-2">
+                  <div className="flex items-center justify-center">
+                    <Shield className="h-4 w-4 text-blue-600 mr-2" />
+                    <span className="text-xs text-blue-700 font-medium">
+                      Admins have full access to both Creative and Web teams
+                    </span>
+                  </div>
+                </div>
+              )}
+              
+              <div>
+                <DatePicker
+                  label="Join Date"
+                  name="joinDate"
+                  value={formData.joinDate || ''}
+                  onChange={handleChange}
+                  error={errors.joinDate}
+                  required
+                  fullWidth
+                  max={getIndiaDate()}
+                />
               </div>
-            )}
-            
-            {passwordSaved && (
-              <div className="mt-2 bg-green-50 border border-green-200 rounded-md p-3">
-                <p className="text-sm text-green-700 flex items-center">
-                  <Check className="h-4 w-4 mr-2" />
-                  Password saved successfully! User can now login with this password.
-                </p>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* Password reset section for existing users */}
-        {user && !passwordGenerated && (
-          <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900 flex items-center">
+        {activeTab === 'password' && (
+          <div className="space-y-4">
+            {/* Enhanced Password Section with Better UX */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-900 flex items-center">
                   <Key className="h-4 w-4 mr-2 text-gray-600" />
-                  Password Management
-                </h4>
-                <p className="text-sm text-gray-600 mt-1">
-                  Generate a new password for this user
-                </p>
+                  {user ? 'Change Password' : 'Set Password'}
+                </h3>
+                {!user && (
+                  <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">Required</span>
+                )}
               </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                icon={RefreshCw}
-                onClick={handleGeneratePassword}
-                className="bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-              >
-                Generate New Password
-              </Button>
+              
+              {/* Password Generation for Existing Users */}
+              {user && !passwordState.generated && !passwordState.saved && !passwordState.persistentDisplay && (
+                <div className="bg-white border border-gray-200 rounded-md p-3 mb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Generate New Password</p>
+                      <p className="text-xs text-gray-600">Creates a secure 12-character password</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      icon={passwordState.generating ? Loader2 : RefreshCw}
+                      onClick={handleGeneratePassword}
+                      disabled={passwordState.generating || passwordState.saving}
+                      className={passwordState.generating ? 'animate-spin' : ''}
+                    >
+                      {passwordState.generating ? 'Generating...' : 'Generate'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Password Input Field - Enhanced with Persistent Display */}
+              {(!user || passwordState.generated || passwordState.persistentDisplay) && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Password {user ? '(New Password)' : ''}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      name="password"
+                      value={formData.password || ''}
+                      onChange={handleChange}
+                      className={`block w-full pr-20 py-2.5 px-3 border rounded-md transition-all duration-200 ${
+                        errors.password 
+                          ? 'border-red-300 focus:ring-red-400 focus:border-red-500' 
+                          : 'border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'
+                      } bg-white focus:outline-none focus:ring-2 focus:shadow-sm text-sm font-mono`}
+                      placeholder={!user ? "Minimum 6 characters" : "Enter new password"}
+                      required={!user}
+                      readOnly={passwordState.generating || passwordState.saving}
+                    />
+                    <div className="absolute inset-y-0 right-0 flex items-center space-x-1 pr-2">
+                      {formData.password && (
+                        <button
+                          type="button"
+                          onClick={handleCopyPassword}
+                          className={`p-1.5 rounded transition-colors ${
+                            passwordState.copied 
+                              ? 'text-green-600 hover:text-green-800 bg-green-100' 
+                              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                          }`}
+                          title="Copy password"
+                        >
+                          {passwordState.copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {errors.password && (
+                    <p className="text-sm text-red-600 flex items-center">
+                      <AlertCircle className="h-4 w-4 mr-1" />
+                      {errors.password}
+                    </p>
+                  )}
+                  
+                  {/* Generate Password Button for New Users */}
+                  {!user && (
+                    <div className="flex items-center justify-between">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        icon={passwordState.generating ? Loader2 : RefreshCw}
+                        onClick={handleGeneratePassword}
+                        disabled={passwordState.generating}
+                        className={passwordState.generating ? 'animate-spin' : ''}
+                      >
+                        {passwordState.generating ? 'Generating...' : 'Generate Secure Password'}
+                      </Button>
+                      {formData.password && (
+                        <button
+                          type="button"
+                          onClick={clearPassword}
+                          className="text-sm text-gray-500 hover:text-gray-700"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Enhanced Password Status Messages */}
+              {passwordState.saving && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-3">
+                  <div className="flex items-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+                    <span className="text-sm text-blue-700">Saving password...</span>
+                  </div>
+                </div>
+              )}
+              
+              {passwordState.saved && passwordState.persistentDisplay && (
+                <div className="bg-green-50 border border-green-200 rounded-md p-3 mt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <CheckCircle className="h-4 w-4 text-green-600 mr-2" />
+                      <span className="text-sm text-green-700">Password saved successfully! User can now login.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearPassword}
+                      className="text-green-600 hover:text-green-800 text-sm font-medium"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {user && passwordState.generated && !passwordState.saved && !passwordState.saving && passwordState.persistentDisplay && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 mt-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <AlertCircle className="h-4 w-4 text-amber-600 mr-2" />
+                      <span className="text-sm text-amber-700">
+                        Password generated! Auto-save in {passwordState.autoSaveTimer ? '3' : '0'} seconds
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        icon={Check}
+                        onClick={() => handleSavePassword()}
+                        disabled={!formData.password}
+                      >
+                        Save Now
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={clearPassword}
+                        className="text-amber-600 hover:text-amber-800 text-sm font-medium"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="relative">
-            <Select
-              label="Role"
-              name="role"
-              options={roleOptions}
-              value={formData.role as string || ''}
-              onChange={handleChange}
-              fullWidth
-              required
-            />
-            {user && autoSavedFields.role && (
-              <div className="absolute top-0 right-0 mt-1 mr-1">
-                <div className="bg-green-100 text-green-600 rounded-full p-1">
-                  <Check className="h-3 w-3" />
+
+        {activeTab === 'permissions' && showStatusPermissions && (
+          <div className="space-y-4">
+            {/* Admin Full Access Notice */}
+            {formData.role === 'admin' && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="flex items-center">
+                  <Shield className="h-5 w-5 text-blue-600 mr-2" />
+                  <div>
+                    <h4 className="text-sm font-medium text-blue-900">Administrator Access</h4>
+                    <p className="text-xs text-blue-700 mt-1">
+                      Admins have full access to both Creative and Web teams with all status permissions automatically granted.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
-          </div>
-          
-          <div className="relative">
-            <Select
-              label="Team"
-              name="team"
-              options={teamOptions}
-              value={formData.team as string || ''}
-              onChange={handleChange}
-              fullWidth
-              required
-            />
-            {user && autoSavedFields.team && (
-              <div className="absolute top-0 right-0 mt-1 mr-1">
-                <div className="bg-green-100 text-green-600 rounded-full p-1">
-                  <Check className="h-3 w-3" />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        <DatePicker
-          label="Join Date"
-          name="joinDate"
-          value={formData.joinDate || ''}
-          onChange={handleChange}
-          error={errors.joinDate}
-          fullWidth
-          required
-          max={getIndiaDate()} // Limit to today or earlier
-        />
-        
-        {/* Status Permissions - only show for non-admin users */}
-        {showStatusPermissions && (
-          <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              <UserCog className="h-4 w-4 inline mr-2" />
-              Status View Permissions
-              {user && autoSavedFields.allowedStatuses && (
-                <span className="ml-2 inline-flex items-center text-green-600">
-                  <Check className="h-3 w-3 mr-1" />
-                  <span className="text-xs">Saved</span>
-                </span>
-              )}
-            </label>
-            <div className="border border-gray-200 rounded-lg p-4 bg-gradient-to-br from-gray-50 to-white">
+            
+            {/* Compact Status Permissions */}
+            <div className="bg-gray-50 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm text-gray-600">
-                  Select which statuses this {formData.role} can view and modify:
-                </p>
+                <h3 className="text-sm font-medium text-gray-900 flex items-center">
+                  <UserCog className="h-4 w-4 mr-2" />
+                  {formData.role === 'admin' ? 'All Status Permissions (Both Teams)' : 'Status Permissions'}
+                </h3>
                 <div className="text-xs text-gray-500">
                   {(formData.allowedStatuses || []).length} of {teamStatuses.length} selected
                 </div>
               </div>
               
               {teamStatuses.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto">
-                  {teamStatuses.map(status => (
-                    <div 
-                      key={status.id} 
-                      className={`flex items-center p-3 rounded-md border transition-all duration-200 cursor-pointer ${
-                        (formData.allowedStatuses || []).includes(status.id)
-                          ? 'border-blue-200 bg-blue-50 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                      }`}
-                      onClick={() => handleStatusToggle(status.id)}
-                    >
-                      <Checkbox
-                        id={`status-${status.id}`}
-                        checked={(formData.allowedStatuses || []).includes(status.id)}
-                        onChange={() => handleStatusToggle(status.id)}
-                      />
-                      <label 
-                        htmlFor={`status-${status.id}`}
-                        className="ml-3 flex items-center text-sm font-medium cursor-pointer flex-grow"
-                      >
-                        <div 
-                          className="w-4 h-4 rounded-full mr-3 border-2 border-white shadow-sm" 
-                          style={{ backgroundColor: status.color }}
-                        />
-                        <span className="text-gray-700">{status.name}</span>
-                      </label>
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-600">
+                    {formData.role === 'admin' 
+                      ? 'Admin users have access to all statuses from both teams:'
+                      : `Select which statuses this ${formData.role} can ${formData.role === 'manager' ? 'view and modify' : 'view'}:`
+                    }
+                  </p>
+                  
+                  <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
+                    {teamStatuses.map(status => {
+                      const isFromCreativeTeam = getStatusesByTeam('creative').some(s => s.id === status.id);
+                      const teamLabel = isFromCreativeTeam ? 'Creative' : 'Web';
+                      
+                      return (
+                        <label 
+                          key={status.id} 
+                          className={`flex items-center p-2 rounded border transition-all ${
+                            formData.role === 'admin' 
+                              ? 'border-blue-200 bg-blue-50 cursor-default' 
+                              : `cursor-pointer ${
+                                  (formData.allowedStatuses || []).includes(status.id)
+                                    ? 'border-blue-200 bg-blue-50'
+                                    : 'border-gray-200 bg-white hover:border-gray-300'
+                                }`
+                          }`}
+                        >
+                          <Checkbox
+                            id={`status-${status.id}`}
+                            checked={(formData.allowedStatuses || []).includes(status.id)}
+                            onChange={() => formData.role !== 'admin' && handleStatusToggle(status.id)}
+                            disabled={formData.role === 'admin'}
+                          />
+                          <div 
+                            className="w-3 h-3 rounded-full mx-2 border border-white shadow-sm" 
+                            style={{ backgroundColor: status.color }}
+                          />
+                          <span className="text-sm text-gray-700 flex-1">{status.name}</span>
+                          {formData.role === 'admin' && (
+                            <span className="text-xs text-blue-600 font-medium">
+                              {teamLabel} Team
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Quick Actions - Only for non-admin users */}
+                  {formData.role !== 'admin' && (
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                      <div className="flex space-x-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const allStatuses = teamStatuses.map(s => s.id);
+                            setFormData(prev => ({ ...prev, allowedStatuses: allStatuses }));
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, allowedStatuses: [] }))}
+                          className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                        >
+                          Clear All
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <UserCog className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                <div className="text-center py-4">
+                  <UserCog className="h-6 w-6 text-gray-400 mx-auto mb-2" />
                   <p className="text-sm text-gray-500">No statuses found for the selected team.</p>
-                  <p className="text-xs text-gray-400 mt-1">Please select a team first.</p>
-                </div>
-              )}
-              
-              {/* Quick select buttons */}
-              {teamStatuses.length > 0 && (
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
-                  <div className="flex space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allStatuses = teamStatuses.map(s => s.id);
-                        setFormData(prev => ({ 
-                          ...prev, 
-                          allowedStatuses: allStatuses 
-                        }));
-                        if (user && !isUpdating) {
-                          handleAutoSaveStatuses(allStatuses);
-                        }
-                      }}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                    >
-                      Select All
-                    </button>
-                    <span className="text-gray-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormData(prev => ({ 
-                          ...prev, 
-                          allowedStatuses: [] 
-                        }));
-                        if (user && !isUpdating) {
-                          handleAutoSaveStatuses([]);
-                        }
-                      }}
-                      className="text-xs text-gray-600 hover:text-gray-800 font-medium"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {formData.role === 'manager' ? 'Managers can modify these statuses' : 'Employees can view these statuses'}
-                  </div>
                 </div>
               )}
             </div>
+            
             {errors.allowedStatuses && (
-              <p className="mt-2 text-sm text-red-600 flex items-center">
-                <X className="h-4 w-4 mr-1" />
+              <p className="text-sm text-red-600 flex items-center">
+                <AlertCircle className="h-4 w-4 mr-1" />
                 {errors.allowedStatuses}
               </p>
             )}
           </div>
         )}
         
-        {/* General form error */}
+        {/* Form Error */}
         {errors.form && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-            <p className="text-sm text-red-600">{errors.form}</p>
+          <div className="bg-red-50 border border-red-200 rounded-md p-3">
+            <div className="flex items-center">
+              <AlertCircle className="h-4 w-4 text-red-600 mr-2" />
+              <span className="text-sm text-red-600">{errors.form}</span>
+            </div>
           </div>
         )}
         
-        {/* Auto-save indicator */}
-        {user && isUpdating && !isSavingPassword && (
-          <div className="flex items-center justify-center py-2">
-            <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
-            <span className="text-sm text-blue-600">Saving changes...</span>
-          </div>
-        )}
-        
-        <div className="flex justify-end space-x-3 pt-4">
+        {/* Compact Form Actions */}
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
           <Button
             variant="secondary"
             onClick={onClose}
             type="button"
-            disabled={isUpdating || isSavingPassword}
+            disabled={isSubmitting || passwordState.saving}
           >
             Cancel
           </Button>
-          {user ? (
-            <Button
-              variant={hasFormChanges ? "primary" : "secondary"}
-              type="submit"
-              disabled={!hasFormChanges || isUpdating || isSavingPassword}
-              icon={isUpdating ? Loader2 : undefined}
-              className={`${isUpdating ? 'animate-spin' : ''} ${
-                !hasFormChanges ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {isUpdating 
-                ? 'Updating...' 
-                : hasFormChanges 
-                  ? 'Update User' 
-                  : 'No Changes'
-              }
-            </Button>
-          ) : (
-            <Button
-              variant={hasFormChanges ? "primary" : "secondary"}
-              type="submit"
-              disabled={!hasFormChanges || isUpdating || isSavingPassword}
-              icon={isUpdating ? Loader2 : undefined}
-              className={`${isUpdating ? 'animate-spin' : ''} ${
-                !hasFormChanges ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {isUpdating 
-                ? 'Creating...' 
-                : hasFormChanges 
-                  ? 'Add User' 
-                  : 'Fill Required Fields'
-              }
-            </Button>
-          )}
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={isSubmitting || passwordState.saving}
+            icon={isSubmitting ? Loader2 : undefined}
+            className={isSubmitting ? 'animate-spin' : ''}
+          >
+            {isSubmitting 
+              ? (user ? 'Updating...' : 'Creating...') 
+              : (user ? 'Update User' : 'Create User')
+            }
+          </Button>
         </div>
       </form>
     </Modal>
@@ -850,28 +1047,33 @@ const UserModal: React.FC<{
 
 const UsersPage: React.FC = () => {
   const { users, toggleUserStatus, searchUsers, addUser } = useData();
-  const [userModalOpen, setUserModalOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | undefined>(undefined);
-  const [searchQuery, setSearchQuery] = useState('');
+  const { currentUser } = useAuth();
+  
+  // State
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | 'all'>('all');
   const [selectedRole, setSelectedRole] = useState<Role | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
-  
-  // Database search state
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [userModalOpen, setUserModalOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   
-  // Debounced search query to optimize database calls
+  // Delete modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [userActiveTasks, setUserActiveTasks] = useState<number>(0);
+  
+  // Debounce search query
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   
-  // Database search effect - replaces all client-side filtering
+  // Database search effect
   useEffect(() => {
     const performSearch = async () => {
       setIsSearching(true);
       try {
-        // Build search filters based on current state
         const filters = {
           team: selectedTeam !== 'all' ? selectedTeam : undefined,
           role: selectedRole !== 'all' ? selectedRole : undefined,
@@ -881,73 +1083,49 @@ const UsersPage: React.FC = () => {
 
         const searchResults = await searchUsers(filters);
         setFilteredUsers(searchResults);
-        
-        console.log(`[Users Database Search] Found ${searchResults.length} users`);
       } catch (error) {
-        console.error('Error performing database search:', error);
+        console.error('Error searching users:', error);
         setFilteredUsers([]);
+        showToast('Error searching users', 'error');
       } finally {
         setIsSearching(false);
       }
     };
 
     performSearch();
-  }, [
-    debouncedSearchQuery,
-    selectedTeam,
-    selectedRole,
-    statusFilter,
-    searchUsers
-  ]);
+  }, [debouncedSearchQuery, selectedTeam, selectedRole, statusFilter, searchUsers]);
 
-  // Handle team filter change
-  const handleTeamFilterChange = (team: TeamType | 'all') => {
-    setSelectedTeam(team);
-    setTeamDropdownOpen(false);
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type });
   };
 
-  // Handle role filter change  
-  const handleRoleFilterChange = (role: Role | 'all') => {
-    setSelectedRole(role);
-    setRoleDropdownOpen(false);
+  const handleUserSuccess = (user: User, action: 'created' | 'updated') => {
+    // Refresh the user list
+    const refreshSearch = async () => {
+      try {
+        const filters = {
+          team: selectedTeam !== 'all' ? selectedTeam : undefined,
+          role: selectedRole !== 'all' ? selectedRole : undefined,
+          isActive: statusFilter === 'active' ? true : statusFilter === 'inactive' ? false : undefined,
+          searchQuery: debouncedSearchQuery || undefined
+        };
+        const searchResults = await searchUsers(filters);
+        setFilteredUsers(searchResults);
+        
+        showToast(
+          `User ${action === 'created' ? 'created' : 'updated'} successfully!`,
+          'success'
+        );
+      } catch (error) {
+        console.error('Error refreshing users:', error);
+      }
+    };
+    
+    refreshSearch();
   };
-
-  // Clear all filters
-  const clearFilters = () => {
-    setSearchQuery('');
-    setSelectedTeam('all');
-    setSelectedRole('all');
-    setStatusFilter('all');
-  };
-
-  // Calculate team statistics
-  const teamStats = {
-    creative: filteredUsers.filter(user => user.team === 'creative').length,
-    web: filteredUsers.filter(user => user.team === 'web').length,
-    admin: filteredUsers.filter(user => user.role === 'admin').length,
-    active: filteredUsers.filter(user => user.isActive).length,
-    inactive: filteredUsers.filter(user => !user.isActive).length
-  };
-
-  const getRoleBadgeColor = (role: Role) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'manager': return 'bg-blue-100 text-blue-800';
-      case 'employee': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getTeamBadgeColor = (team: TeamType) => {
-    switch (team) {
-      case 'creative': return 'bg-purple-100 text-purple-800';
-      case 'web': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
+  
   const handleAddUser = () => {
-    setSelectedUser(undefined);
+    setSelectedUser(null);
     setUserModalOpen(true);
   };
   
@@ -959,25 +1137,112 @@ const UsersPage: React.FC = () => {
   const handleToggleUserStatus = async (userId: string) => {
     try {
       await toggleUserStatus(userId);
-      // Success! No need to do anything else as the state is updated in DataContext
+      // Refresh user list
+      const filters = {
+        team: selectedTeam !== 'all' ? selectedTeam : undefined,
+        role: selectedRole !== 'all' ? selectedRole : undefined,
+        isActive: statusFilter === 'active' ? true : statusFilter === 'inactive' ? false : undefined,
+        searchQuery: debouncedSearchQuery || undefined
+      };
+      const searchResults = await searchUsers(filters);
+      setFilteredUsers(searchResults);
+      
+      showToast('User status updated successfully!', 'success');
     } catch (error) {
       console.error('Failed to toggle user status:', error);
-      // You can add a toast notification here if you have a toast system
-      alert('Failed to toggle user status. Please try again.');
+      showToast('Failed to update user status', 'error');
     }
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    try {
+      setUserToDelete(user);
+      
+      // Check if user has active tasks
+      console.log(`🔍 Checking active tasks for user: ${user.name}`);
+      const userTasks = await getTasksByUser(user.id);
+      
+      // Filter for active tasks (not completed)
+      const completedStatuses = [
+        'done', 
+        'approved', 
+        'creative_approved',
+        'completed',
+        'web_completed',
+        'handed_over',
+        'web_handed_over'
+      ];
+      
+      const activeTasks = userTasks.filter(task => !completedStatuses.includes(task.status));
+      setUserActiveTasks(activeTasks.length);
+      
+      console.log(`📊 User ${user.name} has ${activeTasks.length} active tasks out of ${userTasks.length} total tasks`);
+      
+      setDeleteModalOpen(true);
+    } catch (error) {
+      console.error('Error checking user tasks:', error);
+      showToast('Error checking user tasks', 'error');
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+    
+    try {
+      setIsDeletingUser(true);
+      console.log(`🗑️ Deleting user: ${userToDelete.name}`);
+      
+      await deleteUser(userToDelete.id);
+      
+      // Refresh user list
+      const filters = {
+        team: selectedTeam !== 'all' ? selectedTeam : undefined,
+        role: selectedRole !== 'all' ? selectedRole : undefined,
+        isActive: statusFilter === 'active' ? true : statusFilter === 'inactive' ? false : undefined,
+        searchQuery: debouncedSearchQuery || undefined
+      };
+      const searchResults = await searchUsers(filters);
+      setFilteredUsers(searchResults);
+      
+      showToast(`User ${userToDelete.name} deleted successfully!`, 'success');
+      
+      // Close modal and reset state
+      setDeleteModalOpen(false);
+      setUserToDelete(null);
+      setUserActiveTasks(0);
+    } catch (error) {
+      console.error('Failed to delete user:', error);
+      showToast('Failed to delete user', 'error');
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
+  const handleCloseDeleteModal = () => {
+    setDeleteModalOpen(false);
+    setUserToDelete(null);
+    setUserActiveTasks(0);
   };
 
   return (
     <div className="space-y-6">
+      {/* Toast Notifications */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">User Management</h1>
+          <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
+          <p className="text-gray-600 mt-1">Manage team members, roles, and permissions</p>
         </div>
         
-        <PermissionGuard
-          resource="user"
-          action="create"
-        >
+        <PermissionGuard resource="user" action="create">
           <Button
             variant="primary"
             size="sm"
@@ -990,65 +1255,86 @@ const UsersPage: React.FC = () => {
       </div>
       
       <Card>
-        <CardHeader className="pb-2">
-          <div className="flex flex-col sm:flex-row justify-between gap-4">
-            <div className="flex flex-col space-y-4">
-              <CardTitle className="text-lg flex items-center">
-                <Users className="h-5 w-5 mr-2 text-blue-600" />
-                <span>
-                  {selectedTeam === 'all' ? 'All Users' : 
-                   selectedTeam === 'creative' ? 'Creative Team Users' : 
-                   'Web Team Users'}
-                </span>
-                <span className="ml-2 text-sm text-gray-500">
-                  ({filteredUsers.length})
-                </span>
-              </CardTitle>
+        <CardHeader className="pb-4">
+          <div className="flex flex-col space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between gap-4">
+              <div>
+                <CardTitle className="text-lg flex items-center">
+                  <Users className="h-5 w-5 mr-2 text-blue-600" />
+                  <span>
+                    {selectedTeam === 'all' ? 'All Users' : 
+                     selectedTeam === 'creative' ? 'Creative Team Users' : 
+                     'Web Team Users'}
+                  </span>
+                  <span className="ml-2 text-sm text-gray-500">
+                    ({filteredUsers.length})
+                  </span>
+                  {isSearching && (
+                    <Loader2 className="h-4 w-4 ml-2 animate-spin text-blue-600" />
+                  )}
+                </CardTitle>
+              </div>
               
-              {/* Team filter tabs */}
-              <div className="flex space-x-2">
-                <ButtonGroup
-                  options={[
-                    { value: 'all', label: 'All Users' },
-                    { value: 'creative', label: 'Creative Team', icon: Palette },
-                    { value: 'web', label: 'Web Team', icon: Code }
-                  ]}
-                  value={selectedTeam}
-                  onChange={(value) => handleTeamFilterChange(value as TeamType | 'all')}
+              <div className="relative max-w-xs">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  className="block w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
             </div>
             
-            <div className="relative max-w-xs">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search users..."
-                className="block w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+            {/* Filters */}
+            <div className="flex flex-wrap gap-4">
+              <ButtonGroup
+                options={[
+                  { value: 'all', label: 'All Teams' },
+                  { value: 'creative', label: 'Creative', icon: Palette },
+                  { value: 'web', label: 'Web', icon: Code }
+                ]}
+                value={selectedTeam}
+                onChange={(value) => setSelectedTeam(value as TeamType | 'all')}
+              />
+              
+              <ButtonGroup
+                options={[
+                  { value: 'all', label: 'All Roles' },
+                  { value: 'admin', label: 'Admin' },
+                  { value: 'manager', label: 'Manager' },
+                  { value: 'employee', label: 'Employee' }
+                ]}
+                value={selectedRole}
+                onChange={(value) => setSelectedRole(value as Role | 'all')}
+              />
+              
+              <ButtonGroup
+                options={[
+                  { value: 'all', label: 'All Status' },
+                  { value: 'active', label: 'Active' },
+                  { value: 'inactive', label: 'Inactive' }
+                ]}
+                value={statusFilter}
+                onChange={(value) => setStatusFilter(value as 'all' | 'active' | 'inactive')}
               />
             </div>
           </div>
         </CardHeader>
+        
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Name
+                    User
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Role
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Team
+                    Role & Team
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Join Date
@@ -1066,57 +1352,55 @@ const UsersPage: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredUsers.map((user) => (
-                  <tr key={user.id} className={!user.isActive ? 'bg-gray-50' : ''}>
+                  <tr key={user.id} className={`hover:bg-gray-50 transition-colors ${!user.isActive ? 'opacity-60' : ''}`}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <Avatar 
                           src={user.avatar} 
                           name={user.name} 
-                          size="sm" 
+                          size="md" 
                         />
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">
                             {user.name}
                           </div>
+                          <div className="text-sm text-gray-500">{user.email}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500">{user.email}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge
-                        variant={
-                          user.role === 'admin' ? 'primary' :
-                          user.role === 'manager' ? 'info' : 'default'
-                        }
-                      >
-                        {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500 flex items-center">
-                        {user.role === 'admin' ? (
-                          <>
-                            <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
-                            <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
-                            Both Teams
-                          </>
-                        ) : user.team === 'creative' ? (
-                          <>
-                            <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
-                            Creative Team
-                          </>
-                        ) : (
-                          <>
-                            <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
-                            Web Team
-                          </>
-                        )}
+                      <div className="space-y-1">
+                        <Badge
+                          variant={
+                            user.role === 'admin' ? 'primary' :
+                            user.role === 'manager' ? 'info' : 'default'
+                          }
+                        >
+                          {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                        </Badge>
+                        <div className="text-sm text-gray-500 flex items-center">
+                          {user.role === 'admin' ? (
+                            <>
+                              <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
+                              <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                              Both Teams
+                            </>
+                          ) : user.team === 'creative' ? (
+                            <>
+                              <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
+                              Creative Team
+                            </>
+                          ) : (
+                            <>
+                              <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                              Web Team
+                            </>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500">{user.joinDate}</div>
+                      <div className="text-sm text-gray-900">{user.joinDate}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <Badge
@@ -1126,9 +1410,9 @@ const UsersPage: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-gray-900">
                         {user.role === 'admin' ? (
-                          <span className="text-primary-600">Full Access</span>
+                          <span className="text-blue-600 font-medium">Full Access</span>
                         ) : user.allowedStatuses && user.allowedStatuses.length > 0 ? (
                           <span>{user.allowedStatuses.length} Status{user.allowedStatuses.length !== 1 ? 'es' : ''}</span>
                         ) : (
@@ -1138,30 +1422,58 @@ const UsersPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          icon={Edit}
-                          onClick={() => handleEditUser(user)}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant={user.isActive ? 'danger' : 'primary'}
-                          size="xs"
-                          onClick={() => handleToggleUserStatus(user.id)}
-                        >
-                          {user.isActive ? 'Deactivate' : 'Activate'}
-                        </Button>
+                        <PermissionGuard resource="user" action="update">
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            icon={Edit}
+                            onClick={() => handleEditUser(user)}
+                          >
+                            Edit
+                          </Button>
+                        </PermissionGuard>
+                        
+                        <PermissionGuard resource="user" action="update">
+                          <Button
+                            variant={user.isActive ? 'danger' : 'primary'}
+                            size="xs"
+                            onClick={() => handleToggleUserStatus(user.id)}
+                          >
+                            {user.isActive ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        </PermissionGuard>
+                        
+                        <PermissionGuard resource="user" action="delete">
+                          <Button
+                            variant="danger"
+                            size="xs"
+                            icon={Trash2}
+                            onClick={() => handleDeleteUser(user)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Delete
+                          </Button>
+                        </PermissionGuard>
                       </div>
                     </td>
                   </tr>
                 ))}
                 
-                {filteredUsers.length === 0 && (
+                {filteredUsers.length === 0 && !isSearching && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
-                      No users found
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <Users className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                      <p className="text-gray-500">No users found</p>
+                      <p className="text-gray-400 text-sm">Try adjusting your search or filters</p>
+                    </td>
+                  </tr>
+                )}
+                
+                {isSearching && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <Loader2 className="h-8 w-8 text-blue-600 mx-auto mb-2 animate-spin" />
+                      <p className="text-gray-500">Searching users...</p>
                     </td>
                   </tr>
                 )}
@@ -1175,6 +1487,17 @@ const UsersPage: React.FC = () => {
         isOpen={userModalOpen}
         onClose={() => setUserModalOpen(false)}
         user={selectedUser}
+        onSuccess={handleUserSuccess}
+      />
+      
+      <DeleteUserModal
+        isOpen={deleteModalOpen}
+        onClose={handleCloseDeleteModal}
+        user={userToDelete}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeletingUser}
+        hasActiveTasks={userActiveTasks > 0}
+        activeTaskCount={userActiveTasks}
       />
     </div>
   );

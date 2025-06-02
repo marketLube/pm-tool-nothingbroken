@@ -24,17 +24,30 @@ import { useData } from '../../contexts/DataContext';
 
 const Sidebar: React.FC = () => {
   const location = useLocation();
-  const { isAdmin, isManager, userTeam, logout } = useAuth();
-  const { getTasksByTeam } = useData();
+  const { isAdmin, userTeam, logout } = useAuth();
+  
+  // Add error boundary protection for useData
+  let creativeTasks: any[] = [];
+  let webTasks: any[] = [];
+  let activeCreativeTasks = 0;
+  let activeWebTasks = 0;
+  
+  try {
+    const { getTasksByTeam } = useData();
+    creativeTasks = getTasksByTeam('creative');
+    webTasks = getTasksByTeam('web');
+    activeCreativeTasks = creativeTasks.filter(task => task.status !== 'done').length;
+    activeWebTasks = webTasks.filter(task => task.status !== 'done').length;
+  } catch (error: any) {
+    console.warn('⚠️ DataContext not available in Sidebar, using default values:', error?.message || 'Unknown error');
+    // Use default values when DataContext is not available
+    creativeTasks = [];
+    webTasks = [];
+    activeCreativeTasks = 0;
+    activeWebTasks = 0;
+  }
+  
   const [teamsExpanded, setTeamsExpanded] = useState(true);
-  
-  // Get team tasks
-  const creativeTasks = getTasksByTeam('creative');
-  const webTasks = getTasksByTeam('web');
-  
-  // Count active tasks
-  const activeCreativeTasks = creativeTasks.filter(task => task.status !== 'done').length;
-  const activeWebTasks = webTasks.filter(task => task.status !== 'done').length;
   
   const isActive = (path: string) => {
     return location.pathname === path;
