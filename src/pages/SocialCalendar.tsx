@@ -508,19 +508,27 @@ const SocialCalendar: React.FC = () => {
         return task.team === selectedTeam;
       });
 
-      // Generate a secure token for the export
-      const token = `export_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+      // Generate a truly unique token to avoid conflicts
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).substring(2, 15);
+      const token = `export_${timestamp}_${randomStr}_${selectedClientId.slice(-8)}`;
 
+      // Only include fields that we explicitly want to set (avoid DEFAULT conflicts)
       const calendarData = {
         token,
         client_id: selectedClientId,
         client_name: currentClient.name,
         team: selectedTeam,
         tasks: tasksToExport,
-        created_by: currentUser?.id || null,
-        created_at: getIndiaDateTime().toISOString(),
-        expires_at: new Date(getIndiaDateTime().getTime() + 45 * 24 * 60 * 60 * 1000).toISOString() // 45 days
+        created_by: currentUser?.id,
+        expires_at: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString() // 45 days from now
       };
+
+      console.log('Attempting to insert calendar export with data:', {
+        ...calendarData,
+        tasks: `${tasksToExport.length} tasks`,
+        token: token.substring(0, 20) + '...'
+      });
 
       const { data, error } = await supabase
         .from('calendar_exports')
@@ -530,15 +538,31 @@ const SocialCalendar: React.FC = () => {
 
       if (error) {
         console.error('Export error details:', error);
-        // If table doesn't exist, show helpful message
+        console.error('Error code:', error.code);
+        console.error('Error hint:', error.hint);
+        console.error('Error details:', error.details);
+        
+        // Handle specific error cases
         if (error.message.includes('relation "calendar_exports" does not exist')) {
-          alert('Calendar export feature is not set up. Please contact your administrator to set up the calendar_exports table.');
+          alert('Calendar export feature is not set up. Please run the SQL script from URGENT_FIX_CALENDAR_EXPORT.md');
+          return;
+        } else if (error.code === '23505' || error.message.includes('duplicate key')) {
+          alert('Export token conflict. Please try again in a moment.');
+          return;
+        } else if (error.code === '23503' || error.message.includes('foreign key')) {
+          alert('Invalid user or client reference. Please refresh the page and try again.');
+          return;
+        } else if (error.code === '42P01') {
+          alert('Calendar exports table does not exist. Please run the setup script from URGENT_FIX_CALENDAR_EXPORT.md');
           return;
         }
+        
         throw error;
       }
 
-      const exportUrl = `${window.location.origin}/calendar-export/${data.id}`;
+      console.log('Calendar export created successfully:', data);
+
+      const exportUrl = `${window.location.origin}/calendar-export/${data.token}`;
       setExportUrl(exportUrl);
       setShowExportModal(true);
 
@@ -550,9 +574,22 @@ const SocialCalendar: React.FC = () => {
         console.log('Could not copy to clipboard, showing URL for manual copy');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error exporting calendar:', error);
-      alert('Failed to export calendar. Please try again.');
+      
+      let errorMessage = 'Failed to export calendar. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('JWT')) {
+          errorMessage = 'Authentication error. Please refresh the page and try again.';
+        } else if (error.message.includes('permission denied')) {
+          errorMessage = 'Permission denied. Please contact your administrator.';
+        } else if (error.message.includes('409')) {
+          errorMessage = 'Export conflict. Please try again in a moment.';
+        }
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsExporting(false);
     }

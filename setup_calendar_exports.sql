@@ -27,23 +27,28 @@ CREATE INDEX idx_calendar_exports_team ON calendar_exports(team);
 -- Enable Row Level Security
 ALTER TABLE calendar_exports ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "authenticated_can_create_exports" ON calendar_exports;
+DROP POLICY IF EXISTS "users_can_view_own_exports" ON calendar_exports;
+DROP POLICY IF EXISTS "public_can_view_valid_exports" ON calendar_exports;
+
+-- RLS Policies - Fixed for better compatibility
 -- Policy for authenticated users to create exports
 CREATE POLICY "authenticated_can_create_exports" ON calendar_exports
     FOR INSERT 
-    WITH CHECK (auth.role() = 'authenticated');
+    TO authenticated
+    WITH CHECK (true);
 
--- Policy for authenticated users to view their own exports
-CREATE POLICY "users_can_view_own_exports" ON calendar_exports
+-- Policy for authenticated users to view exports (more permissive for team access)
+CREATE POLICY "users_can_view_exports" ON calendar_exports
     FOR SELECT 
-    USING (
-        auth.role() = 'authenticated' AND 
-        (created_by = auth.uid() OR created_by IS NULL)
-    );
+    TO authenticated
+    USING (true);
 
--- Policy for public access to non-expired exports (for client viewing)
-CREATE POLICY "public_can_view_valid_exports" ON calendar_exports
+-- Policy for public access to non-expired exports via token (for sharing)
+CREATE POLICY "public_can_view_by_token" ON calendar_exports
     FOR SELECT 
+    TO anon
     USING (expires_at > NOW());
 
 -- Function to update updated_at timestamp
@@ -56,6 +61,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_calendar_exports_updated_at ON calendar_exports;
 CREATE TRIGGER update_calendar_exports_updated_at
     BEFORE UPDATE ON calendar_exports
     FOR EACH ROW
@@ -73,14 +79,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Grant permissions
-GRANT ALL ON calendar_exports TO authenticated;
+-- Grant permissions - More explicit
+GRANT ALL PRIVILEGES ON calendar_exports TO authenticated;
 GRANT SELECT ON calendar_exports TO anon;
 
--- Test the table creation
+-- Test the table creation with a more comprehensive test
 DO $$
+DECLARE
+    test_token TEXT;
+    test_record calendar_exports%ROWTYPE;
 BEGIN
-    -- Insert a test record to verify everything works
+    -- Generate test token
+    test_token := 'test_token_' || extract(epoch from now())::text;
+    
+    -- Insert a test record
     INSERT INTO calendar_exports (
         token,
         client_id, 
@@ -89,17 +101,47 @@ BEGIN
         tasks,
         expires_at
     ) VALUES (
-        'test_token_' || extract(epoch from now()),
+        test_token,
         'test_client_id',
         'Test Client',
         'creative',
-        '[]'::jsonb,
+        '[{"id": "test", "title": "Test Task", "date": "2024-06-01"}]'::jsonb,
         NOW() + INTERVAL '1 minute'
-    );
+    ) RETURNING * INTO test_record;
     
-    -- Clean up test record
+    -- Verify the record was created
+    IF test_record.id IS NOT NULL THEN
+        RAISE NOTICE 'SUCCESS: Test record created with ID % and token %', test_record.id, test_record.token;
+    ELSE
+        RAISE EXCEPTION 'FAILED: Test record was not created';
+    END IF;
+    
+    -- Test token uniqueness
+    BEGIN
+        INSERT INTO calendar_exports (
+            token,
+            client_id, 
+            client_name,
+            team,
+            tasks,
+            expires_at
+        ) VALUES (
+            test_token, -- Same token should fail
+            'test_client_id_2',
+            'Test Client 2',
+            'web',
+            '[]'::jsonb,
+            NOW() + INTERVAL '1 minute'
+        );
+        RAISE EXCEPTION 'FAILED: Duplicate token was allowed';
+    EXCEPTION WHEN unique_violation THEN
+        RAISE NOTICE 'SUCCESS: Token uniqueness constraint working correctly';
+    END;
+    
+    -- Clean up test records
     DELETE FROM calendar_exports WHERE token LIKE 'test_token_%';
     
-    RAISE NOTICE 'Calendar exports table created and tested successfully!';
+    RAISE NOTICE 'SUCCESS: Calendar exports table created and tested successfully!';
+    RAISE NOTICE 'You can now use the Export & Share feature in your Social Calendar.';
 END;
 $$; 
