@@ -37,8 +37,8 @@ const UserModal: React.FC<{
     user || {
       name: '',
       email: '',
-      role: 'employee',
-      team: 'creative',
+      role: 'employee' as Role,
+      team: 'creative' as TeamType,
       isActive: true,
       allowedStatuses: [],
       joinDate: getIndiaDate(),
@@ -55,32 +55,63 @@ const UserModal: React.FC<{
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [autoSavedFields, setAutoSavedFields] = useState<Record<string, boolean>>({});
+  const [hasFormChanges, setHasFormChanges] = useState(false);
+  const [originalFormData, setOriginalFormData] = useState<Partial<User>>({});
   
   // Reset form data when the user prop changes (for editing different users)
   useEffect(() => {
     if (user) {
-      setFormData(user);
+      const userData = { ...user };
+      setFormData(userData);
+      setOriginalFormData(userData); // Store original data for comparison
       setSelectedFile(null);
       setPasswordGenerated(false);
       setPasswordSaved(false);
       setAutoSavedFields({});
+      setHasFormChanges(false);
     } else {
-      setFormData({
+      const newUserData: Partial<User> = {
         name: '',
         email: '',
-        role: 'employee',
-        team: 'creative',
+        role: 'employee' as Role,
+        team: 'creative' as TeamType,
         isActive: true,
         allowedStatuses: [],
         joinDate: getIndiaDate(),
         password: ''
-      });
+      };
+      setFormData(newUserData);
+      setOriginalFormData({});
       setSelectedFile(null);
       setPasswordGenerated(false);
       setPasswordSaved(false);
       setAutoSavedFields({});
+      setHasFormChanges(false);
     }
   }, [user]);
+  
+  // Check if form has changes
+  useEffect(() => {
+    if (!user) {
+      // For new users, consider form changed if required fields are filled
+      const hasRequiredFields = formData.name && formData.email && formData.password;
+      setHasFormChanges(!!hasRequiredFields);
+      return;
+    }
+
+    // For existing users, compare with original data
+    const hasChanges = 
+      formData.name !== originalFormData.name ||
+      formData.email !== originalFormData.email ||
+      formData.role !== originalFormData.role ||
+      formData.team !== originalFormData.team ||
+      formData.joinDate !== originalFormData.joinDate ||
+      JSON.stringify(formData.allowedStatuses?.sort()) !== JSON.stringify(originalFormData.allowedStatuses?.sort()) ||
+      passwordGenerated || // If password was generated, consider it a change
+      selectedFile !== null; // If avatar file was selected
+    
+    setHasFormChanges(hasChanges);
+  }, [formData, originalFormData, passwordGenerated, selectedFile, user]);
   
   // Clear auto-saved field indicators after 3 seconds
   useEffect(() => {
@@ -176,17 +207,28 @@ const UserModal: React.FC<{
     setPasswordGenerated(true);
     setPasswordSaved(false);
     setShowPassword(true);
+    
+    // If editing existing user, immediately save password to database
+    if (user) {
+      handleSavePassword(newPassword);
+    }
   };
 
-  const handleSavePassword = async () => {
-    if (!user || !formData.password || isSavingPassword) return;
+  const handleSavePassword = async (passwordToSave?: string) => {
+    const password = passwordToSave || formData.password;
+    if (!user || !password || isSavingPassword) return;
     
     try {
       setIsSavingPassword(true);
       setErrors(prev => ({ ...prev, password: '' })); // Clear previous errors
       
-      await updateUserPassword(user.id, formData.password);
+      await updateUserPassword(user.id, password);
       setPasswordSaved(true);
+      setPasswordGenerated(false); // Reset password generated flag after saving
+      
+      // Update original form data to reflect the saved password
+      setOriginalFormData(prev => ({ ...prev, password }));
+      
       console.log('Password saved successfully for user:', user.email);
       
       // Show success message briefly
@@ -301,6 +343,12 @@ const UserModal: React.FC<{
       return;
     }
     
+    // Don't submit if no changes for existing users
+    if (user && !hasFormChanges) {
+      console.log('No changes detected, skipping update');
+      return;
+    }
+    
     try {
       setIsUpdating(true);
       
@@ -316,13 +364,23 @@ const UserModal: React.FC<{
           ...user,
           ...formData,
           avatar: avatarUrl,
-          allowedStatuses: formData.allowedStatuses || []
+          allowedStatuses: formData.allowedStatuses || [],
+          // Don't include password in regular updates - it's handled separately
+          password: undefined
         } as User;
         
+        // Remove password field for regular updates since it's handled separately
+        delete updatedUser.password;
+        
         await updateUser(updatedUser);
+        
+        // Update original form data to reflect saved changes
+        setOriginalFormData({ ...formData, password: originalFormData.password });
+        setHasFormChanges(false);
+        
         console.log('User updated successfully');
       } else {
-        // Creating new user
+        // Creating new user - include password
         const newUser: Omit<User, 'id'> = {
           name: formData.name || '',
           email: formData.email || '',
@@ -340,6 +398,7 @@ const UserModal: React.FC<{
           email: newUser.email,
           role: newUser.role,
           team: newUser.team,
+          hasPassword: !!newUser.password,
           hasAllowedStatuses: (newUser.allowedStatuses || []).length > 0
         });
         
@@ -348,18 +407,21 @@ const UserModal: React.FC<{
           console.log('User created successfully');
         } catch (err) {
           console.error('Failed to create user:', err);
-          // Set a generic error message
           setErrors(prev => ({
             ...prev,
             form: 'Failed to create user. Please check the console for details.'
           }));
-          return; // Don't close the modal if there's an error
+          return;
         }
       }
       
       onClose();
     } catch (error) {
       console.error('Error saving user:', error);
+      setErrors(prev => ({
+        ...prev,
+        form: `Failed to ${user ? 'update' : 'create'} user. Please try again.`
+      }));
     } finally {
       setIsUpdating(false);
     }
@@ -483,29 +545,47 @@ const UserModal: React.FC<{
             {errors.password && (
               <p className="mt-1 text-sm text-red-600">{errors.password}</p>
             )}
-            {passwordGenerated && !passwordSaved && (
+            
+            {/* Password generation actions for existing users */}
+            {user && passwordGenerated && !passwordSaved && (
               <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-3">
                 <p className="text-sm text-blue-700">
-                  New password generated! Copy it and click Save Password to apply.
+                  New password generated and saved! User can now login with this password.
                 </p>
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  icon={isSavingPassword ? Loader2 : Check}
-                  onClick={handleSavePassword}
-                  disabled={isSavingPassword || !formData.password}
-                  className={`ml-3 ${isSavingPassword ? 'animate-spin' : ''}`}
-                >
-                  {isSavingPassword ? 'Saving...' : 'Save Password'}
-                </Button>
+                <div className="flex items-center text-green-600">
+                  <Check className="h-4 w-4 mr-1" />
+                  <span className="text-sm font-medium">Auto-saved</span>
+                </div>
               </div>
             )}
+            
+            {/* Manual save button for new users or when editing password */}
+            {(!user || (passwordGenerated && !passwordSaved)) && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-3">
+                <p className="text-sm text-blue-700">
+                  {user ? 'New password generated! Copy it and click Save Password to apply.' : 'New password generated! Copy it - it will be saved when you create the user.'}
+                </p>
+                {user && (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    icon={isSavingPassword ? Loader2 : Check}
+                    onClick={() => handleSavePassword()}
+                    disabled={isSavingPassword || !formData.password}
+                    className={`ml-3 ${isSavingPassword ? 'animate-spin' : ''}`}
+                  >
+                    {isSavingPassword ? 'Saving...' : 'Save Password'}
+                  </Button>
+                )}
+              </div>
+            )}
+            
             {passwordSaved && (
               <div className="mt-2 bg-green-50 border border-green-200 rounded-md p-3">
                 <p className="text-sm text-green-700 flex items-center">
                   <Check className="h-4 w-4 mr-2" />
-                  Password saved successfully!
+                  Password saved successfully! User can now login with this password.
                 </p>
               </div>
             )}
@@ -727,18 +807,41 @@ const UserModal: React.FC<{
           >
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={isUpdating || isSavingPassword}
-            icon={isUpdating ? Loader2 : undefined}
-            className={isUpdating ? 'animate-spin' : ''}
-          >
-            {isUpdating 
-              ? (user ? 'Updating...' : 'Creating...') 
-              : (user ? 'Update User' : 'Add User')
-            }
-          </Button>
+          {user ? (
+            <Button
+              variant={hasFormChanges ? "primary" : "secondary"}
+              type="submit"
+              disabled={!hasFormChanges || isUpdating || isSavingPassword}
+              icon={isUpdating ? Loader2 : undefined}
+              className={`${isUpdating ? 'animate-spin' : ''} ${
+                !hasFormChanges ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {isUpdating 
+                ? 'Updating...' 
+                : hasFormChanges 
+                  ? 'Update User' 
+                  : 'No Changes'
+              }
+            </Button>
+          ) : (
+            <Button
+              variant={hasFormChanges ? "primary" : "secondary"}
+              type="submit"
+              disabled={!hasFormChanges || isUpdating || isSavingPassword}
+              icon={isUpdating ? Loader2 : undefined}
+              className={`${isUpdating ? 'animate-spin' : ''} ${
+                !hasFormChanges ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {isUpdating 
+                ? 'Creating...' 
+                : hasFormChanges 
+                  ? 'Add User' 
+                  : 'Fill Required Fields'
+              }
+            </Button>
+          )}
         </div>
       </form>
     </Modal>
