@@ -497,17 +497,27 @@ const SocialCalendar: React.FC = () => {
     try {
       setIsExporting(true);
       
+      // Validate required data
+      if (!selectedClientId || !currentClient) {
+        alert('Please select a client before exporting.');
+        return;
+      }
+      
       const tasksToExport = socialTasks.filter(task => {
         if (selectedTeam === 'all') return true;
         return task.team === selectedTeam;
       });
 
+      // Generate a secure token for the export
+      const token = `export_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+
       const calendarData = {
-        tasks: tasksToExport,
-        exported_by: currentUser?.id,
-        exported_at: getIndiaDateTime().toISOString(),
+        token,
+        client_id: selectedClientId,
+        client_name: currentClient.name,
         team: selectedTeam,
-        month: format(currentDate, 'yyyy-MM'),
+        tasks: tasksToExport,
+        created_by: currentUser?.id || null,
         created_at: getIndiaDateTime().toISOString(),
         expires_at: new Date(getIndiaDateTime().getTime() + 45 * 24 * 60 * 60 * 1000).toISOString() // 45 days
       };
@@ -518,7 +528,15 @@ const SocialCalendar: React.FC = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Export error details:', error);
+        // If table doesn't exist, show helpful message
+        if (error.message.includes('relation "calendar_exports" does not exist')) {
+          alert('Calendar export feature is not set up. Please contact your administrator to set up the calendar_exports table.');
+          return;
+        }
+        throw error;
+      }
 
       const exportUrl = `${window.location.origin}/calendar-export/${data.id}`;
       setExportUrl(exportUrl);
