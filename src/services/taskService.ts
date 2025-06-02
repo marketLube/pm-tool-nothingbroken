@@ -1,6 +1,7 @@
 import { supabase } from '../utils/supabase';
 import { Task, TeamType } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { getIndiaDateTime } from '../utils/timezone';
 
 // Map from App Task to Supabase DB schema
 const mapToDbTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
@@ -72,7 +73,7 @@ export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>): Promise<
     .insert([{
       id,
       ...mapToDbTask(task),
-      created_at: new Date().toISOString()
+      created_at: getIndiaDateTime().toISOString()
     }])
     .select()
     .single();
@@ -169,4 +170,135 @@ export const getTasksByUser = async (userId: string): Promise<Task[]> => {
   }
   
   return data.map(mapFromDbTask);
+};
+
+// Database-level search and filter interface
+export interface TaskSearchFilters {
+  searchQuery?: string;
+  team?: TeamType;
+  assigneeId?: string; // 'unassigned' for null assignees
+  clientId?: string;
+  sortBy?: 'createdDate' | 'dueDate' | 'title' | 'none';
+  userId?: string; // for "my tasks" view
+}
+
+// Advanced search with database-level filtering, searching, and sorting
+export const searchTasks = async (filters: TaskSearchFilters): Promise<Task[]> => {
+  let query = supabase
+    .from('tasks')
+    .select(`
+      *,
+      clients:client_id(name),
+      assignee:assignee_id(name)
+    `);
+
+  // Apply team filter
+  if (filters.team) {
+    query = query.eq('team', filters.team);
+  }
+
+  // Apply user filter for "my tasks" view
+  if (filters.userId) {
+    query = query.eq('assignee_id', filters.userId);
+  }
+
+  // Apply assignee filter
+  if (filters.assigneeId) {
+    if (filters.assigneeId === 'unassigned') {
+      query = query.is('assignee_id', null);
+    } else {
+      query = query.eq('assignee_id', filters.assigneeId);
+    }
+  }
+
+  // Apply client filter
+  if (filters.clientId) {
+    query = query.eq('client_id', filters.clientId);
+  }
+
+  // Handle search query with client name support
+  if (filters.searchQuery && filters.searchQuery.trim()) {
+    const searchTerm = filters.searchQuery.trim();
+    
+    // First, search for clients matching the search term
+    const { data: matchingClients } = await supabase
+      .from('clients')
+      .select('id')
+      .ilike('name', `%${searchTerm}%`);
+    
+    const clientIds = matchingClients?.map(client => client.id) || [];
+    
+    // Build the search query
+    let searchConditions = [`title.ilike.%${searchTerm}%`, `description.ilike.%${searchTerm}%`];
+    
+    // If we found matching clients, add them to the search
+    if (clientIds.length > 0) {
+      const clientIdConditions = clientIds.map(id => `client_id.eq.${id}`);
+      searchConditions = [...searchConditions, ...clientIdConditions];
+    }
+    
+    // Apply the combined search conditions
+    query = query.or(searchConditions.join(','));
+  }
+
+  // Apply sorting
+  if (filters.sortBy && filters.sortBy !== 'none') {
+    switch (filters.sortBy) {
+      case 'createdDate':
+        query = query.order('created_at', { ascending: false }); // Newest first
+        break;
+      case 'dueDate':
+        query = query.order('due_date', { ascending: true, nullsFirst: false }); // Earliest first, nulls last
+        break;
+      case 'title':
+        query = query.order('title', { ascending: true }); // Alphabetical
+        break;
+    }
+  } else {
+    // Default sorting by created date for consistent results
+    query = query.order('created_at', { ascending: false });
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error searching tasks:', error);
+    throw error;
+  }
+
+  return data.map(mapFromDbTask);
+};
+
+// Get filtered tasks by team with optional search
+export const getFilteredTasksByTeam = async (
+  teamId: TeamType, 
+  searchQuery?: string,
+  assigneeId?: string,
+  clientId?: string,
+  sortBy?: 'createdDate' | 'dueDate' | 'title' | 'none'
+): Promise<Task[]> => {
+  return searchTasks({
+    team: teamId,
+    searchQuery,
+    assigneeId,
+    clientId,
+    sortBy
+  });
+};
+
+// Get filtered tasks by user with optional search
+export const getFilteredTasksByUser = async (
+  userId: string,
+  teamId?: TeamType,
+  searchQuery?: string,
+  clientId?: string,
+  sortBy?: 'createdDate' | 'dueDate' | 'title' | 'none'
+): Promise<Task[]> => {
+  return searchTasks({
+    userId,
+    team: teamId,
+    searchQuery,
+    clientId,
+    sortBy
+  });
 }; 

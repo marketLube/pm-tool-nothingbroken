@@ -15,10 +15,13 @@ import { useStatus } from '../contexts/StatusContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAvatarManager } from '../utils/avatar';
 import { User, Role, TeamType } from '../types';
-import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff, UserCheck, UserX, Calendar, Mail, Phone, MapPin, Building, Shield, ChevronDown, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { isValidEmail } from '../utils/validation';
 import { generateUserFriendlyPassword, copyToClipboard } from '../utils/passwordGenerator';
+import { getIndiaDate } from '../utils/timezone';
+import PermissionGuard from '../components/auth/PermissionGuard';
+import { useDebounce } from '../hooks/useDebounce';
 
 const UserModal: React.FC<{
   isOpen: boolean;
@@ -37,7 +40,7 @@ const UserModal: React.FC<{
       team: 'creative',
       isActive: true,
       allowedStatuses: [],
-      joinDate: format(new Date(), 'yyyy-MM-dd'),
+      joinDate: getIndiaDate(),
       password: ''
     }
   );
@@ -61,7 +64,7 @@ const UserModal: React.FC<{
         team: 'creative',
         isActive: true,
         allowedStatuses: [],
-        joinDate: format(new Date(), 'yyyy-MM-dd'),
+        joinDate: getIndiaDate(),
         password: ''
       });
       setSelectedFile(null);
@@ -203,7 +206,7 @@ const UserModal: React.FC<{
           email: formData.email || '',
           role: formData.role as Role,
           team: formData.team as TeamType,
-          joinDate: formData.joinDate || format(new Date(), 'yyyy-MM-dd'),
+          joinDate: formData.joinDate || getIndiaDate(),
           avatar: avatarUrl,
           isActive: true,
           allowedStatuses: formData.allowedStatuses || [],
@@ -403,7 +406,7 @@ const UserModal: React.FC<{
           error={errors.joinDate}
           fullWidth
           required
-          max={format(new Date(), 'yyyy-MM-dd')} // Limit to today or earlier
+          max={getIndiaDate()} // Limit to today or earlier
         />
         
         {/* Status Permissions - only show for non-admin users */}
@@ -530,12 +533,103 @@ const UserModal: React.FC<{
 };
 
 const UsersPage: React.FC = () => {
-  const { users, toggleUserStatus } = useData();
+  const { users, toggleUserStatus, searchUsers, addUser } = useData();
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
-  const [teamFilter, setTeamFilter] = useState<'all' | TeamType>('all');
+  const [selectedTeam, setSelectedTeam] = useState<TeamType | 'all'>('all');
+  const [selectedRole, setSelectedRole] = useState<Role | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [teamDropdownOpen, setTeamDropdownOpen] = useState(false);
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   
+  // Database search state
+  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounced search query to optimize database calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
+  
+  // Database search effect - replaces all client-side filtering
+  useEffect(() => {
+    const performSearch = async () => {
+      setIsSearching(true);
+      try {
+        // Build search filters based on current state
+        const filters = {
+          team: selectedTeam !== 'all' ? selectedTeam : undefined,
+          role: selectedRole !== 'all' ? selectedRole : undefined,
+          isActive: statusFilter === 'active' ? true : statusFilter === 'inactive' ? false : undefined,
+          searchQuery: debouncedSearchQuery || undefined
+        };
+
+        const searchResults = await searchUsers(filters);
+        setFilteredUsers(searchResults);
+        
+        console.log(`[Users Database Search] Found ${searchResults.length} users`);
+      } catch (error) {
+        console.error('Error performing database search:', error);
+        setFilteredUsers([]);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    performSearch();
+  }, [
+    debouncedSearchQuery,
+    selectedTeam,
+    selectedRole,
+    statusFilter,
+    searchUsers
+  ]);
+
+  // Handle team filter change
+  const handleTeamFilterChange = (team: TeamType | 'all') => {
+    setSelectedTeam(team);
+    setTeamDropdownOpen(false);
+  };
+
+  // Handle role filter change  
+  const handleRoleFilterChange = (role: Role | 'all') => {
+    setSelectedRole(role);
+    setRoleDropdownOpen(false);
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedTeam('all');
+    setSelectedRole('all');
+    setStatusFilter('all');
+  };
+
+  // Calculate team statistics
+  const teamStats = {
+    creative: filteredUsers.filter(user => user.team === 'creative').length,
+    web: filteredUsers.filter(user => user.team === 'web').length,
+    admin: filteredUsers.filter(user => user.role === 'admin').length,
+    active: filteredUsers.filter(user => user.isActive).length,
+    inactive: filteredUsers.filter(user => !user.isActive).length
+  };
+
+  const getRoleBadgeColor = (role: Role) => {
+    switch (role) {
+      case 'admin': return 'bg-red-100 text-red-800';
+      case 'manager': return 'bg-blue-100 text-blue-800';
+      case 'employee': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getTeamBadgeColor = (team: TeamType) => {
+    switch (team) {
+      case 'creative': return 'bg-purple-100 text-purple-800';
+      case 'web': return 'bg-blue-100 text-blue-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   const handleAddUser = () => {
     setSelectedUser(undefined);
     setUserModalOpen(true);
@@ -556,23 +650,6 @@ const UsersPage: React.FC = () => {
       alert('Failed to toggle user status. Please try again.');
     }
   };
-  
-  // Apply filters
-  const filteredUsers = useMemo(() => {
-    return users.filter(user => {
-      // Apply search filter
-      const matchesSearch = 
-        user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQuery.toLowerCase());
-        
-      // Apply team filter - always include admin users regardless of their team
-      const matchesTeam = teamFilter === 'all' || 
-                         user.team === teamFilter || 
-                         user.role === 'admin';
-      
-      return matchesSearch && matchesTeam;
-    });
-  }, [users, searchQuery, teamFilter]);
 
   return (
     <div className="space-y-6">
@@ -581,14 +658,19 @@ const UsersPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-800 mb-4">User Management</h1>
         </div>
         
-        <Button
-          variant="primary"
-          size="sm"
-          icon={Plus}
-          onClick={handleAddUser}
+        <PermissionGuard
+          resource="user"
+          action="create"
         >
-          Add User
-        </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={Plus}
+            onClick={handleAddUser}
+          >
+            Add User
+          </Button>
+        </PermissionGuard>
       </div>
       
       <Card>
@@ -598,8 +680,8 @@ const UsersPage: React.FC = () => {
               <CardTitle className="text-lg flex items-center">
                 <Users className="h-5 w-5 mr-2 text-blue-600" />
                 <span>
-                  {teamFilter === 'all' ? 'All Users' : 
-                   teamFilter === 'creative' ? 'Creative Team Users' : 
+                  {selectedTeam === 'all' ? 'All Users' : 
+                   selectedTeam === 'creative' ? 'Creative Team Users' : 
                    'Web Team Users'}
                 </span>
                 <span className="ml-2 text-sm text-gray-500">
@@ -615,8 +697,8 @@ const UsersPage: React.FC = () => {
                     { value: 'creative', label: 'Creative Team', icon: Palette },
                     { value: 'web', label: 'Web Team', icon: Code }
                   ]}
-                  value={teamFilter}
-                  onChange={(value) => setTeamFilter(value as 'all' | TeamType)}
+                  value={selectedTeam}
+                  onChange={(value) => handleTeamFilterChange(value as TeamType | 'all')}
                 />
               </div>
             </div>

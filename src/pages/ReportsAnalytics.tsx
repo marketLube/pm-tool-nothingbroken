@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, startOfDay, isSameDay, isBefore } from 'date-fns';
+import { getIndiaDate, getIndiaDateTime } from '../utils/timezone';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Avatar from '../components/ui/Avatar';
 import Badge from '../components/ui/Badge';
@@ -28,10 +29,11 @@ import {
 } from 'lucide-react';
 import { TeamType, DailyReport, Task, DailyWorkEntry } from '../types';
 import * as dailyReportService from '../services/dailyReportService';
+import NewTaskModal from '../components/tasks/NewTaskModal';
 
 // Helper to check "future date"
 const isFutureDate = (dateStr: string): boolean => {
-  return parseISO(dateStr) > startOfDay(new Date());
+  return parseISO(dateStr) > startOfDay(getIndiaDateTime());
 };
 
 interface DailyCardProps {
@@ -40,7 +42,6 @@ interface DailyCardProps {
   report: DailyReport | null;
   onTaskToggle: (taskId: string, completed: boolean) => void;
   onAddTask: () => void;
-  onAbsentToggle: (isAbsent: boolean) => void;
   onCheckInOut: (checkIn?: string, checkOut?: string) => void;
   isAdmin: boolean;
   userTasks: Task[];
@@ -58,7 +59,6 @@ const DailyCard: React.FC<DailyCardProps> = ({
   report,
   onTaskToggle,
   onAddTask,
-  onAbsentToggle,
   onCheckInOut,
   isAdmin,
   userTasks,
@@ -69,11 +69,34 @@ const DailyCard: React.FC<DailyCardProps> = ({
   isToday,
   isLoading
 }) => {
-  const { getUserById, getClientById } = useData();
+  const { getUserById, getClientById, searchTasks } = useData();
+  const { currentUser } = useAuth();
   const [warningMessage, setWarningMessage] = useState<string>('');
   const [showWarning, setShowWarning] = useState<boolean>(false);
   const user = getUserById(userId);
-  const isAbsent = report?.workEntry.isAbsent || false;
+  const [loadedTasks, setLoadedTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  
+  // Load tasks for this user when component mounts or userId changes
+  useEffect(() => {
+    const loadUserTasks = async () => {
+      setTasksLoading(true);
+      try {
+        const tasks = await searchTasks({ assigneeId: userId });
+        setLoadedTasks(tasks);
+      } catch (error) {
+        console.error('Error loading user tasks:', error);
+        setLoadedTasks([]);
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+    
+    loadUserTasks();
+  }, [userId, searchTasks]);
+  
+  // Use loaded tasks instead of props
+  const actualUserTasks = loadedTasks;
   
   // Get actual tasks assigned to this user from TaskBoard
   const assignedTaskIds = report?.workEntry.assignedTasks || [];
@@ -81,26 +104,26 @@ const DailyCard: React.FC<DailyCardProps> = ({
   
   // Only show tasks that are explicitly assigned for this specific day
   // Don't show all user tasks - only show what's in the daily report
-  const assignedTasks = userTasks.filter(task => 
+  const assignedTasks = actualUserTasks.filter(task => 
     // only show it as "assigned" if it's not also in the completed list
     assignedTaskIds.includes(task.id) &&
     !completedTaskIds.includes(task.id)
   );
   
-  const completedTasks = userTasks.filter(task => 
+  const completedTasks = actualUserTasks.filter(task => 
     completedTaskIds.includes(task.id)
   );
 
   const handleTaskToggleWithValidation = (taskId: string, completed: boolean) => {
-    const task = userTasks.find(t => t.id === taskId);
+    const task = actualUserTasks.find(t => t.id === taskId);
     const dateObj = parseISO(date);
-    const today = startOfDay(new Date());
+    const today = startOfDay(getIndiaDateTime());
     const formattedDate = format(dateObj, 'EEEE, MMM d');
 
-    // 🔒 Prevent un-completing on any day before today
-    if (!completed && dateObj < today) {
+    // 🔒 COMPLETE LOCKDOWN: Prevent ANY modification to past dates
+    if (dateObj < today) {
       setWarningMessage(
-        `You can't revert "${task?.title || 'this task'}" on ${formattedDate} — it was already completed. Please contact an admin if you need to change it.`
+        `You cannot modify tasks for ${formattedDate} as this date has passed. Only today's tasks can be modified.`
       );
       setShowWarning(true);
       setTimeout(() => {
@@ -124,7 +147,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
       // 2) Block any completed attempt unless you're viewing TODAY
       if (!isToday) {
-        const todayFormatted = format(startOfDay(new Date()), 'EEEE, MMM d');
+        const todayFormatted = format(startOfDay(getIndiaDateTime()), 'EEEE, MMM d');
         setWarningMessage(
           `Tasks can only be completed on ${todayFormatted}. Switch to today's view to finish it.`
         );
@@ -136,6 +159,26 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
     // All clear: proceed
     onTaskToggle(taskId, completed);
+  };
+
+  // Check if date is in the past (before today)
+  const isPastDate = parseISO(date) < startOfDay(getIndiaDateTime());
+  
+  // Handle check-in/check-out with past date validation
+  const handleCheckInOutWithValidation = (checkIn?: string, checkOut?: string) => {
+    if (isPastDate) {
+      setWarningMessage(
+        `You cannot modify check-in/check-out times for ${format(parseISO(date), 'EEEE, MMM d')} as this date has passed.`
+      );
+      setShowWarning(true);
+      setTimeout(() => {
+        setShowWarning(false);
+        setWarningMessage('');
+      }, 8000);
+      return;
+    }
+    
+    onCheckInOut(checkIn, checkOut);
   };
 
   const formatTime = (time?: string) => {
@@ -152,25 +195,29 @@ const DailyCard: React.FC<DailyCardProps> = ({
           isExpanded 
             ? isToday 
               ? 'bg-blue-100 border-blue-300 shadow-lg' 
-              : 'bg-blue-50 border-blue-200 shadow-md'
+              : isPastDate
+                ? 'bg-gray-100 border-gray-300 shadow-md'
+                : 'bg-blue-50 border-blue-200 shadow-md'
             : isToday
               ? 'bg-blue-50 border-blue-200 hover:bg-blue-100 hover:shadow-md'
-              : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'
+              : isPastDate
+                ? 'bg-gray-50 border-gray-200 hover:bg-gray-100 hover:shadow-sm'
+                : 'bg-white border-gray-200 hover:bg-gray-50 hover:shadow-sm'
         } border rounded-lg p-4`}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <CalendarDays className={`h-5 w-5 ${
               isExpanded 
-                ? isToday ? 'text-blue-700' : 'text-blue-600'
-                : isToday ? 'text-blue-600' : 'text-gray-600'
+                ? isToday ? 'text-blue-700' : isPastDate ? 'text-gray-600' : 'text-blue-600'
+                : isToday ? 'text-blue-600' : isPastDate ? 'text-gray-500' : 'text-gray-600'
             }`} />
             <div>
               <div className="flex items-center space-x-2">
                 <h3 className={`text-lg font-semibold ${
                   isExpanded 
-                    ? isToday ? 'text-blue-900' : 'text-blue-900'
-                    : isToday ? 'text-blue-900' : 'text-gray-900'
+                    ? isToday ? 'text-blue-900' : isPastDate ? 'text-gray-700' : 'text-blue-900'
+                    : isToday ? 'text-blue-900' : isPastDate ? 'text-gray-600' : 'text-gray-900'
                 }`}>
                   {format(parseISO(date), 'EEEE, MMM d')}
                 </h3>
@@ -181,32 +228,17 @@ const DailyCard: React.FC<DailyCardProps> = ({
                     Today
                   </Badge>
                 )}
+                {isPastDate && (
+                  <Badge
+                    className="!bg-gray-500 !text-white text-xs px-2 py-1 font-medium shadow-sm rounded-full border-0"
+                  >
+                    Past
+                  </Badge>
+                )}
               </div>
               {!isExpanded && (
                 <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                  {isAbsent ? (
-                    <span className="flex items-center text-red-600">
-                      <AlertCircle className="h-4 w-4 mr-1" />
-                      Absent
-                    </span>
-                  ) : (
-                    <>
-                      <span className="flex items-center">
-                        <Target className="h-4 w-4 mr-1 text-blue-500" />
-                        {assignedTasks.length} assigned
-                      </span>
-                      <span className="flex items-center">
-                        <CheckCircle className="h-4 w-4 mr-1 text-green-500" />
-                        {completedTasks.length} completed
-                      </span>
-                      {report?.workEntry.checkInTime && (
-                        <span className="flex items-center">
-                          <Clock className="h-4 w-4 mr-1 text-gray-500" />
-                          {formatTime(report.workEntry.checkInTime)} - {formatTime(report.workEntry.checkOutTime)}
-                        </span>
-                      )}
-                    </>
-                  )}
+                  {assignedTasks.length} assigned{isPastDate && ' (read-only)'}
                 </div>
               )}
             </div>
@@ -222,7 +254,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
               isExpanded ? 'rotate-180' : ''
             }`}>
               <ChevronDown className={`h-5 w-5 ${
-                isToday ? 'text-blue-500' : 'text-gray-400'
+                isToday ? 'text-blue-500' : isPastDate ? 'text-gray-400' : 'text-gray-400'
               }`} />
             </div>
           </div>
@@ -247,7 +279,7 @@ const DailyCard: React.FC<DailyCardProps> = ({
                   <div className="flex items-start space-x-2">
                     <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
                     <div className="flex-1">
-                      <h4 className="text-sm font-medium text-red-800">Cannot Complete Task</h4>
+                      <h4 className="text-sm font-medium text-red-800">Action Not Allowed</h4>
                       <p className="text-sm text-red-700 mt-1">{warningMessage}</p>
                     </div>
                     <button
@@ -265,9 +297,27 @@ const DailyCard: React.FC<DailyCardProps> = ({
                 </div>
               )}
 
+              {/* Past Date Notice */}
+              {isPastDate && (
+                <div className="bg-gray-50 border border-gray-300 rounded-lg p-3">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="h-4 w-4 text-gray-600 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-700 font-medium">
+                        This date is read-only. Tasks that were not completed have been moved to subsequent days.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* User Header (for admin view) */}
               {isAdmin && (
-                <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100 transition-all duration-200 hover:shadow-sm">
+                <div className={`flex items-center space-x-3 p-3 rounded-lg border transition-all duration-200 hover:shadow-sm ${
+                  isPastDate 
+                    ? 'bg-gray-50 border-gray-200' 
+                    : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100'
+                }`}>
                   <Avatar name={user?.name} size="sm" />
                   <div className="flex-1">
                     <h3 className="text-sm font-semibold text-gray-900">{user?.name}</h3>
@@ -279,71 +329,75 @@ const DailyCard: React.FC<DailyCardProps> = ({
                 </div>
               )}
 
-              {/* Absent/Present Toggle */}
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <span className="text-sm font-medium text-gray-700">Attendance</span>
-                <label className="flex items-center space-x-2 text-xs cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={isAbsent}
-                    onChange={(e) => onAbsentToggle(e.target.checked)}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500 transition-all duration-200"
-                  />
-                  <span className="text-gray-700 group-hover:text-gray-900 transition-colors">
-                    Mark Absent
-                  </span>
-                </label>
-              </div>
-
               {/* Check-in/Check-out Times */}
-              {!isAbsent && (
-                <div className="grid grid-cols-2 gap-3 p-3 bg-green-50 rounded-lg border border-green-100 transition-all duration-300">
-                  <div className="space-y-1">
-                    <label className="flex items-center text-xs font-medium text-gray-700">
-                      <Clock className="h-3 w-3 mr-1 text-green-600" />
-                      Check In
-                    </label>
-                    <input
-                      type="time"
-                      value={report?.workEntry.checkInTime || ''}
-                      onChange={(e) => onCheckInOut(e.target.value, undefined)}
-                      className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="flex items-center text-xs font-medium text-gray-700">
-                      <Clock className="h-3 w-3 mr-1 text-green-600" />
-                      Check Out
-                    </label>
-                    <input
-                      type="time"
-                      value={report?.workEntry.checkOutTime || ''}
-                      onChange={(e) => onCheckInOut(undefined, e.target.value)}
-                      className="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200"
-                    />
-                  </div>
+              <div className={`grid grid-cols-2 gap-3 p-3 rounded-lg border transition-all duration-300 ${
+                isPastDate 
+                  ? 'bg-gray-50 border-gray-200' 
+                  : 'bg-green-50 border-green-100'
+              }`}>
+                <div className="space-y-1">
+                  <label className={`flex items-center text-xs font-medium ${
+                    isPastDate ? 'text-gray-600' : 'text-gray-700'
+                  }`}>
+                    <Clock className={`h-3 w-3 mr-1 ${
+                      isPastDate ? 'text-gray-500' : 'text-green-600'
+                    }`} />
+                    Check In {isPastDate && '(Read-only)'}
+                  </label>
+                  <input
+                    type="time"
+                    value={report?.workEntry.checkInTime || ''}
+                    onChange={(e) => handleCheckInOutWithValidation(e.target.value, undefined)}
+                    disabled={isPastDate}
+                    className={`w-full text-xs border rounded-md px-2 py-1.5 transition-all duration-200 ${
+                      isPastDate 
+                        ? 'border-gray-300 bg-gray-100 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500'
+                    }`}
+                  />
                 </div>
-              )}
+                <div className="space-y-1">
+                  <label className={`flex items-center text-xs font-medium ${
+                    isPastDate ? 'text-gray-600' : 'text-gray-700'
+                  }`}>
+                    <Clock className={`h-3 w-3 mr-1 ${
+                      isPastDate ? 'text-gray-500' : 'text-green-600'
+                    }`} />
+                    Check Out {isPastDate && '(Read-only)'}
+                  </label>
+                  <input
+                    type="time"
+                    value={report?.workEntry.checkOutTime || ''}
+                    onChange={(e) => handleCheckInOutWithValidation(undefined, e.target.value)}
+                    disabled={isPastDate}
+                    className={`w-full text-xs border rounded-md px-2 py-1.5 transition-all duration-200 ${
+                      isPastDate 
+                        ? 'border-gray-300 bg-gray-100 text-gray-600 cursor-not-allowed'
+                        : 'border-gray-300 focus:ring-2 focus:ring-green-500 focus:border-green-500'
+                    }`}
+                  />
+                </div>
+              </div>
 
               {/* Task Cards */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* Tasks Assigned */}
-                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent) ? 'opacity-60 grayscale' : ''}`}>
+                <Card className={`transition-all duration-300 hover:shadow-md ${isPastDate ? 'opacity-75' : ''}`}>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center justify-between">
-                      <span className="flex items-center text-gray-800">
-                        <Target className="h-4 w-4 mr-2 text-blue-600" />
-                        Tasks Assigned
+                      <span className={`flex items-center ${isPastDate ? 'text-gray-600' : 'text-gray-800'}`}>
+                        <Target className={`h-4 w-4 mr-2 ${isPastDate ? 'text-gray-500' : 'text-blue-600'}`} />
+                        Tasks Assigned {isPastDate && '(Read-only)'}
                       </span>
-                      <Badge variant="info" className="text-xs px-2 py-1">{assignedTasks.length}</Badge>
+                      <Badge variant={isPastDate ? "default" : "info"} className="text-xs px-2 py-1">{assignedTasks.length}</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
                       {assignedTasks.map((task, index) => {
                         const client = task.clientId ? getClientById(task.clientId) : null;
-                        // Simple conflict detection: show warning if future date OR not today
-                        const hasConflict = isFutureDate(date) || !isToday;
+                        // For past dates, show different logic
+                        const hasConflict = isPastDate ? false : (isFutureDate(date) || !isToday);
                         const conflictType = isFutureDate(date) ? 'future' : 'not-today';
                         
                         // Overdue detection: task due date is before card date (and not a future date)
@@ -355,11 +409,13 @@ const DailyCard: React.FC<DailyCardProps> = ({
                           <div
                             key={task.id}
                             className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
-                              hasConflict 
-                                ? 'border-amber-200 bg-amber-50 hover:bg-amber-100'
-                                : isOverdue
-                                  ? 'border-red-300 bg-red-50 hover:bg-red-100'
-                                  : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
+                              isPastDate
+                                ? 'border-gray-300 bg-gray-50'
+                                : hasConflict 
+                                  ? 'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                                  : isOverdue
+                                    ? 'border-red-300 bg-red-50 hover:bg-red-100'
+                                    : 'border-gray-200 hover:bg-blue-50 hover:border-blue-200'
                             }`}
                             style={{ animationDelay: `${index * 50}ms` }}
                           >
@@ -368,24 +424,30 @@ const DailyCard: React.FC<DailyCardProps> = ({
                                 e.stopPropagation();
                                 handleTaskToggleWithValidation(task.id, true);
                               }}
-                              className={`mt-0.5 transition-all duration-200 hover:scale-110 ${
-                                hasConflict 
-                                  ? 'text-amber-500 hover:text-amber-600'
-                                  : isOverdue
-                                    ? 'text-red-500 hover:text-red-600'
-                                    : 'text-gray-400 hover:text-green-600'
+                              disabled={isPastDate}
+                              className={`mt-0.5 transition-all duration-200 ${
+                                isPastDate 
+                                  ? 'text-gray-400 cursor-not-allowed'
+                                  : hasConflict 
+                                    ? 'text-amber-500 hover:text-amber-600 hover:scale-110'
+                                    : isOverdue
+                                      ? 'text-red-500 hover:text-red-600 hover:scale-110'
+                                      : 'text-gray-400 hover:text-green-600 hover:scale-110'
                               }`}
-                              disabled={isAbsent}
-                              title={hasConflict 
-                                ? conflictType === 'future' 
-                                  ? `Cannot complete - future date` 
-                                  : `Can only complete on today`
-                                : isOverdue
-                                  ? `Task is overdue - due ${format(taskDue, 'MMM d')}`
-                                  : "Mark as completed"
+                              title={isPastDate
+                                ? "Past date - cannot modify"
+                                : hasConflict 
+                                  ? conflictType === 'future' 
+                                    ? `Cannot complete - future date` 
+                                    : `Can only complete on today`
+                                  : isOverdue
+                                    ? `Task is overdue - due ${format(taskDue, 'MMM d')}`
+                                    : "Mark as completed"
                               }
                             >
-                              {hasConflict ? (
+                              {isPastDate ? (
+                                <Circle className="h-4 w-4 opacity-50" />
+                              ) : hasConflict ? (
                                 <AlertCircle className="h-4 w-4" />
                               ) : (
                                 <Circle className="h-4 w-4" />
@@ -394,29 +456,36 @@ const DailyCard: React.FC<DailyCardProps> = ({
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center space-x-2">
                                 <h4 className={`text-xs font-medium truncate transition-colors ${
-                                  hasConflict 
-                                    ? 'text-amber-900 group-hover:text-amber-800'
-                                    : isOverdue
-                                      ? 'text-red-900 group-hover:text-red-800'
-                                      : 'text-gray-900 group-hover:text-blue-900'
+                                  isPastDate
+                                    ? 'text-gray-600'
+                                    : hasConflict 
+                                      ? 'text-amber-900 group-hover:text-amber-800'
+                                      : isOverdue
+                                        ? 'text-red-900 group-hover:text-red-800'
+                                        : 'text-gray-900 group-hover:text-blue-900'
                                 }`}>
                                   {task.title}
                                 </h4>
-                                {isOverdue && (
+                                {!isPastDate && isOverdue && (
                                   <Badge variant="danger" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
-                                    Overdue
+                                    Overdue (Due {format(taskDue, 'MMM d')})
                                   </Badge>
                                 )}
-                                {hasConflict && (
+                                {!isPastDate && hasConflict && (
                                   <Badge variant="warning" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
                                     {conflictType === 'future' ? 'Future Date' : 'Use Today'}
                                   </Badge>
                                 )}
+                                {isPastDate && (
+                                  <Badge variant="default" size="sm" className="text-xs px-1.5 py-0.5 flex-shrink-0">
+                                    Rolled Over
+                                  </Badge>
+                                )}
                               </div>
-                              <p className="text-xs text-gray-600 truncate">
+                              <p className={`text-xs truncate ${isPastDate ? 'text-gray-500' : 'text-gray-600'}`}>
                                 {client?.name || 'Unknown Client'}
                               </p>
-                              {hasConflict && (
+                              {!isPastDate && hasConflict && (
                                 <p className="text-xs text-amber-600 mt-1">
                                   {conflictType === 'future' 
                                     ? 'Wait until this date becomes current'
@@ -426,15 +495,19 @@ const DailyCard: React.FC<DailyCardProps> = ({
                               )}
                               <div className="flex items-center justify-between mt-1">
                                 <p className={`text-xs ${
-                                  isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'
+                                  isPastDate 
+                                    ? 'text-gray-500'
+                                    : isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'
                                 }`}>
                                   Due: {format(parseISO(task.dueDate), 'MMM d')}
                                 </p>
                                 <div className="flex space-x-1">
                                   <Badge 
                                     variant={
-                                      task.priority === 'high' ? 'danger' : 
-                                      task.priority === 'medium' ? 'warning' : 'info'
+                                      isPastDate 
+                                        ? 'default'
+                                        : task.priority === 'high' ? 'danger' : 
+                                          task.priority === 'medium' ? 'warning' : 'info'
                                     }
                                     size="sm"
                                     className="text-xs px-1.5 py-0.5"
@@ -459,80 +532,82 @@ const DailyCard: React.FC<DailyCardProps> = ({
                 </Card>
 
                 {/* Tasks Completed */}
-                <Card className={`transition-all duration-300 hover:shadow-md ${(isAbsent) ? 'opacity-60 grayscale' : ''}`}>
+                <Card className={`transition-all duration-300 hover:shadow-md ${isPastDate ? 'opacity-75' : ''}`}>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center justify-between">
-                      <span className="flex items-center text-gray-800">
-                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                        Tasks Completed
+                      <span className={`flex items-center ${isPastDate ? 'text-gray-600' : 'text-gray-800'}`}>
+                        <CheckCircle className={`h-4 w-4 mr-2 ${isPastDate ? 'text-gray-500' : 'text-green-600'}`} />
+                        Tasks Completed {isPastDate && '(Read-only)'}
                       </span>
-                      <Badge variant="success" className="text-xs px-2 py-1">{completedTasks.length}</Badge>
+                      <Badge variant={isPastDate ? "default" : "success"} className="text-xs px-2 py-1">{completedTasks.length}</Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
                     <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                      {(isAbsent) && completedTasks.length > 0 ? (
-                        <div className="text-center py-6">
-                          <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-500" />
-                          <p className="text-gray-600 font-medium text-sm">Absent</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {completedTasks.length} task{completedTasks.length !== 1 ? 's' : ''} completed while absent
-                          </p>
-                        </div>
-                      ) : (
-                        <>
-                          {completedTasks.map((task, index) => {
-                            const client = task.clientId ? getClientById(task.clientId) : null;
-                            return (
-                              <div
-                                key={task.id}
-                                className="flex items-start space-x-2 p-2 border border-green-200 rounded-md bg-green-50 hover:bg-green-100 transition-all duration-200 group animate-slideIn"
-                                style={{ animationDelay: `${index * 50}ms` }}
-                              >
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleTaskToggleWithValidation(task.id, false);
-                                  }}
-                                  className="mt-0.5 text-green-600 hover:text-gray-400 transition-all duration-200 hover:scale-110"
-                                  disabled={isAbsent}
-                                  title="Move back to assigned"
-                                >
-                                  <CheckCircle className="h-4 w-4" />
-                                </button>
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="text-xs font-medium text-gray-900 truncate group-hover:text-green-900 transition-colors">
-                                    {task.title}
-                                  </h4>
-                                  <p className="text-xs text-gray-600 truncate">
-                                    {client?.name || 'Unknown Client'}
-                                  </p>
-                                  <div className="flex items-center justify-between mt-1">
-                                    <p className="text-xs text-gray-500">
-                                      Due: {format(parseISO(task.dueDate), 'MMM d')}
-                                    </p>
-                                    <div className="flex space-x-1">
-                                      <Badge 
-                                        variant={
-                                          task.priority === 'high' ? 'danger' : 
+                      {completedTasks.map((task, index) => {
+                        const client = task.clientId ? getClientById(task.clientId) : null;
+                        return (
+                          <div
+                            key={task.id}
+                            className={`flex items-start space-x-2 p-2 border rounded-md transition-all duration-200 group animate-slideIn ${
+                              isPastDate 
+                                ? 'border-gray-300 bg-gray-50'
+                                : 'border-green-200 bg-green-50 hover:bg-green-100'
+                            }`}
+                            style={{ animationDelay: `${index * 50}ms` }}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTaskToggleWithValidation(task.id, false);
+                              }}
+                              disabled={isPastDate}
+                              className={`mt-0.5 transition-all duration-200 ${
+                                isPastDate 
+                                  ? 'text-gray-400 cursor-not-allowed'
+                                  : 'text-green-600 hover:text-gray-400 hover:scale-110'
+                              }`}
+                              title={isPastDate ? "Past date - cannot modify" : "Move back to assigned"}
+                            >
+                              <CheckCircle className={`h-4 w-4 ${isPastDate ? 'opacity-50' : ''}`} />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <h4 className={`text-xs font-medium truncate transition-colors ${
+                                isPastDate 
+                                  ? 'text-gray-600'
+                                  : 'text-gray-900 group-hover:text-green-900'
+                              }`}>
+                                {task.title}
+                              </h4>
+                              <p className={`text-xs truncate ${isPastDate ? 'text-gray-500' : 'text-gray-600'}`}>
+                                {client?.name || 'Unknown Client'}
+                              </p>
+                              <div className="flex items-center justify-between mt-1">
+                                <p className={`text-xs ${isPastDate ? 'text-gray-500' : 'text-gray-500'}`}>
+                                  Due: {format(parseISO(task.dueDate), 'MMM d')}
+                                </p>
+                                <div className="flex space-x-1">
+                                  <Badge 
+                                    variant={
+                                      isPastDate 
+                                        ? 'default'
+                                        : task.priority === 'high' ? 'danger' : 
                                           task.priority === 'medium' ? 'warning' : 'info'
-                                        }
-                                        size="sm"
-                                        className="text-xs px-1.5 py-0.5"
-                                      >
-                                        {task.priority}
-                                      </Badge>
-                                      <Badge variant="success" size="sm" className="text-xs px-1.5 py-0.5">
-                                        Completed
-                                      </Badge>
-                                    </div>
-                                  </div>
+                                    }
+                                    size="sm"
+                                    className="text-xs px-1.5 py-0.5"
+                                  >
+                                    {task.priority}
+                                  </Badge>
+                                  <Badge variant={isPastDate ? "default" : "success"} size="sm" className="text-xs px-1.5 py-0.5">
+                                    Completed
+                                  </Badge>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </>
-                      )}
+                            </div>
+                          </div>
+                        );
+                      })}
                       
                       {completedTasks.length === 0 && (
                         <div className="text-center py-4 text-gray-500">
@@ -554,14 +629,14 @@ const DailyCard: React.FC<DailyCardProps> = ({
 
 const ReportsAnalytics: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
-  const { users, tasks, addTask, getTasksByUser, getTasksByTeam } = useData();
+  const { users, tasks, addTask, searchTasks } = useData();
   
   // State management
   const [selectedTeam, setSelectedTeam] = useState<TeamType>('creative');
   const [selectedUser, setSelectedUser] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [weekStart, setWeekStart] = useState<string>(
-    format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    format(startOfWeek(getIndiaDateTime(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
   );
   const [dailyReports, setDailyReports] = useState<{ [key: string]: DailyReport | null }>({});
   const [dayLoadingStates, setDayLoadingStates] = useState<{ [dateStr: string]: boolean }>({});
@@ -601,7 +676,7 @@ const ReportsAnalytics: React.FC = () => {
   // ONE-TIME INITIALIZATION - only runs once when component mounts
   useEffect(() => {
     if (!isInitialized && filteredUsers.length > 0) {
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = getIndiaDate();
       
       // Set initial user
       if (isAdmin && filteredUsers.length > 0) {
@@ -614,7 +689,7 @@ const ReportsAnalytics: React.FC = () => {
       setSelectedDate(today);
       
       // Set initial week to current week
-      const currentWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+      const currentWeekStart = format(startOfWeek(getIndiaDateTime(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
       setWeekStart(currentWeekStart);
       
       // Mark as initialized to prevent this from running again
@@ -637,15 +712,15 @@ const ReportsAnalytics: React.FC = () => {
 
       console.log('Loading data for:', { selectedUser, selectedDate });
       
-      const isToday = selectedDate === format(new Date(), 'yyyy-MM-dd');
+      const isToday = selectedDate === getIndiaDate();
       if (isToday && Object.keys(dailyReports).length === 0) {
         setIsInitialLoading(true);
       }
 
       try {
-        await loadDayWithRollover(selectedDate);
+        await loadSpecificDay(selectedDate);
       } catch (error) {
-        console.error('Error loading day with rollover:', error);
+        console.error('Error loading day:', error);
       } finally {
         if (isToday) {
           setIsInitialLoading(false);
@@ -683,12 +758,7 @@ const ReportsAnalytics: React.FC = () => {
     ? (selectedUser === 'all' ? filteredUsers : filteredUsers.filter(u => u.id === selectedUser))
     : filteredUsers;
 
-  // 🚀 Simplified function: just load the day, backend handles all rollover automatically
-  const loadDayWithRollover = async (dateStr: string) => {
-    await loadSpecificDay(dateStr);
-  };
-
-  // Load data for a specific day - backend now handles all rollover logic automatically
+  // Load data for a specific day - NO automatic rollover, just load existing data
   const loadSpecificDay = async (dateStr: string) => {
     // Set loading state for this specific day
     setDayLoadingStates(prev => ({ ...prev, [dateStr]: true }));
@@ -702,20 +772,76 @@ const ReportsAnalytics: React.FC = () => {
       
       for (const user of currentUsersToDisplay) {
         const key = `${user.id}-${dateStr}`;
-        
         try {
-          // Use the new backend function that handles comprehensive rollover automatically
-          const report = await dailyReportService.getDailyReportWithComprehensiveRollover(user.id, dateStr);
+          console.log(`📊 Loading data for ${user.name} on ${dateStr} (no auto-rollover)...`);
+          
+          // 🚀 FIXED: Just get regular daily report, no automatic rollover
+          // Rollover should only happen at 12 AM IST via scheduled job
+          const report = await dailyReportService.getDailyReport(user.id, dateStr);
+          
+          if (report) {
+            console.log(`📊 Report loaded for ${user.name} on ${dateStr}:`, {
+              assignedTasks: report.workEntry.assignedTasks?.length || 0,
+              completedTasks: report.workEntry.completedTasks?.length || 0,
+              assignedTaskIds: report.workEntry.assignedTasks,
+            });
+            
+            // Get tasks assigned to this user from TaskBoard
+            const tasksForUser = await searchTasks({ assigneeId: user.id });
+            
+            // 🚀 FIXED: Include tasks due on this date OR that should still be visible
+            // This ensures past-deadline tasks are still shown in daily reports
+            const tasksDueToday = tasksForUser.filter(task => {
+              // Include tasks due on this specific date
+              if (task.dueDate === dateStr) return true;
+              
+              // 🚀 KEY FIX: For tasks past their deadline but still unfinished,
+              // include them if they're due BEFORE today but not completed
+              const taskDueDate = parseISO(task.dueDate);
+              const currentDate = parseISO(dateStr);
+              
+              // Include past-deadline tasks that aren't completed yet
+              if (taskDueDate < currentDate) {
+                // Check if this task is in the completed list for ANY day
+                // If not found in completed lists, it should roll over
+                return !report.workEntry.completedTasks.includes(task.id);
+              }
+              
+              return false;
+            });
+            
+            const dueIds = tasksDueToday.map(t => t.id);
+            
+            // Merge assigned task IDs (from database + due today + past deadline)
+            report.workEntry.assignedTasks = Array.from(
+              new Set([...(report.workEntry.assignedTasks || []), ...dueIds])
+            );
+            
+            // Merge assigned task objects uniquely via a Map
+            const assignedMap = new Map<string, Task>();
+            (report.tasks.assigned || []).forEach(t => assignedMap.set(t.id, t));
+            tasksDueToday.forEach(t => assignedMap.set(t.id, t));
+            report.tasks.assigned = Array.from(assignedMap.values());
+            
+            // Update completed tasks mapping 
+            const completedTaskIds = report.workEntry.completedTasks || [];
+            const completedTaskObjects = tasksForUser.filter(t => completedTaskIds.includes(t.id));
+            report.tasks.completed = completedTaskObjects;
+            
+            console.log(`📋 Final report for ${user.name} on ${dateStr}:`, {
+              totalAssignedTasks: report.workEntry.assignedTasks?.length || 0,
+              tasksFromDatabase: (report.workEntry.assignedTasks || []).filter(id => !dueIds.includes(id)).length,
+              tasksFromDueToday: dueIds.filter(id => tasksForUser.find(t => t.id === id && t.dueDate === dateStr)).length,
+              tasksFromPastDeadline: dueIds.filter(id => {
+                const task = tasksForUser.find(t => t.id === id);
+                return task && parseISO(task.dueDate) < parseISO(dateStr);
+              }).length,
+            });
+          } else {
+            console.log(`⚠️ No report generated for ${user.name} on ${dateStr}`);
+          }
           dayReports[key] = report;
           
-          // Handle Sunday default absent logic
-          const dayOfWeek = new Date(dateStr).getDay();
-          if (dayOfWeek === 0 && report?.workEntry.isAbsent === false && 
-              (!report?.tasks.assigned || report.tasks.assigned.length === 0) && 
-              (!report?.tasks.completed || report.tasks.completed.length === 0)) {
-            await dailyReportService.markAbsent(user.id, dateStr, true);
-            dayReports[key] = await dailyReportService.getDailyReportWithComprehensiveRollover(user.id, dateStr);
-          }
         } catch (error) {
           console.error(`Error loading report for ${user.name} on ${dateStr}:`, error);
           dayReports[key] = null;
@@ -759,15 +885,6 @@ const ReportsAnalytics: React.FC = () => {
     }
   };
 
-  const handleAbsentToggle = async (userId: string, date: string, isAbsent: boolean) => {
-    try {
-      await dailyReportService.markAbsent(userId, date, isAbsent);
-      await loadSpecificDay(date);
-    } catch (error) {
-      console.error('Error marking absent:', error);
-    }
-  };
-
   const handleCheckInOut = async (userId: string, date: string, checkIn?: string, checkOut?: string) => {
     try {
       await dailyReportService.updateCheckInOut(userId, date, checkIn, checkOut);
@@ -795,8 +912,8 @@ const ReportsAnalytics: React.FC = () => {
   };
 
   const setThisWeek = () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const newWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const today = getIndiaDate();
+    const newWeekStart = format(startOfWeek(getIndiaDateTime(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
     
     // Clear any stale states when returning to current week
     setDayLoadingStates({});
@@ -808,8 +925,8 @@ const ReportsAnalytics: React.FC = () => {
   };
 
   const goToToday = () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const newWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const today = getIndiaDate();
+    const newWeekStart = format(startOfWeek(getIndiaDateTime(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
     
     setWeekStart(newWeekStart);
     // Clear any expanded day first, then set to today
@@ -858,8 +975,6 @@ const ReportsAnalytics: React.FC = () => {
 
   // Handle user selection with cleanup
   const handleUserChange = (newUserId: string) => {
-    // Clear expanded day when switching users
-    setSelectedDate('');
     setSelectedUser(newUserId);
   };
 
@@ -876,78 +991,91 @@ const ReportsAnalytics: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4 p-4 bg-gray-50 min-h-screen">
+    <div className="space-y-6 p-4 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center">
-            <BarChart3 className="h-6 w-6 mr-3 text-blue-600" />
-            Reports & Analytics
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 bg-gradient-to-r from-white via-blue-50 to-indigo-50 p-8 rounded-2xl shadow-xl border border-gray-200 transition-all duration-300 hover:shadow-2xl backdrop-blur-sm">
+        <div className="space-y-3">
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center transition-all duration-300 group">
+            <BarChart3 className="h-8 w-8 mr-4 text-blue-600 transition-all duration-300 group-hover:scale-110 group-hover:rotate-3" />
+            <span className="bg-gradient-to-r from-gray-900 to-blue-800 bg-clip-text text-transparent">
+              Reports & Analytics
+            </span>
           </h1>
-          <p className="text-sm text-gray-600 mt-1">Track daily work progress and team performance</p>
+          <p className="text-base text-gray-600 font-medium">Track daily work progress and team performance</p>
         </div>
         
-        <div className="flex items-center space-x-3 text-sm">
-          <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-            <Calendar className="h-4 w-4 text-blue-600" />
-            <span className="font-medium text-blue-900">
-              Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
-            </span>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 px-6 py-4 bg-white rounded-2xl border-2 border-blue-200 shadow-md transition-all duration-300 hover:shadow-lg hover:border-blue-300 backdrop-blur-sm">
+            <div className="flex items-center space-x-2">
+              <Calendar className="h-5 w-5 text-blue-600" />
+              <span className="font-semibold text-blue-900 text-base">
+                Week of {format(parseISO(weekStart), 'MMM d, yyyy')}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Fixed Filter Panel */}
-      <Card className="sticky top-4 z-10 bg-white shadow-md border border-gray-200">
-        <CardContent className="py-3">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+      <Card className="sticky top-4 z-10 bg-white shadow-lg border border-gray-300 rounded-2xl overflow-hidden backdrop-blur-sm">
+        <CardContent className="p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             {/* Team Selector */}
             {isAdmin && (
-              <div className="md:col-span-3">
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+              <div className="lg:col-span-3">
+                <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                  <Users className="h-4 w-4 mr-2 text-blue-600" />
                   Team
                 </label>
-                <select
-                  value={selectedTeam}
-                  onChange={(e) => handleTeamChange(e.target.value as TeamType)}
-                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
-                >
-                  <option value="creative">Creative Team</option>
-                  <option value="web">Web Team</option>
-                </select>
+                <div className="relative group">
+                  <select
+                    value={selectedTeam}
+                    onChange={(e) => handleTeamChange(e.target.value as TeamType)}
+                    className="w-full text-sm border-2 border-gray-200 rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md hover:border-gray-300 appearance-none cursor-pointer font-medium"
+                  >
+                    <option value="creative">Creative Team</option>
+                    <option value="web">Web Team</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none transition-transform duration-200 group-hover:text-gray-600" />
+                </div>
               </div>
             )}
 
             {/* User Selector (Admin only) */}
             {isAdmin && (
-              <div className="md:col-span-3">
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+              <div className="lg:col-span-3">
+                <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                  <User className="h-4 w-4 mr-2 text-blue-600" />
                   User
                 </label>
-                <select
-                  value={selectedUser}
-                  onChange={(e) => handleUserChange(e.target.value)}
-                  className="w-full text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
-                >
-                  {filteredUsers.map(user => (
-                    <option key={user.id} value={user.id}>
-                      {user.name} ({user.role})
-                    </option>
-                  ))}
-                </select>
+                <div className="relative group">
+                  <select
+                    value={selectedUser}
+                    onChange={(e) => handleUserChange(e.target.value)}
+                    className="w-full text-sm border-2 border-gray-200 rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md hover:border-gray-300 appearance-none cursor-pointer font-medium"
+                  >
+                    {filteredUsers.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.name} ({user.role})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none transition-transform duration-200 group-hover:text-gray-600" />
+                </div>
               </div>
             )}
 
             {/* Week Navigation */}
-            <div className={`${isAdmin ? 'md:col-span-3' : 'md:col-span-8'}`}>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
+            <div className={`${isAdmin ? 'lg:col-span-4' : 'lg:col-span-8'}`}>
+              <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                <Calendar className="h-4 w-4 mr-2 text-blue-600" />
                 Week Selection
               </label>
-              <div className="flex space-x-2">
+              <div className="flex items-center space-x-3 bg-gray-50 rounded-xl p-2 border border-gray-200">
                 <Button
                   variant="secondary"
                   onClick={() => navigateWeek('prev')}
-                  className="px-3 py-2 hover:bg-gray-100 transition-all duration-200"
+                  className="px-4 py-2.5 bg-white hover:bg-gray-100 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg border border-gray-300 flex items-center justify-center min-w-[44px]"
                   size="sm"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -956,12 +1084,12 @@ const ReportsAnalytics: React.FC = () => {
                   type="date"
                   value={weekStart}
                   onChange={(e) => handleWeekDateChange(e.target.value)}
-                  className="flex-1 text-xs border border-gray-300 rounded-md px-2 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                  className="flex-1 text-sm border-2 border-gray-200 rounded-lg px-4 py-2.5 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-300 shadow-sm hover:shadow-md font-medium"
                 />
                 <Button
                   variant="secondary"
                   onClick={() => navigateWeek('next')}
-                  className="px-3 py-2 hover:bg-gray-100 transition-all duration-200"
+                  className="px-4 py-2.5 bg-white hover:bg-gray-100 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg border border-gray-300 flex items-center justify-center min-w-[44px]"
                   size="sm"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -969,26 +1097,28 @@ const ReportsAnalytics: React.FC = () => {
               </div>
             </div>
 
-            {/* Admin Actions - REMOVED SYNC BUTTON */}
-            {/* Tasks should be manually assigned to specific days, not auto-synced */}
-
-            {/* This Week and Today Buttons */}
-            <div className={`${isAdmin ? 'md:col-span-3' : 'md:col-span-4'} flex space-x-2`}>
-              <Button
-                onClick={setThisWeek}
-                className="flex-1 text-xs py-2 bg-blue-600 hover:bg-blue-700 transition-all duration-200"
-                size="sm"
-              >
-                This Week
-              </Button>
-              <Button
-                onClick={goToToday}
-                variant="secondary"
-                className="flex-1 text-xs py-2 hover:bg-gray-100 transition-all duration-200"
-                size="sm"
-              >
-                Today
-              </Button>
+            {/* Quick Navigation Buttons */}
+            <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-4'}`}>
+              <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center">
+                <Target className="h-4 w-4 mr-2 text-blue-600" />
+                Quick Actions
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+                <button
+                  onClick={setThisWeek}
+                  className="w-full h-12 px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white transition-all duration-300 shadow-sm hover:shadow-lg rounded-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 font-medium text-sm button-focus overflow-hidden"
+                >
+                  <Calendar className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">This Week</span>
+                </button>
+                <button
+                  onClick={goToToday}
+                  className="w-full h-12 px-4 bg-white hover:bg-gray-50 border-2 border-gray-300 hover:border-gray-400 transition-all duration-300 shadow-sm hover:shadow-md rounded-xl transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 font-medium text-gray-700 hover:text-gray-900 text-sm button-focus overflow-hidden"
+                >
+                  <Target className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">Today</span>
+                </button>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -1004,14 +1134,13 @@ const ReportsAnalytics: React.FC = () => {
         <div className="space-y-3">
           {weekDays.map((day) => {
             const dateStr = format(day, 'yyyy-MM-dd');
-            const isToday = isSameDay(day, new Date());
+            const isToday = isSameDay(day, getIndiaDateTime());
             
             return (
               <div key={dateStr} ref={isToday ? todayRef : undefined}>
                 {usersToDisplay.map((user) => {
                   const reportKey = `${user.id}-${dateStr}`;
                   const report = dailyReports[reportKey];
-                  const userTasks = getTasksByUser(user.id);
 
                   return (
                     <DailyCard
@@ -1021,10 +1150,9 @@ const ReportsAnalytics: React.FC = () => {
                       report={report}
                       onTaskToggle={(taskId, completed) => handleTaskToggle(user.id, dateStr, taskId, completed)}
                       onAddTask={() => handleAddTask(user.id, dateStr)}
-                      onAbsentToggle={(isAbsent) => handleAbsentToggle(user.id, dateStr, isAbsent)}
                       onCheckInOut={(checkIn, checkOut) => handleCheckInOut(user.id, dateStr, checkIn, checkOut)}
                       isAdmin={isAdmin}
-                      userTasks={userTasks}
+                      userTasks={[]}
                       allDailyReports={dailyReports}
                       weekDays={weekDays}
                       isExpanded={dateStr === selectedDate}
@@ -1040,7 +1168,19 @@ const ReportsAnalytics: React.FC = () => {
         </div>
       )}
 
-      {/* Add Task Modal would go here if needed */}
+      {/* Add Task Modal */}
+      {showAddTaskModal && (
+        <NewTaskModal
+          isOpen={showAddTaskModal}
+          onClose={() => {
+            setShowAddTaskModal(false);
+            // Refresh the day's data after modal closes to show new task
+            if (addTaskForDate) {
+              loadSpecificDay(addTaskForDate);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

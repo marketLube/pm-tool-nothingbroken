@@ -3,6 +3,8 @@
  * Supports Chrome on Mac with Touch ID and other compatible devices
  */
 
+import { getIndiaDateTime } from './timezone';
+
 // Check if WebAuthn is supported
 export const isWebAuthnSupported = (): boolean => {
   return !!(navigator.credentials && navigator.credentials.create);
@@ -110,7 +112,7 @@ export const registerBiometric = async (userEmail: string): Promise<BiometricCre
       id: arrayBufferToBase64(credential.rawId),
       publicKey: arrayBufferToBase64(response.getPublicKey()!),
       userEmail,
-      createdAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
     };
 
     // Store credential in localStorage for this demo
@@ -245,4 +247,27 @@ export const getBiometricErrorMessage = (error: any): string => {
   }
   
   return 'An error occurred during biometric authentication';
+};
+
+export const storeCredential = async (userId: string, credential: any) => {
+  try {
+    const credentialData = {
+      id: credential.id,
+      user_id: userId,
+      public_key: credential.publicKey,
+      counter: credential.counter || 0,
+      createdAt: getIndiaDateTime().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('webauthn_credentials')
+      .insert([credentialData]);
+
+    if (error) throw error;
+    
+    return true;
+  } catch (error) {
+    console.error('Error storing credential:', error);
+    return false;
+  }
 }; 

@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ExternalLink 
 } from 'lucide-react';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 
 interface ExportedTask {
   id: string;
@@ -35,7 +36,7 @@ const CalendarExport: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(getIndiaDateTime());
 
   useEffect(() => {
     if (token) {
@@ -57,7 +58,7 @@ const CalendarExport: React.FC = () => {
       if (error) {
         console.error('Error loading export:', error);
         setError('Export not found or has expired');
-      } else if (new Date(data.expires_at) < new Date()) {
+      } else if (getIndiaDateTime() > new Date(data.expires_at)) {
         setError('This export link has expired');
       } else {
         setExportData(data);
@@ -251,6 +252,7 @@ const CalendarExport: React.FC = () => {
             
             <div className="divide-y divide-gray-200">
               {exportData.tasks
+                .filter(task => task.date >= format(startOfMonth(currentDate), 'yyyy-MM-dd') && task.date <= format(endOfMonth(currentDate), 'yyyy-MM-dd'))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                 .map(task => (
                   <div key={task.id} className="p-4 hover:bg-gray-50 transition-colors">

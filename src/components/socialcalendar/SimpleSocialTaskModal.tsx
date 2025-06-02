@@ -8,6 +8,7 @@ import {
   Type,
   CheckCircle
 } from 'lucide-react';
+import { getIndiaDate } from '../../utils/timezone';
 
 interface SocialCalendarTask {
   id: string;
@@ -38,7 +39,7 @@ const SimpleSocialTaskModal: React.FC<SimpleSocialTaskModalProps> = ({
 }) => {
   const [formData, setFormData] = useState({
     title: '',
-    date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')
+    date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : getIndiaDate()
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -53,7 +54,7 @@ const SimpleSocialTaskModal: React.FC<SimpleSocialTaskModalProps> = ({
     } else {
       setFormData({
         title: '',
-        date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')
+        date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : getIndiaDate()
       });
     }
     setErrors({});
@@ -165,7 +166,9 @@ const SimpleSocialTaskModal: React.FC<SimpleSocialTaskModalProps> = ({
                 </div>
                 <div className="flex items-center">
                   <span className="font-medium text-gray-600 w-16">Date:</span>
-                  <span className="text-gray-900">{format(new Date(formData.date), 'MMMM d, yyyy')}</span>
+                  <div className="text-center">
+                    <span className="text-gray-900">{format(new Date(formData.date), 'MMMM d, yyyy')}</span>
+                  </div>
                 </div>
                 <div className="flex items-center">
                   <span className="font-medium text-gray-600 w-16">Client:</span>

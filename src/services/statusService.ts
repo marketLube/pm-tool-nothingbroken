@@ -1,5 +1,6 @@
 import { supabase } from '../utils/supabase';
 import { Status, TeamType } from '../types';
+import { getIndiaDateTime } from '../utils/timezone';
 
 // Map from App Status to Supabase DB schema
 const mapToDbStatus = (status: Status) => {
@@ -59,7 +60,7 @@ export const addStatus = async (status: Status): Promise<Status> => {
     .from('statuses')
     .insert([{
       ...mapToDbStatus(status),
-      created_at: new Date().toISOString()
+      created_at: getIndiaDateTime().toISOString()
     }])
     .select()
     .single();
@@ -116,4 +117,30 @@ export const deleteStatus = async (id: string): Promise<void> => {
     console.error(`Error deleting status ${id}:`, error);
     throw error;
   }
+};
+
+export const createStatus = async (status: Omit<Status, 'id' | 'createdAt'>): Promise<Status> => {
+  const id = crypto.randomUUID();
+  
+  const newStatus: Status = {
+    ...status,
+    id,
+    createdAt: getIndiaDateTime().toISOString()
+  };
+
+  const { data, error } = await supabase
+    .from('statuses')
+    .insert([{
+      ...mapToDbStatus(newStatus),
+      created_at: newStatus.createdAt
+    }])
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Error adding status:', error);
+    throw error;
+  }
+  
+  return mapFromDbStatus(data);
 }; 

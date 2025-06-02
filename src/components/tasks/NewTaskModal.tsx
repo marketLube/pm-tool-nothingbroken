@@ -10,7 +10,7 @@ import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
 import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 import { format, startOfDay, parseISO } from 'date-fns';
-import { getIndiaDate, getIndiaTodayForValidation } from '../../utils/timezone';
+import { getIndiaDate, getIndiaTodayForValidation, getIndiaDateTime } from '../../utils/timezone';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -33,7 +33,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     description: '',
     status: 'not_started',
     priority: 'medium',
-    assigneeId: '',
+    assigneeId: currentUser?.id || '',
     clientId: '',
     team: currentUser?.team || 'creative',
     dueDate: getIndiaDate() // Use India timezone for default date
@@ -47,7 +47,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         description: '',
         status: 'not_started',
         priority: 'medium',
-        assigneeId: '',
+        assigneeId: currentUser?.id || '',
         clientId: '',
         team: currentUser?.team || 'creative',
         dueDate: getIndiaDate(), // Use India timezone for default date
@@ -60,13 +60,13 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         description: '',
         status: 'not_started',
         priority: 'medium',
-        assigneeId: '',
+        assigneeId: currentUser?.id || '',
         clientId: '',
         team: currentUser?.team || 'creative',
         dueDate: getIndiaDate() // Use India timezone for default date
       });
     }
-  }, [initialData?.id, currentUser?.team]); // Only depend on ID and team, not the entire formData or initialData
+  }, [initialData?.id, currentUser?.team, currentUser?.id]); // Add currentUser?.id as dependency
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
@@ -76,7 +76,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   
   // If this is an existing task and its dueDate < today, lock it
   const isPastDue = !!initialData?.dueDate &&
-    parseISO(initialData.dueDate) < startOfDay(new Date(today));
+    parseISO(initialData.dueDate) < startOfDay(parseISO(today));
   
   // Get team-specific statuses
   const teamStatuses = getStatusesByTeam(formData.team as TeamType || 'creative');
@@ -346,7 +346,6 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   New
                 </Button>
               </div>
-
             </div>
             
             <Select
@@ -409,6 +408,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   {errors.dueDate}
                 </p>
               )}
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                Created On
+              </label>
+              <div className="block w-full border rounded-md py-2.5 px-3 bg-gray-50 text-gray-600 text-sm border-gray-200">
+                {initialData?.id && initialData?.createdAt
+                  ? format(parseISO(initialData.createdAt), 'MMM dd, yyyy \'at\' h:mm a')
+                  : format(getIndiaDateTime(), 'MMM dd, yyyy \'at\' h:mm a')
+                }
+              </div>
             </div>
           </div>
           

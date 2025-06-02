@@ -36,6 +36,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Task, Status, TeamType, StatusCode } from '../types';
 import { Plus, Search, Filter, Users, Briefcase, ChevronLeft, ChevronRight, ChevronDown, Palette, Code } from 'lucide-react';
 import Avatar from '../components/ui/Avatar';
+import { useDebounce } from '../hooks/useDebounce';
 
 // Column type to help with type safety
 interface Column {
@@ -197,7 +198,7 @@ const TaskBoard: React.FC = () => {
   // ---------------------------------------------------
   // Context and state hooks
   // ---------------------------------------------------
-  const { tasks: allTasks, updateTaskStatus, getTasksByTeam, getTasksByUser, clients, users, getClientById } = useData();
+  const { tasks: allTasks, updateTaskStatus, getTasksByTeam, getTasksByUser, clients, users, getClientById, searchTasks } = useData();
   const { getStatusesByTeam } = useStatus();
   const { currentUser, isAdmin } = useAuth();
   
@@ -213,6 +214,14 @@ const TaskBoard: React.FC = () => {
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'createdDate' | 'dueDate' | 'title' | 'none'>('none');
+  
+  // Database search state
+  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounce search query to avoid too many database calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
   
   // Scrolling state
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -268,65 +277,44 @@ const TaskBoard: React.FC = () => {
   }, [getStatusesByTeam, teamFilter]);
   
   // Filtered tasks based on view mode and filters
-  const filteredTasks = useMemo(() => {
-    let filtered: Task[];
-    
-    // Step 1: Filter by view mode
-    if (viewMode === 'my-tasks' && currentUser) {
-      filtered = getTasksByUser(currentUser.id);
-    } else if (isAdmin) {
-      filtered = [...allTasks];
-    } else {
-      filtered = getTasksByTeam(currentUser?.team || 'creative');
-    }
-    
-    // Step 2: Apply team filter
-    filtered = filtered.filter(task => task.team === teamFilter);
-    
-    // Step 3: Apply client filter if needed
-    if (clientFilter !== 'all') {
-      // Show tasks assigned to the selected client (including system 'Unassigned' client)
-      filtered = filtered.filter(task => task.clientId === clientFilter);
-    }
-    
-    // Step 4: Apply employee filter if needed
-    if (employeeFilter !== 'all') {
-      if (employeeFilter === 'unassigned') {
-        // Show only unassigned tasks (tasks without assigneeId)
-        filtered = filtered.filter(task => !task.assigneeId);
-      } else {
-        // Show tasks assigned to specific employee
-        filtered = filtered.filter(task => task.assigneeId === employeeFilter);
+  // Database search effect - replaces client-side filtering
+  useEffect(() => {
+    const performSearch = async () => {
+      setIsSearching(true);
+      try {
+        // Build search filters based on current state
+        const filters = {
+          team: teamFilter,
+          searchQuery: debouncedSearchQuery,
+          clientId: clientFilter !== 'all' ? clientFilter : undefined,
+          assigneeId: employeeFilter !== 'all' ? employeeFilter : undefined,
+          sortBy,
+          ...(viewMode === 'my-tasks' && currentUser ? { userId: currentUser.id } : {})
+        };
+
+        const searchResults = await searchTasks(filters);
+        setFilteredTasks(searchResults);
+        
+        console.log(`[Database Search] Found ${searchResults.length} tasks for ${teamFilter} team`);
+      } catch (error) {
+        console.error('Error performing database search:', error);
+        // Fallback to empty results on error
+        setFilteredTasks([]);
+      } finally {
+        setIsSearching(false);
       }
-    }
-    
-    // Step 5: Apply search filter if needed
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(task => {
-        const client = task.clientId ? getClientById(task.clientId) : null;
-        return (
-          task.title.toLowerCase().includes(query) || 
-               task.description.toLowerCase().includes(query) ||
-          (client && client.name.toLowerCase().includes(query))
-        );
-      });
-    }
-    
-    console.log(`[Filtered Tasks] Found ${filtered.length} tasks for ${teamFilter} team`);
-    return filtered;
+    };
+
+    performSearch();
   }, [
-    allTasks, 
-    viewMode, 
-    teamFilter, 
-    clientFilter, 
-    employeeFilter, 
-    searchQuery,
-    currentUser,
-    getTasksByUser,
-    getTasksByTeam,
-    getClientById,
-    isAdmin
+    teamFilter,
+    clientFilter,
+    employeeFilter,
+    debouncedSearchQuery, // Using debounced version
+    sortBy,
+    viewMode,
+    currentUser?.id,
+    searchTasks
   ]);
   
   // Organized columns with tasks - our single source of truth for the drag and drop
@@ -336,8 +324,8 @@ const TaskBoard: React.FC = () => {
       return [];
     }
     
-    if (filteredTasks.length === 0 && allTasks.length > 0) {
-      console.log('[Columns] No tasks found for current filter settings, but data exists');
+    if (filteredTasks.length === 0 && !isSearching) {
+      console.log('[Columns] No tasks found for current filter settings');
     }
     
     // Create a column map that will store all columns and their tasks
@@ -377,7 +365,7 @@ const TaskBoard: React.FC = () => {
     }
     
     return columnMap;
-  }, [statusColumns, filteredTasks, teamFilter, allTasks.length, columnsReady]);
+  }, [statusColumns, filteredTasks, teamFilter, isSearching, columnsReady]);
   
   // ---------------------------------------------------
   // Effects
@@ -511,6 +499,7 @@ const TaskBoard: React.FC = () => {
     setEmployeeFilter('all');
     setClientFilter('all');
     setSearchQuery('');
+    setSortBy('none');
   }, []);
   
   // ---------------------------------------------------
@@ -718,7 +707,7 @@ const TaskBoard: React.FC = () => {
               </div>
             </div>
             
-            <div className="md:col-span-3 h-10">
+            <div className="md:col-span-2 h-10">
               <div className="relative h-full">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Users className="h-4 w-4 text-gray-400" />
@@ -747,10 +736,35 @@ const TaskBoard: React.FC = () => {
               </div>
             </div>
             
-            <div className="md:col-span-3 h-10">
+            <div className="md:col-span-2 h-10">
               <div className="relative h-full">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-gray-400" />
+                  <Filter className="h-4 w-4 text-gray-400" />
+                </div>
+                <select
+                  className="block w-full h-full pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-md bg-white appearance-none transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 focus:shadow-sm text-ellipsis"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'createdDate' | 'dueDate' | 'title' | 'none')}
+                >
+                  <option value="none">No Sorting</option>
+                  <option value="createdDate">Sort by Created Date</option>
+                  <option value="dueDate">Sort by Due Date</option>
+                  <option value="title">Sort by Title</option>
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                  <ChevronDown className="h-4 w-4" />
+                </div>
+              </div>
+            </div>
+            
+            <div className="md:col-span-2 h-10">
+              <div className="relative h-full">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  {isSearching ? (
+                    <div className="w-4 h-4 border-2 border-gray-400 border-t-blue-500 rounded-full animate-spin"></div>
+                  ) : (
+                    <Search className="h-4 w-4 text-gray-400" />
+                  )}
                 </div>
                 <input
                   type="text"
@@ -764,7 +778,7 @@ const TaskBoard: React.FC = () => {
           </div>
           
           {/* Clear All Filters Button */}
-          {(employeeFilter !== 'all' || clientFilter !== 'all' || searchQuery.trim() !== '') && (
+          {(employeeFilter !== 'all' || clientFilter !== 'all' || searchQuery.trim() !== '' || sortBy !== 'none') && (
             <div className="mt-3 flex justify-end">
               <button 
                 className="text-sm text-primary-600 hover:text-primary-800 font-medium flex items-center hover:underline animate-tap"
@@ -778,7 +792,7 @@ const TaskBoard: React.FC = () => {
       </Card>
       
       {/* Applied Filters Tags */}
-      {(employeeFilter !== 'all' || clientFilter !== 'all' || teamFilter === 'web') && (
+      {(employeeFilter !== 'all' || clientFilter !== 'all' || teamFilter === 'web' || sortBy !== 'none') && (
         <div className="flex flex-wrap gap-2 mb-4">
           {employeeFilter !== 'all' && (
             <div className="inline-flex items-center bg-primary-50 text-primary-700 px-3 py-1 rounded-full text-sm">
@@ -821,6 +835,23 @@ const TaskBoard: React.FC = () => {
               <button 
                 className="ml-2 text-success-500 hover:text-success-700 transition-colors"
                 onClick={() => setTeamFilter('creative')}
+              >
+                &times;
+              </button>
+            </div>
+          )}
+          {sortBy !== 'none' && (
+            <div className="inline-flex items-center bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm">
+              <span className="mr-1">Sorted by:</span>
+              <span className="font-medium flex items-center">
+                <Filter className="h-3.5 w-3.5 mr-1" />
+                {sortBy === 'createdDate' ? 'Created Date' : 
+                 sortBy === 'dueDate' ? 'Due Date' : 
+                 sortBy === 'title' ? 'Title' : 'None'}
+              </span>
+              <button 
+                className="ml-2 text-amber-500 hover:text-amber-700 transition-colors"
+                onClick={() => setSortBy('none')}
               >
                 &times;
               </button>

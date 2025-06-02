@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import clsx from 'clsx';
 
 type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -18,9 +18,15 @@ const Avatar: React.FC<AvatarProps> = ({
   size = 'md',
   className,
 }) => {
+  const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
   const getInitials = (name: string) => {
-    const parts = name.split(' ');
+    if (!name || name.trim() === '') return '';
+    const parts = name.trim().split(/\s+/);
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    if (parts.length === 2) return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+    // For more than 2 names, use first and last
     return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
   };
 
@@ -32,48 +38,87 @@ const Avatar: React.FC<AvatarProps> = ({
     xl: 'h-16 w-16 text-xl'
   };
 
+  // Enhanced color palette with better contrast and modern colors
   const bgColors = [
-    'bg-blue-500',
-    'bg-green-500',
-    'bg-purple-500',
-    'bg-yellow-500',
-    'bg-red-500',
-    'bg-indigo-500',
-    'bg-pink-500',
-    'bg-teal-500'
+    'bg-gradient-to-br from-blue-500 to-blue-600',
+    'bg-gradient-to-br from-emerald-500 to-emerald-600',
+    'bg-gradient-to-br from-purple-500 to-purple-600',
+    'bg-gradient-to-br from-amber-500 to-amber-600',
+    'bg-gradient-to-br from-rose-500 to-rose-600',
+    'bg-gradient-to-br from-indigo-500 to-indigo-600',
+    'bg-gradient-to-br from-pink-500 to-pink-600',
+    'bg-gradient-to-br from-teal-500 to-teal-600',
+    'bg-gradient-to-br from-cyan-500 to-cyan-600',
+    'bg-gradient-to-br from-orange-500 to-orange-600',
+    'bg-gradient-to-br from-violet-500 to-violet-600',
+    'bg-gradient-to-br from-slate-500 to-slate-600'
   ];
 
-  // Deterministically pick a color based on the name if provided
+  // Enhanced deterministic color selection
   const getBackgroundColor = (name?: string) => {
     if (!name) return bgColors[0];
     
-    // Simple hash function to pick a color
-    const charSum = name.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    return bgColors[charSum % bgColors.length];
+    // Better hash function for more even distribution
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      const char = name.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return bgColors[Math.abs(hash) % bgColors.length];
   };
+
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+    setImageError(false);
+  };
+
+  // Reset error state when src changes
+  React.useEffect(() => {
+    if (src) {
+      setImageError(false);
+      setImageLoaded(false);
+    }
+  }, [src]);
+
+  const shouldShowImage = src && !imageError;
 
   return (
     <div
       className={clsx(
-        'inline-flex items-center justify-center rounded-full overflow-hidden',
+        'inline-flex items-center justify-center rounded-full overflow-hidden border-2 border-white shadow-lg',
         sizeStyles[size],
         className
       )}
     >
-      {src ? (
+      {shouldShowImage ? (
         <img
           src={src}
           alt={alt}
           className="h-full w-full object-cover"
+          onError={handleImageError}
+          onLoad={handleImageLoad}
         />
       ) : (
         <div
           className={clsx(
-            'flex items-center justify-center h-full w-full text-white font-medium',
+            'flex items-center justify-center h-full w-full text-white font-bold tracking-wide',
             getBackgroundColor(name)
           )}
         >
-          {name ? getInitials(name) : '?'}
+          {name && getInitials(name) ? getInitials(name) : (
+            <svg 
+              className="w-3/5 h-3/5 text-white/90" 
+              fill="currentColor" 
+              viewBox="0 0 20 20"
+            >
+              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+            </svg>
+          )}
         </div>
       )}
     </div>

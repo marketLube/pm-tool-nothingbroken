@@ -16,15 +16,13 @@ export const isValidEmail = (email: string): boolean => {
  * @returns True if the date is valid, false otherwise
  */
 export const isValidDate = (dateString: string): boolean => {
-  // Ensures the string is in YYYY-MM-DD format and is a valid date
-  const regex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateString) return false;
   
-  if (!regex.test(dateString)) return false;
+  // Check if the date string is in YYYY-MM-DD format
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(dateString)) return false;
   
-  const date = new Date(dateString);
-  const timestamp = date.getTime();
-  
-  if (isNaN(timestamp)) return false;
-  
-  return date.toISOString().slice(0, 10) === dateString;
+  // Parse the date and check if it's valid
+  const date = new Date(dateString + 'T00:00:00'); // Add time to avoid timezone issues
+  return !isNaN(date.getTime()) && date.toISOString().split('T')[0] === dateString;
 }; 

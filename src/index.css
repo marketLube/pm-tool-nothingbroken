@@ -194,12 +194,67 @@
     }
   }
   
+  @keyframes buttonPulse {
+    0%, 100% { 
+      transform: scale(1); 
+    }
+    50% { 
+      transform: scale(1.02); 
+    }
+  }
+  
   .animate-fadeIn {
     animation: fadeIn 0.3s ease-out;
   }
   
   .animate-slideIn {
     animation: slideIn 0.3s ease-out;
+  }
+  
+  .animate-button-pulse {
+    animation: buttonPulse 2s ease-in-out infinite;
+  }
+  
+  /* Enhanced button focus states for accessibility */
+  .button-focus:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+  
+  /* Smooth backdrop blur support */
+  .backdrop-blur-sm {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  
+  /* Enhanced gradient text support */
+  .bg-clip-text {
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  
+  /* Improved scale animations */
+  .hover-scale-102:hover {
+    transform: scale(1.02);
+  }
+  
+  .active-scale-98:active {
+    transform: scale(0.98);
+  }
+  
+  /* Check-in button shimmer animation */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%) skewX(-12deg);
+    }
+    100% {
+      transform: translateX(200%) skewX(-12deg);
+    }
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 2s infinite;
   }
   
   /* Custom Scrollbar for Reports */
@@ -224,5 +279,23 @@
   
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #a0aec0;
+  }
+  
+  /* Perfect button alignment */
+  .btn-perfect {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  
+  /* Ensure icons don't shrink */
+  .icon-fixed {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
   }
 }

@@ -1,6 +1,7 @@
 import { supabase } from '../utils/supabase';
-import { User } from '../types';
+import { User, TeamType, Role } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 
 // NOTE: This service now uses the regular supabase client instead of admin client
 // Ensure proper Row Level Security (RLS) policies are set up in Supabase for:
@@ -8,38 +9,40 @@ import { v4 as uuidv4 } from 'uuid';
 // - Admin operations should be handled through proper RLS policies
 
 // Database mapping functions
-const mapToDbUser = (user: Omit<User, 'id'> | User) => ({
-  name: user.name,
-  email: user.email,
-  team: user.team,
-  role: user.role,
-  password: user.password,
-  avatar: user.avatar || null,
-  join_date: user.joinDate || new Date().toISOString().split('T')[0],
-  is_active: user.isActive !== undefined ? user.isActive : true,
-  allowed_statuses: user.allowedStatuses || [],
-  created_at: new Date().toISOString()
-});
+const mapToDbUser = (user: User) => {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    team: user.team,
+    is_active: user.isActive,
+    avatar_url: user.avatar,
+    join_date: user.joinDate || getIndiaDate(),
+    allowed_statuses: user.allowedStatuses,
+    created_at: getIndiaDateTime().toISOString()
+  };
+};
 
-const mapFromDbUser = (dbUser: any): User => ({
-  id: dbUser.id,
-  name: dbUser.name,
-  email: dbUser.email,
-  team: dbUser.team,
-  role: dbUser.role,
-  password: dbUser.password,
-  avatar: dbUser.avatar,
-  joinDate: dbUser.join_date || dbUser.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
-  isActive: dbUser.is_active !== undefined ? dbUser.is_active : true,
-  allowedStatuses: dbUser.allowed_statuses || []
-});
+const mapFromDbUser = (dbUser: any): User => {
+  return {
+    id: dbUser.id,
+    email: dbUser.email,
+    name: dbUser.name,
+    role: dbUser.role as Role,
+    team: dbUser.team as TeamType,
+    isActive: dbUser.is_active,
+    avatar: dbUser.avatar_url,
+    allowedStatuses: dbUser.allowed_statuses,
+    joinDate: dbUser.join_date || dbUser.created_at?.split('T')[0] || getIndiaDate()
+  };
+};
 
 // Get all users
 export const getUsers = async (): Promise<User[]> => {
   const { data, error } = await supabase
     .from('users')
-    .select('*')
-    .order('name');
+    .select('*');
   
   if (error) {
     console.error('Error fetching users:', error);
@@ -49,20 +52,73 @@ export const getUsers = async (): Promise<User[]> => {
   return data.map(mapFromDbUser);
 };
 
-// Get users by team
-export const getUsersByTeam = async (team: string): Promise<User[]> => {
-  const { data, error } = await supabase
+// Database-level user filtering interface
+export interface UserSearchFilters {
+  team?: TeamType;
+  isActive?: boolean;
+  role?: 'admin' | 'manager' | 'employee';
+  searchQuery?: string;
+}
+
+// Get filtered users with database-level filtering
+export const searchUsers = async (filters: UserSearchFilters): Promise<User[]> => {
+  let query = supabase
     .from('users')
-    .select('*')
-    .eq('team', team)
-    .order('name');
-  
+    .select('*');
+
+  // Apply team filter
+  if (filters.team) {
+    query = query.eq('team', filters.team);
+  }
+
+  // Apply active status filter
+  if (filters.isActive !== undefined) {
+    query = query.eq('is_active', filters.isActive);
+  }
+
+  // Apply role filter
+  if (filters.role) {
+    query = query.eq('role', filters.role);
+  }
+
+  // Apply search query
+  if (filters.searchQuery && filters.searchQuery.trim()) {
+    const searchTerm = filters.searchQuery.trim();
+    query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+  }
+
+  // Default sorting by name
+  query = query.order('name', { ascending: true });
+
+  const { data, error } = await query;
+
   if (error) {
-    console.error(`Error fetching users for team ${team}:`, error);
+    console.error('Error searching users:', error);
     throw error;
   }
-  
+
   return data.map(mapFromDbUser);
+};
+
+// Get users by team with database filtering
+export const getUsersByTeam = async (teamId: TeamType, includeAdmins: boolean = true): Promise<User[]> => {
+  const filters: UserSearchFilters = {
+    team: teamId,
+    isActive: true
+  };
+
+  const teamUsers = await searchUsers(filters);
+  
+  if (includeAdmins) {
+    // Also get admin users
+    const adminUsers = await searchUsers({ role: 'admin', isActive: true });
+    // Merge and remove duplicates
+    const allUsers = [...teamUsers, ...adminUsers];
+    const uniqueUsers = Array.from(new Map(allUsers.map(user => [user.id, user])).values());
+    return uniqueUsers;
+  }
+  
+  return teamUsers;
 };
 
 // Get user by ID
@@ -118,86 +174,64 @@ export const checkUserCredentials = async (email: string, password: string): Pro
 
 // Create a new user
 export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
-  const id = uuidv4();
-  console.log('Preparing to insert user with data:', {
-    id,
-    name: user.name,
-    email: user.email,
-    team: user.team,
-    role: user.role,
-    hasPassword: !!user.password,
-    joinDate: user.joinDate || new Date().toISOString().split('T')[0]
-  });
-  
-  const userDbData = {
-    id,
-    ...mapToDbUser(user)
-  };
-  
-  console.log('Raw insert data:', JSON.stringify(userDbData));
-  
   try {
+    const id = crypto.randomUUID();
+    
+    const userDbData = mapToDbUser({ ...user, id } as User);
+    
+    console.log('Raw insert data:', JSON.stringify(userDbData));
+    
+    // Ensure joinDate is set
+    if (!userDbData.join_date) {
+      userDbData.join_date = getIndiaDate();
+    }
+    
     const { data, error } = await supabase
       .from('users')
       .insert([userDbData])
       .select()
       .single();
-    
+
     if (error) {
-      console.error('Error creating user:', error);
-      console.error('Failed insertion data:', userDbData);
+      console.error('Supabase error:', error);
       throw error;
     }
-    
-    if (!data) {
-      console.error('No data returned after user creation');
-      throw new Error('Failed to create user: No data returned');
-    }
-    
-    console.log('User created successfully with data:', data);
+
+    console.log('User created successfully:', data);
     return mapFromDbUser(data);
-  } catch (insertError) {
-    console.error('Exception during user creation:', insertError);
-    
-    // Check if the user already exists
-    try {
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', user.email)
-        .single();
-      
-      if (existingUser) {
-        console.error('User with email already exists:', user.email);
-        throw new Error(`User with email ${user.email} already exists`);
-      }
-    } catch (checkError) {
-      console.error('Error checking for existing user:', checkError);
-    }
-    
-    throw insertError;
+  } catch (error) {
+    console.error('Error creating user:', error);
+    throw error;
   }
 };
 
 // Update user
 export const updateUser = async (user: User): Promise<User> => {
-  const { data, error } = await supabase
-    .from('users')
-    .update(mapToDbUser(user))
-    .eq('id', user.id)
-    .select()
-    .single();
-  
-  if (error) {
-    console.error(`Error updating user ${user.id}:`, error);
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        ...mapToDbUser(user),
+        updated_at: getIndiaDateTime().toISOString()
+      })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+    
+    if (!data) {
+      throw new Error('Failed to update user: No data returned');
+    }
+    
+    return mapFromDbUser(data);
+  } catch (error) {
+    console.error('Error updating user:', error);
     throw error;
   }
-  
-  if (!data) {
-    throw new Error('Failed to update user: No data returned');
-  }
-  
-  return mapFromDbUser(data);
 };
 
 // Update user avatar
@@ -250,4 +284,35 @@ export const toggleUserStatus = async (userId: string): Promise<User> => {
   }
 
   return mapFromDbUser(data);
+};
+
+export const createUserInSupabase = async (userData: {
+  id?: string;
+  email: string;
+  name: string;
+  role?: Role;
+  team?: TeamType;
+  isActive?: boolean;
+  avatar?: string;
+  allowedStatuses?: string[];
+  joinDate?: string;
+}): Promise<User | null> => {
+  try {
+    const newUser: User = {
+      id: userData.id || crypto.randomUUID(),
+      email: userData.email,
+      name: userData.name,
+      role: (userData.role as Role) || 'employee',
+      team: (userData.team as TeamType) || 'creative',
+      isActive: userData.isActive ?? true,
+      avatar: userData.avatar,
+      allowedStatuses: userData.allowedStatuses || [],
+      joinDate: userData.joinDate || getIndiaDate()
+    };
+
+    return await createUser(newUser);
+  } catch (error) {
+    console.error('Error creating user in Supabase:', error);
+    return null;
+  }
 }; 

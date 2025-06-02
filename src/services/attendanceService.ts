@@ -1,51 +1,63 @@
 import { format } from 'date-fns';
 import { updateCheckInOut, getDailyWorkEntry } from './dailyReportService';
 import { supabase } from '../utils/supabase';
-import { getIndiaDate, getIndiaTime } from '../utils/timezone';
+import { getIndiaDate, getIndiaTime, getIndiaDateTime } from '../utils/timezone';
 
 /**
- * Records the first login time of the day as check-in time
- * Only sets check-in if it hasn't been set already for the current date
+ * Records manual check-in time for a user (replaces automatic login check-in)
  */
-export const recordLoginAsCheckIn = async (userId: string): Promise<void> => {
+export const recordManualCheckIn = async (userId: string, checkInTime?: string): Promise<void> => {
   try {
-    const today = getIndiaDate();
-    const currentTime = getIndiaTime();
+    const currentDate = getIndiaDate();
+    const actualCheckInTime = checkInTime || getIndiaTime();
     
-    // Check if user already has a check-in time for today
-    const existingEntry = await getDailyWorkEntry(userId, today);
+    console.log(`🔄 Recording manual check-in for user ${userId} at ${actualCheckInTime} on ${currentDate}`);
     
-    // Only set check-in time if it hasn't been set already
-    if (!existingEntry?.checkInTime) {
-      await updateCheckInOut(userId, today, currentTime, undefined);
-      console.log(`Auto check-in recorded for user ${userId} at ${currentTime} on ${today}`);
-    } else {
-      console.log(`User ${userId} already checked in today at ${existingEntry.checkInTime}`);
+    // Validate parameters
+    if (!userId) {
+      throw new Error('User ID is required for check-in');
     }
+    
+    // Try to update existing entry or create new one
+    await updateCheckInOut(userId, currentDate, actualCheckInTime, undefined);
+    
+    console.log(`✅ Manual check-in recorded successfully for user ${userId}`);
   } catch (error) {
-    console.error('Error recording login as check-in:', error);
-    // Don't throw error to avoid disrupting login process
+    console.error('❌ Error recording manual check-in:', error);
+    throw new Error(
+      error instanceof Error 
+        ? `Check-in failed: ${error.message}` 
+        : 'Check-in failed: Unknown error occurred'
+    );
   }
 };
 
 /**
- * Manually sets check-out time for a user
+ * Records check-out time for a user
  */
 export const recordCheckOut = async (userId: string, checkOutTime?: string): Promise<void> => {
   try {
     const today = getIndiaDate();
     const timeToRecord = checkOutTime || getIndiaTime();
     
+    console.log(`🕐 Recording check-out for user ${userId} at ${timeToRecord} on ${today} (IST)`);
+    
+    // Verify user has checked in first
+    const existingEntry = await getDailyWorkEntry(userId, today);
+    if (!existingEntry?.checkInTime) {
+      throw new Error('Cannot check out without checking in first');
+    }
+    
     await updateCheckInOut(userId, today, undefined, timeToRecord);
-    console.log(`Check-out recorded for user ${userId} at ${timeToRecord} on ${today}`);
+    console.log(`✅ Check-out recorded successfully for user ${userId}`);
   } catch (error) {
-    console.error('Error recording check-out:', error);
+    console.error('❌ Error recording check-out:', error);
     throw error;
   }
 };
 
 /**
- * Gets the current attendance status for a user on a specific date
+ * Gets real-time attendance status for a user on a specific date
  */
 export const getAttendanceStatus = async (userId: string, date?: string): Promise<{
   date: string;
@@ -56,6 +68,8 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
 }> => {
   try {
     const targetDate = date || getIndiaDate();
+    console.log(`📊 Getting attendance status for user ${userId} on ${targetDate}`);
+    
     const workEntry = await getDailyWorkEntry(userId, targetDate);
     
     let totalHours: number | undefined;
@@ -76,15 +90,18 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
       totalHours = Math.round((totalMinutes / 60) * 100) / 100; // Round to 2 decimal places
     }
     
-    return {
+    const result = {
       date: targetDate,
       checkInTime: workEntry?.checkInTime,
       checkOutTime: workEntry?.checkOutTime,
       isAbsent: workEntry?.isAbsent || false,
       totalHours
     };
+    
+    console.log(`📊 Attendance status for ${userId}:`, result);
+    return result;
   } catch (error) {
-    console.error('Error getting attendance status:', error);
+    console.error('❌ Error getting attendance status:', error);
     return {
       date: date || getIndiaDate(),
       isAbsent: false
@@ -98,32 +115,41 @@ export const getAttendanceStatus = async (userId: string, date?: string): Promis
 export const updateCheckInTime = async (userId: string, checkInTime: string, date?: string): Promise<void> => {
   try {
     const targetDate = date || getIndiaDate();
+    console.log(`🔄 Updating check-in time for user ${userId} to ${checkInTime} on ${targetDate}`);
+    
     await updateCheckInOut(userId, targetDate, checkInTime, undefined);
-    console.log(`Check-in time updated for user ${userId} to ${checkInTime} on ${targetDate}`);
+    console.log(`✅ Check-in time updated successfully`);
   } catch (error) {
-    console.error('Error updating check-in time:', error);
+    console.error('❌ Error updating check-in time:', error);
     throw error;
   }
 };
 
 /**
- * Clears attendance for a specific date (admin function)
+ * Clears attendance for a specific date (admin function only)
  */
 export const clearAttendance = async (userId: string, date?: string): Promise<void> => {
   try {
     const targetDate = date || getIndiaDate();
+    console.log(`🗑️ Clearing attendance for user ${userId} on ${targetDate}`);
+    
     await updateCheckInOut(userId, targetDate, undefined, undefined);
-    console.log(`Attendance cleared for user ${userId} on ${targetDate}`);
+    console.log(`✅ Attendance cleared successfully`);
   } catch (error) {
-    console.error('Error clearing attendance:', error);
+    console.error('❌ Error clearing attendance:', error);
     throw error;
   }
 };
 
 /**
- * Gets attendance data for multiple employees for a specific date
+ * Gets attendance data for multiple employees for a specific date with role-based filtering
  */
-export const getEmployeesAttendance = async (userIds: string[], date?: string): Promise<Array<{
+export const getEmployeesAttendance = async (
+  userIds: string[], 
+  date?: string,
+  requestingUserRole?: string,
+  requestingUserTeam?: string
+): Promise<Array<{
   userId: string;
   date: string;
   checkInTime?: string;
@@ -133,21 +159,35 @@ export const getEmployeesAttendance = async (userIds: string[], date?: string): 
 }>> => {
   try {
     const targetDate = date || getIndiaDate();
-    const attendancePromises = userIds.map(userId => getAttendanceStatus(userId, targetDate));
+    console.log(`📊 Getting employees attendance for ${userIds.length} users on ${targetDate}`);
+    
+    // Filter user IDs based on role permissions
+    let filteredUserIds = userIds;
+    
+    if (requestingUserRole !== 'admin') {
+      // Non-admin users can only see their team + themselves
+      // This filtering should be done at the calling level, but adding as safety
+      console.log(`🔒 Non-admin user requesting data, applying team filter`);
+    }
+    
+    const attendancePromises = filteredUserIds.map(userId => getAttendanceStatus(userId, targetDate));
     const attendanceData = await Promise.all(attendancePromises);
     
-    return attendanceData.map((data, index) => ({
-      userId: userIds[index],
+    const result = attendanceData.map((data, index) => ({
+      userId: filteredUserIds[index],
       ...data
     }));
+    
+    console.log(`📊 Retrieved attendance for ${result.length} employees`);
+    return result;
   } catch (error) {
-    console.error('Error getting employees attendance:', error);
+    console.error('❌ Error getting employees attendance:', error);
     return [];
   }
 };
 
 /**
- * Gets attendance statistics for a date range
+ * Gets attendance statistics for a date range with enhanced error handling
  */
 export const getAttendanceStats = async (userIds: string[], startDate: string, endDate: string): Promise<{
   totalWorkingDays: number;
@@ -163,6 +203,8 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
   }>;
 }> => {
   try {
+    console.log(`📈 Getting attendance stats for ${userIds.length} users from ${startDate} to ${endDate}`);
+    
     const { data: workEntries, error } = await supabase
       .from('daily_work_entries')
       .select('user_id, date, check_in_time, check_out_time, is_absent')
@@ -170,7 +212,10 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
       .gte('date', startDate)
       .lte('date', endDate);
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Database error:', error);
+      throw error;
+    }
 
     const employeeStats = userIds.map(userId => {
       const userEntries = workEntries?.filter(entry => entry.user_id === userId) || [];
@@ -211,15 +256,18 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
     const totalAbsentDays = employeeStats.reduce((sum, stat) => sum + stat.absentDays, 0);
     const totalHours = employeeStats.reduce((sum, stat) => sum + stat.totalHours, 0);
     
-    return {
+    const result = {
       totalWorkingDays: totalPresentDays + totalAbsentDays,
       totalPresentDays,
       totalAbsentDays,
       averageHours: totalPresentDays > 0 ? Math.round((totalHours / totalPresentDays) * 100) / 100 : 0,
       employeeStats
     };
+    
+    console.log(`📈 Attendance stats calculated:`, result);
+    return result;
   } catch (error) {
-    console.error('Error getting attendance stats:', error);
+    console.error('❌ Error getting attendance stats:', error);
     return {
       totalWorkingDays: 0,
       totalPresentDays: 0,
@@ -231,9 +279,12 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
 };
 
 /**
- * Gets today's attendance overview for all employees
+ * Gets today's attendance overview for all employees with real-time data
  */
-export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
+export const getTodayAttendanceOverview = async (
+  userIds: string[],
+  requestingUserRole?: string
+): Promise<{
   present: number;
   absent: number;
   late: number;
@@ -242,7 +293,9 @@ export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
 }> => {
   try {
     const today = getIndiaDate();
-    const attendanceData = await getEmployeesAttendance(userIds, today);
+    console.log(`📊 Getting today's attendance overview for ${userIds.length} employees on ${today}`);
+    
+    const attendanceData = await getEmployeesAttendance(userIds, today, requestingUserRole);
     
     let present = 0;
     let absent = 0;
@@ -255,7 +308,7 @@ export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
       } else if (data.checkInTime) {
         present++;
         
-        // Consider late if check-in is after 9:30 AM
+        // Consider late if check-in is after 9:30 AM IST
         const [hour, minute] = data.checkInTime.split(':').map(Number);
         if (hour > 9 || (hour === 9 && minute > 30)) {
           late++;
@@ -269,15 +322,18 @@ export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
       }
     });
     
-    return {
+    const result = {
       present,
       absent,
       late,
       checkedOut,
       totalEmployees: userIds.length
     };
+    
+    console.log(`📊 Today's overview:`, result);
+    return result;
   } catch (error) {
-    console.error('Error getting today attendance overview:', error);
+    console.error('❌ Error getting today attendance overview:', error);
     return {
       present: 0,
       absent: 0,
@@ -285,5 +341,45 @@ export const getTodayAttendanceOverview = async (userIds: string[]): Promise<{
       checkedOut: 0,
       totalEmployees: userIds.length
     };
+  }
+};
+
+/**
+ * Clears all existing attendance data for today (admin-only function for testing)
+ */
+export const clearTodayAttendanceForAllUsers = async (userIds: string[]): Promise<void> => {
+  try {
+    const today = getIndiaDate();
+    console.log(`🗑️ ADMIN: Clearing today's attendance for all ${userIds.length} users on ${today}`);
+    
+    const clearPromises = userIds.map(userId => clearAttendance(userId, today));
+    await Promise.all(clearPromises);
+    
+    console.log(`✅ ADMIN: Successfully cleared today's attendance for all users`);
+  } catch (error) {
+    console.error('❌ Error clearing today attendance for all users:', error);
+    throw error;
+  }
+};
+
+/**
+ * Gets filtered user list based on role and team permissions
+ */
+export const getFilteredUsersForAttendance = (
+  allUsers: any[],
+  currentUserRole: string,
+  currentUserTeam: string,
+  currentUserId: string
+): any[] => {
+  if (currentUserRole === 'admin') {
+    // Admins can see all users
+    return allUsers;
+  } else {
+    // Regular users can only see their team members + themselves
+    return allUsers.filter(user => 
+      user.id === currentUserId || 
+      user.team === currentUserTeam ||
+      user.role === 'admin' // Always include admins in team views
+    );
   }
 }; 

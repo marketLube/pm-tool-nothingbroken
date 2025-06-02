@@ -4,7 +4,8 @@ import Button from '../ui/Button';
 import { Clock, LogIn, LogOut, Calendar, User } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import * as attendanceService from '../../services/attendanceService';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { getIndiaTime } from '../../utils/timezone';
 
 interface AttendanceStatus {
   date: string;
@@ -70,7 +71,7 @@ const AttendanceCard: React.FC = () => {
   };
 
   const getCurrentTime = () => {
-    return format(new Date(), 'HH:mm');
+    return getIndiaTime(); // Returns HH:mm format in IST
   };
 
   if (isLoading) {
@@ -119,7 +120,9 @@ const AttendanceCard: React.FC = () => {
         {/* Date */}
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <Calendar className="w-4 h-4" />
-          <span>{format(new Date(attendanceStatus.date), 'EEEE, MMMM d, yyyy')}</span>
+          <div className="text-center">
+            <span>{format(new Date(attendanceStatus.date), 'EEEE, MMMM d, yyyy')}</span>
+          </div>
         </div>
 
         {/* User Info */}

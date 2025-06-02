@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, parseISO, isSameDay } from 'date-fns';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import { 
@@ -15,12 +16,16 @@ import {
   AlertCircle,
   Filter,
   Building2,
-  RefreshCw
+  RefreshCw,
+  Download
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
 import { getAttendanceStatus } from '../services/attendanceService';
 import { getCompletedTasksForDay } from '../services/dailyReportService';
+import IndividualAttendanceExportModal from '../components/modals/IndividualAttendanceExportModal';
+import IndividualAttendanceReportPDF from '../components/pdf/IndividualAttendanceReportPDF';
+import { pdf } from '@react-pdf/renderer';
 
 interface DayData {
   date: Date;
@@ -48,10 +53,10 @@ interface TooltipData {
 
 const AttendanceCalendar: React.FC = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const { users, teams, getUserById, getClientById } = useData();
   
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(getIndiaDateTime());
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedTeam, setSelectedTeam] = useState('all');
   const [calendarData, setCalendarData] = useState<DayData[]>([]);
@@ -65,7 +70,11 @@ const AttendanceCalendar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [lastRefresh, setLastRefresh] = useState<Date>(getIndiaDateTime());
+  
+  // Individual export states
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Filter users based on selected team
   const filteredUsers = users.filter(user => {
@@ -122,7 +131,7 @@ const AttendanceCalendar: React.FC = () => {
         return {
           date: day,
           isCurrentMonth: isSameMonth(day, currentDate),
-          isToday: isToday(day),
+          isToday: isSameDay(day, getIndiaDateTime()),
           attendance: {
             checkInTime: attendance.checkInTime,
             checkOutTime: attendance.checkOutTime,
@@ -159,7 +168,7 @@ const AttendanceCalendar: React.FC = () => {
         totalTasks
       });
 
-      setLastRefresh(new Date());
+      setLastRefresh(getIndiaDateTime());
 
     } catch (error) {
       console.error('Error loading calendar data:', error);
@@ -191,12 +200,14 @@ const AttendanceCalendar: React.FC = () => {
     return () => clearInterval(interval);
   }, [selectedUser, currentDate]);
 
-  const handlePrevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      const prevMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+      setCurrentDate(prevMonth);
+    } else {
+      const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      setCurrentDate(nextMonth);
+    }
   };
 
   const handleDayHover = (event: React.MouseEvent, day: DayData) => {
@@ -243,6 +254,72 @@ const AttendanceCalendar: React.FC = () => {
 
   const selectedUserData = getUserById(selectedUser);
 
+  const handleIndividualExport = async (month: number, year: number) => {
+    if (!selectedUser) return;
+
+    setIsExporting(true);
+    try {
+      // Fetch attendance data for the selected month/year
+      const startDate = startOfMonth(new Date(year, month - 1));
+      const endDate = endOfMonth(new Date(year, month - 1));
+      const days = eachDayOfInterval({ start: startDate, end: endDate });
+
+      const attendancePromises = days.map(async (day) => {
+        const dateStr = format(day, 'yyyy-MM-dd');
+        const attendance = await getAttendanceStatus(selectedUser, dateStr);
+        
+        return {
+          date: dateStr,
+          checkInTime: attendance.checkInTime,
+          checkOutTime: attendance.checkOutTime,
+          totalHours: attendance.totalHours,
+          isAbsent: attendance.isAbsent
+        };
+      });
+
+      const attendanceData = await Promise.all(attendancePromises);
+      const selectedUserData = getUserById(selectedUser);
+      const teamData = teams.find(team => team.id === selectedUserData?.team);
+
+      if (!selectedUserData) {
+        throw new Error('Selected user not found');
+      }
+
+      // Generate PDF
+      const pdfDoc = (
+        <IndividualAttendanceReportPDF
+          employeeName={selectedUserData.name}
+          teamName={teamData?.name || selectedUserData.team || 'Unknown Team'}
+          month={month}
+          year={year}
+          attendanceData={attendanceData}
+        />
+      );
+
+      const blob = await pdf(pdfDoc).toBlob();
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const monthName = format(new Date(year, month - 1), 'MMMM');
+      link.download = `${selectedUserData.name.replace(/\s+/g, '_')}_Attendance_${monthName}_${year}.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setIsExportModalOpen(false);
+    } catch (error) {
+      console.error('Error generating individual attendance report:', error);
+      alert('Failed to generate attendance report. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -263,6 +340,17 @@ const AttendanceCalendar: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Individual Export Button - Admin Only */}
+          {isAdmin && selectedUserData && (
+            <Button
+              onClick={() => setIsExportModalOpen(true)}
+              variant="primary"
+              icon={Download}
+              disabled={isLoading || isRefreshing}
+            >
+              Export Individual Report
+            </Button>
+          )}
           <div className="text-right">
             <p className="text-sm text-gray-500">Last updated</p>
             <p className="text-xs text-gray-400">{format(lastRefresh, 'HH:mm:ss')}</p>
@@ -425,7 +513,7 @@ const AttendanceCalendar: React.FC = () => {
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button
-                onClick={handlePrevMonth}
+                onClick={() => navigateMonth('prev')}
                 variant="secondary"
                 size="sm"
                 className="p-2"
@@ -433,7 +521,7 @@ const AttendanceCalendar: React.FC = () => {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <Button
-                onClick={handleNextMonth}
+                onClick={() => navigateMonth('next')}
                 variant="secondary"
                 size="sm"
                 className="p-2"
@@ -570,6 +658,18 @@ const AttendanceCalendar: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* Individual Export Modal */}
+      {selectedUserData && (
+        <IndividualAttendanceExportModal
+          isOpen={isExportModalOpen}
+          onClose={() => setIsExportModalOpen(false)}
+          onExport={handleIndividualExport}
+          employeeName={selectedUserData.name}
+          teamName={teams.find(team => team.id === selectedUserData.team)?.name || selectedUserData.team || 'Unknown Team'}
+          isExporting={isExporting}
+        />
       )}
     </div>
   );

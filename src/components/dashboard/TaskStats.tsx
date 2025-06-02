@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card,
   CardHeader,
@@ -9,7 +9,9 @@ import {
   CheckCircle, 
   Clock, 
   AlertTriangle,
-  BarChart
+  BarChart3,
+  AlertCircle,
+  Users
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { TeamType } from '../../types';
@@ -61,66 +63,133 @@ interface TaskStatsProps {
 }
 
 const TaskStats: React.FC<TaskStatsProps> = ({ teamFilter }) => {
-  const { tasks, analytics } = useData();
+  const { analytics, searchTasks } = useData();
+  const [taskData, setTaskData] = useState({
+    totalTasks: 0,
+    completedTasks: 0,
+    inProgressTasks: 0,
+    notStartedTasks: 0,
+    completionRate: 0
+  });
+  const [isLoading, setIsLoading] = useState(false);
   
-  // Filter tasks by team if filter is applied
-  const filteredTasks = teamFilter 
-    ? tasks.filter(task => task.team === teamFilter)
-    : tasks;
-  
-  // Calculate task statistics
-  const totalTasks = filteredTasks.length;
-  const completedTasks = filteredTasks.filter(task => task.status === 'done').length;
-  const inProgressTasks = filteredTasks.filter(task => task.status === 'in_progress').length;
-  const notStartedTasks = filteredTasks.filter(task => task.status === 'not_started').length;
-  
-  // Calculate completion rate
-  const completionRate = totalTasks > 0 
-    ? Math.round((completedTasks / totalTasks) * 100) 
-    : 0;
+  // Database search effect
+  useEffect(() => {
+    const loadTaskStats = async () => {
+      setIsLoading(true);
+      try {
+        // Build search filters
+        const filters = {
+          team: teamFilter,
+          sortBy: 'createdDate' as const
+        };
+
+        const searchResults = await searchTasks(filters);
+        
+        // Calculate statistics from search results
+        const totalTasks = searchResults.length;
+        const completedTasks = searchResults.filter(task => task.status === 'done').length;
+        const inProgressTasks = searchResults.filter(task => task.status === 'in_progress').length;
+        const notStartedTasks = searchResults.filter(task => task.status === 'not_started').length;
+        
+        // Calculate completion rate
+        const completionRate = totalTasks > 0 
+          ? Math.round((completedTasks / totalTasks) * 100) 
+          : 0;
+          
+        setTaskData({
+          totalTasks,
+          completedTasks,
+          inProgressTasks,
+          notStartedTasks,
+          completionRate
+        });
+        
+        console.log(`[TaskStats Database Search] Found ${totalTasks} tasks for ${teamFilter || 'all teams'}`);
+      } catch (error) {
+        console.error('Error loading task stats:', error);
+        // Set default values on error
+        setTaskData({
+          totalTasks: 0,
+          completedTasks: 0,
+          inProgressTasks: 0,
+          notStartedTasks: 0,
+          completionRate: 0
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTaskStats();
+  }, [teamFilter, searchTasks]);
     
-  // Get analytics data
+  // Get analytics data for overdue tasks
   const teamAnalytics = teamFilter 
     ? analytics[teamFilter] 
     : {
-        taskCompletion: Math.round((completedTasks / Math.max(totalTasks, 1)) * 100),
+        taskCompletion: taskData.completionRate,
         reportSubmission: (analytics.web.reportSubmission + analytics.creative.reportSubmission) / 2,
         overdueTasksCount: analytics.web.overdueTasksCount + analytics.creative.overdueTasksCount
       };
 
+  const stats = [
+    {
+      title: 'Total Tasks',
+      value: isLoading ? '...' : taskData.totalTasks.toString(),
+      icon: BarChart3,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50'
+    },
+    {
+      title: 'Completed',
+      value: isLoading ? '...' : taskData.completedTasks.toString(),
+      icon: CheckCircle,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50'
+    },
+    {
+      title: 'In Progress',
+      value: isLoading ? '...' : taskData.inProgressTasks.toString(),
+      icon: Clock,
+      color: 'text-yellow-600',
+      bgColor: 'bg-yellow-50'
+    },
+    {
+      title: 'Overdue',
+      value: isLoading ? '...' : teamAnalytics.overdueTasksCount.toString(),
+      icon: AlertCircle,
+      color: 'text-red-600',
+      bgColor: 'bg-red-50'
+    }
+  ];
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <TaskStatsCard
-        title="Completed Tasks"
-        value={completedTasks}
-        description={`${completionRate}% completion rate`}
-        icon={<CheckCircle className="h-5 w-5 text-green-500" />}
-        trend="up"
-        trendValue={`${completionRate}% of total tasks`}
-      />
-      
-      <TaskStatsCard
-        title="In Progress"
-        value={inProgressTasks}
-        description={`${Math.round((inProgressTasks / Math.max(totalTasks, 1)) * 100)}% of total tasks`}
-        icon={<Clock className="h-5 w-5 text-blue-500" />}
-      />
-      
-      <TaskStatsCard
-        title="Not Started"
-        value={notStartedTasks}
-        description={`${Math.round((notStartedTasks / Math.max(totalTasks, 1)) * 100)}% of total tasks`}
-        icon={<AlertTriangle className="h-5 w-5 text-amber-500" />}
-      />
-      
-      <TaskStatsCard
-        title="Overdue Tasks"
-        value={teamAnalytics.overdueTasksCount}
-        description="Tasks past their due date"
-        icon={<BarChart className="h-5 w-5 text-red-500" />}
-        trend={teamAnalytics.overdueTasksCount > 2 ? 'down' : 'up'}
-        trendValue={teamAnalytics.overdueTasksCount > 2 ? 'Action needed' : 'On track'}
-      />
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {stats.map((stat, index) => (
+        <Card key={index} className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600 mb-1">
+                  {stat.title}
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {stat.value}
+                </p>
+                {stat.title === 'Completed' && !isLoading && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {taskData.completionRate}% completion rate
+                  </p>
+                )}
+              </div>
+              <div className={`p-3 rounded-full ${stat.bgColor}`}>
+                <stat.icon className={`h-6 w-6 ${stat.color}`} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 };

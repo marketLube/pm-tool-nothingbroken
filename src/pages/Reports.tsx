@@ -19,18 +19,30 @@ import {
   Filter,
   Users,
   Briefcase,
-  BarChart2 
+  BarChart2,
+  Plus,
+  UserCheck,
+  AlertTriangle,
+  Building,
+  DollarSign,
+  TrendingUp,
+  Eye,
+  ThumbsUp,
+  ThumbsDown,
+  Search
 } from 'lucide-react';
-import { TeamType } from '../types';
+import { TeamType, Report } from '../types';
 import { getIndiaDate, getIndiaDateRange, getIndiaMonthRange } from '../utils/timezone';
+import DatePicker from '../components/ui/DatePicker';
+import Modal from '../components/ui/Modal';
 
 // Define date filter types
 type DateFilterType = 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'custom';
 
 const Reports: React.FC = () => {
-  const { users, reports, tasks, clients, getUserById, getTaskById, approveReport, submitReport } = useData();
+  const { users, tasks, clients, getUserById, getTaskById, approveReport, submitReport, searchReports } = useData();
   const { statuses } = useStatus();
-  const { currentUser, isAdmin, isManager } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   
   // State for the report creation form
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,6 +60,10 @@ const Reports: React.FC = () => {
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'approved' | 'rejected' | 'pending'>('all');
+  
+  // Database search states - replacing client-side filtering
+  const [reportsData, setReportsData] = useState<Report[]>([]);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
   
   // Force re-render when tasks change to update available tasks list
   const [taskUpdateTrigger, setTaskUpdateTrigger] = useState(0);
@@ -110,74 +126,71 @@ const Reports: React.FC = () => {
     }
   };
 
-  // Get filtered reports
-  const getFilteredReports = () => {
-    const { startDate, endDate } = getFilterDates();
-    
-    // Filter by date range
-    let filteredReports = reports.filter(report => {
-      const reportDate = parseISO(report.date);
-      return isWithinInterval(reportDate, {
-        start: parseISO(startDate),
-        end: parseISO(endDate)
-      });
-    });
-    
-    // Filter by team if needed
-    if (teamFilter !== 'all') {
-      const teamUserIds = users
-        .filter(user => user.team === teamFilter)
-        .map(user => user.id);
-      
-      filteredReports = filteredReports.filter(report => teamUserIds.includes(report.userId));
-    }
-    
-    // Filter by employee if needed
-    if (employeeFilter !== 'all') {
-      filteredReports = filteredReports.filter(report => report.userId === employeeFilter);
-    }
-    
-    // Filter by report status if needed
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'submitted') {
-        filteredReports = filteredReports.filter(report => report.submitted);
-      } else if (statusFilter === 'approved') {
-        filteredReports = filteredReports.filter(report => report.approved === true);
-      } else if (statusFilter === 'rejected') {
-        filteredReports = filteredReports.filter(report => report.approved === false);
-      } else if (statusFilter === 'pending') {
-        filteredReports = filteredReports.filter(report => report.submitted && report.approved === null);
+  // Database search effect - replaces all client-side filtering
+  useEffect(() => {
+    const loadFilteredReports = async () => {
+      setIsLoadingReports(true);
+      try {
+        const { startDate, endDate } = getFilterDates();
+        
+        // Build search filters
+        const filters = {
+          dateStart: startDate,
+          dateEnd: endDate,
+          teamId: teamFilter !== 'all' ? teamFilter : undefined,
+          userId: employeeFilter !== 'all' ? employeeFilter : undefined,
+          status: statusFilter,
+          clientId: clientFilter !== 'all' ? clientFilter : undefined
+        };
+
+        const searchResults = await searchReports(filters);
+        
+        // If not admin, filter to current user only
+        let finalResults = searchResults;
+        if (!isAdmin && currentUser) {
+          finalResults = searchResults.filter(report => report.userId === currentUser.id);
+        }
+        
+        setReportsData(finalResults);
+        console.log(`[Reports Database Search] Found ${finalResults.length} reports`);
+      } catch (error) {
+        console.error('Error loading filtered reports:', error);
+        setReportsData([]);
+      } finally {
+        setIsLoadingReports(false);
       }
-    }
-    
-    // Filter by client (by looking at associated tasks) if needed
-    if (clientFilter !== 'all') {
-      filteredReports = filteredReports.filter(report => {
-        // Check if any tasks in this report are for the selected client
-        const reportTaskIds = report.tasks.map(t => t.taskId);
-        const reportTasks = reportTaskIds.map(id => getTaskById(id)).filter(Boolean);
-        return reportTasks.some(task => task?.clientId === clientFilter);
-      });
-    }
-    
-    // If not admin or manager, only show current user's reports
-    if (!isAdmin && !isManager) {
-      filteredReports = filteredReports.filter(report => report.userId === currentUser?.id);
-    }
-    
-    return filteredReports;
-  };
-  
-  // Filtered reports based on all selected filters
-  const filteredReports = getFilteredReports();
+    };
+
+    loadFilteredReports();
+  }, [dateFilter, customStartDate, customEndDate, teamFilter, employeeFilter, clientFilter, statusFilter, searchReports, isAdmin, currentUser]);
   
   // Get today's date in India timezone
   const today = getIndiaDate();
   
   // Check if current user has submitted a report today
-  const hasSubmittedToday = currentUser 
-    ? reports.some(report => report.userId === currentUser.id && report.date === today && report.submitted)
-    : false;
+  const [hasSubmittedToday, setHasSubmittedToday] = useState(false);
+  
+  useEffect(() => {
+    const checkTodaySubmission = async () => {
+      if (!currentUser) return;
+      
+      try {
+        const todayReports = await searchReports({
+          dateStart: today,
+          dateEnd: today,
+          userId: currentUser.id
+        });
+        
+        const submitted = todayReports.some(report => report.submitted);
+        setHasSubmittedToday(submitted);
+      } catch (error) {
+        console.error('Error checking today submission:', error);
+        setHasSubmittedToday(false);
+      }
+    };
+    
+    checkTodaySubmission();
+  }, [currentUser, today, searchReports]);
   
   // Get active users for the employee filter
   const activeUsers = users.filter(user => user.isActive);
@@ -193,11 +206,11 @@ const Reports: React.FC = () => {
   }, [teamFilter]);
   
   // Calculate total hours for filtered reports
-  const totalHoursLogged = filteredReports.reduce((total, report) => total + report.totalHours, 0);
+  const totalHoursLogged = reportsData.reduce((total, report) => total + report.totalHours, 0);
   
   // Calculate average hours per report
-  const averageHoursPerReport = filteredReports.length > 0 
-    ? (totalHoursLogged / filteredReports.length).toFixed(1) 
+  const averageHoursPerReport = reportsData.length > 0 
+    ? (totalHoursLogged / reportsData.length).toFixed(1) 
     : '0';
   
   // Handle form actions
@@ -219,52 +232,94 @@ const Reports: React.FC = () => {
     setSelectedTasks(newTasks);
   };
   
-  const handleSubmitReport = () => {
+  const handleSubmitReport = async () => {
     if (!currentUser) return;
     
     setIsSubmitting(true);
     
-    // Calculate total hours
-    const totalHours = selectedTasks.reduce((sum, task) => sum + (Number(task.hours) || 0), 0);
-    
-    // Filter out incomplete task entries
-    const validTasks = selectedTasks.filter(task => task.taskId && task.hours > 0);
-    
-    if (validTasks.length === 0) {
-      // Show error
+    try {
+      // Calculate total hours
+      const totalHours = selectedTasks.reduce((sum, task) => sum + (Number(task.hours) || 0), 0);
+      
+      // Filter out incomplete task entries
+      const validTasks = selectedTasks.filter(task => task.taskId && task.hours > 0);
+      
+      if (validTasks.length === 0) {
+        alert('Please add at least one task with hours');
+        return;
+      }
+      
+      // Submit the report
+      await submitReport(currentUser.id, {
+        date: today,
+        tasks: validTasks.map(task => ({
+          taskId: task.taskId,
+          hours: Number(task.hours),
+          notes: task.notes
+        })),
+        totalHours
+      });
+      
+      // Reset form
+      setSelectedTasks([{ taskId: '', hours: 0, notes: '' }]);
+      alert('Report submitted successfully!');
+      
+      // Refresh reports data
+      const { startDate, endDate } = getFilterDates();
+      const filters = {
+        dateStart: startDate,
+        dateEnd: endDate,
+        teamId: teamFilter !== 'all' ? teamFilter : undefined,
+        userId: employeeFilter !== 'all' ? employeeFilter : undefined,
+        status: statusFilter,
+        clientId: clientFilter !== 'all' ? clientFilter : undefined
+      };
+      const refreshedReports = await searchReports(filters);
+      setReportsData(refreshedReports);
+      
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      alert('Failed to submit report. Please try again.');
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-    
-    // Submit the report
-    submitReport(currentUser.id, {
-      date: today,
-      tasks: validTasks,
-      totalHours
-    });
-    
-    // Reset form
-    setSelectedTasks([{ taskId: '', hours: 0, notes: '' }]);
-    setIsSubmitting(false);
-  };
-  
-  const handleApproveReport = (reportId: string, approved: boolean) => {
-    approveReport(reportId, approved, approved ? '' : feedbackText);
-    setSelectedReportId(null);
-    setFeedbackText('');
   };
 
-  // Helper to format date ranges for display
+  const handleApproveReport = async (reportId: string, approved: boolean) => {
+    try {
+      await approveReport(reportId, approved, feedbackText);
+      
+      // Refresh reports data
+      const { startDate, endDate } = getFilterDates();
+      const filters = {
+        dateStart: startDate,
+        dateEnd: endDate,
+        teamId: teamFilter !== 'all' ? teamFilter : undefined,
+        userId: employeeFilter !== 'all' ? employeeFilter : undefined,
+        status: statusFilter,
+        clientId: clientFilter !== 'all' ? clientFilter : undefined
+      };
+      const refreshedReports = await searchReports(filters);
+      setReportsData(refreshedReports);
+      
+      setSelectedReportId(null);
+      setFeedbackText('');
+    } catch (error) {
+      console.error('Error approving report:', error);
+      alert('Failed to update report status.');
+    }
+  };
+
   const getDateRangeDisplay = () => {
     const { startDate, endDate } = getFilterDates();
     if (startDate === endDate) {
-      return format(parseISO(startDate), 'MMMM d, yyyy');
+      return format(parseISO(startDate), 'MMM d, yyyy');
     }
     return `${format(parseISO(startDate), 'MMM d')} - ${format(parseISO(endDate), 'MMM d, yyyy')}`;
   };
-  
+
   // Determine status badge styling
-  const getReportStatusBadge = (report: typeof reports[0]) => {
+  const getReportStatusBadge = (report: Report) => {
     if (!report.submitted) {
       return <Badge variant="warning">Not Submitted</Badge>;
     }
@@ -277,7 +332,7 @@ const Reports: React.FC = () => {
       return <Badge variant="success">Approved</Badge>;
     }
     
-    return <Badge variant="danger">Needs Revision</Badge>;
+    return <Badge variant="danger">Rejected</Badge>;
   };
 
   return (
@@ -285,7 +340,7 @@ const Reports: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-2xl font-semibold text-gray-900">Daily Reports</h1>
         
-        {(isAdmin || isManager) && filteredReports.length > 0 && (
+        {(isAdmin) && reportsData.length > 0 && (
           <div className="flex items-center space-x-3 text-sm text-gray-600">
             <div className="flex items-center">
               <Clock className="h-4 w-4 mr-1 text-blue-600" />
@@ -387,7 +442,7 @@ const Reports: React.FC = () => {
                   className="block w-full border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={employeeFilter}
                   onChange={(e) => setEmployeeFilter(e.target.value)}
-                  disabled={!isAdmin && !isManager}
+                  disabled={!isAdmin}
                 >
                   <option value="all">All Employees</option>
                   {filteredUsers.map(user => (
@@ -493,7 +548,7 @@ const Reports: React.FC = () => {
       </Card>
       
       {/* Submit Report Section - Only show for regular users and if they haven't submitted today */}
-      {!hasSubmittedToday && !isAdmin && !isManager && (
+      {!hasSubmittedToday && !isAdmin && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center">
@@ -598,9 +653,22 @@ const Reports: React.FC = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {filteredReports.length > 0 ? (
+          {isLoadingReports ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-sm text-gray-600">Loading reports...</p>
+              </div>
+            </div>
+          ) : reportsData.length === 0 ? (
+            <div className="text-center py-12">
+              <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No reports found</h3>
+              <p className="text-gray-600">No reports match the selected filters.</p>
+            </div>
+          ) : (
             <div className="divide-y divide-gray-200">
-              {filteredReports.map((report) => {
+              {reportsData.map((report) => {
                 const user = getUserById(report.userId);
                 
                 return (
@@ -687,7 +755,7 @@ const Reports: React.FC = () => {
                           </div>
                         )}
                         
-                        {(isAdmin || isManager) && report.approved === null && (
+                        {(isAdmin) && report.approved === null && (
                           <div className="mt-3">
                             {selectedReportId === report.id ? (
                               <div className="space-y-3">
@@ -754,17 +822,12 @@ const Reports: React.FC = () => {
                 );
               })}
             </div>
-          ) : (
-            <div className="py-6 text-center text-gray-500">
-              <Clock className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-              <p>No reports found for the selected filters</p>
-            </div>
           )}
         </CardContent>
-        {filteredReports.length > 0 && (
+        {reportsData.length > 0 && (
           <CardFooter className="bg-gray-50 px-4 py-3 text-right">
             <p className="text-sm text-gray-600">
-              Showing {filteredReports.length} report{filteredReports.length !== 1 ? 's' : ''} · Total Hours: {totalHoursLogged}
+              Showing {reportsData.length} report{reportsData.length !== 1 ? 's' : ''} · Total Hours: {totalHoursLogged}
             </p>
           </CardFooter>
         )}

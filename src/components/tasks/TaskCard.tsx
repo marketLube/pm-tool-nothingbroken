@@ -8,11 +8,13 @@ import {
   Calendar,
   Edit,
   Trash2,
-  MoreVertical
+  MoreVertical,
+  Clock
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useData } from '../../contexts/DataContext';
-import { format, isPast, isToday } from 'date-fns';
+import { format, parseISO, startOfDay, isBefore } from 'date-fns';
+import { getIndiaDateTime } from '../../utils/timezone';
 import { useStatus } from '../../contexts/StatusContext';
 
 // Import BadgeVariant type
@@ -87,9 +89,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
     return 'Unknown Status';
   };
   
-  // Calculate if task is overdue
-  const dueDate = new Date(task.dueDate);
-  const isOverdue = isPast(dueDate) && !isToday(dueDate) && task.status !== 'done';
+  // Calculate if task is overdue using IST
+  const dueDate = parseISO(task.dueDate);
+  const todayIST = startOfDay(getIndiaDateTime());
+  const isOverdue = isBefore(dueDate, todayIST) && task.status !== 'done';
   
   // Format due date in a human-readable way
   const formattedDueDate = format(dueDate, 'MMM d, yyyy');
@@ -307,6 +310,14 @@ const TaskCard: React.FC<TaskCardProps> = ({
             <span className={`${isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-500'} flex items-center`}>
               {isOverdue && <AlertTriangle className="h-3 w-3 mr-1 text-danger-500" />}
               {formattedDueDate}
+            </span>
+          </div>
+          
+          {/* Created Date */}
+          <div className="flex items-center text-xs">
+            <Clock className="h-3 w-3 mr-1 text-secondary-400" />
+            <span className="text-secondary-400">
+              Created {task.createdAt ? format(parseISO(task.createdAt), 'MMM dd, yyyy') : 'Unknown'}
             </span>
           </div>
         </div>

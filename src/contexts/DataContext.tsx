@@ -6,9 +6,13 @@ import * as taskService from '../services/taskService';
 import * as clientService from '../services/clientService';
 import * as statusService from '../services/statusService';
 import * as dailyReportService from '../services/dailyReportService';
+import { TaskSearchFilters } from '../services/taskService';
+import { UserSearchFilters } from '../services/userService';
+import { ClientSearchFilters } from '../services/clientService';
 import { format } from 'date-fns';
 import { useAuth } from './AuthContext';
 import { updateUserPassword } from '../services/authService';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 
 interface DataContextType {
   // Data
@@ -35,24 +39,35 @@ interface DataContextType {
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
   updateUser: (user: User) => Promise<void>;
   toggleUserStatus: (userId: string) => Promise<User>;
+  searchUsers: (filters: UserSearchFilters) => Promise<User[]>;
 
   // Task actions
   addTask: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
   updateTask: (task: Task) => Promise<void>;
   updateTaskStatus: (taskId: string, status: StatusCode) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  searchTasks: (filters: TaskSearchFilters) => Promise<Task[]>;
 
   // Client actions
   addClient: (client: Omit<Client, 'id' | 'dateAdded'>) => Promise<Client>;
   updateClient: (client: Client) => Promise<void>;
   deleteClient: (clientId: string) => Promise<void>;
   refreshClients: () => Promise<void>;
+  searchClients: (filters: ClientSearchFilters) => Promise<Client[]>;
 
   // Report actions
   addReport: (report: Omit<Report, 'id'>) => Promise<void>;
   updateReport: (report: Report) => Promise<void>;
   approveReport: (reportId: string, approved: boolean, feedback?: string) => Promise<void>;
   submitReport: (userId: string, reportData: Omit<Report, 'id' | 'userId' | 'submitted' | 'approved'>) => Promise<void>;
+  searchReports: (filters: {
+    dateStart?: string;
+    dateEnd?: string;
+    teamId?: TeamType;
+    userId?: string;
+    status?: 'all' | 'submitted' | 'approved' | 'rejected' | 'pending';
+    clientId?: string;
+  }) => Promise<Report[]>;
 
   // Team actions
   updateTeam: (team: Team) => Promise<void>;
@@ -85,7 +100,7 @@ interface DataProviderProps {
 }
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const { isAuthenticated, currentUser } = useAuth();
+  const { isLoggedIn, currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -110,7 +125,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Load data when user is authenticated
   useEffect(() => {
     // Only load data if the user is authenticated
-    if (!isAuthenticated) {
+    if (!isLoggedIn) {
       return;
     }
     
@@ -167,7 +182,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
 
     loadData();
-  }, [isAuthenticated]); // Reload when authentication state changes
+  }, [isLoggedIn]); // Reload when authentication state changes
 
   // User actions
   const addUser = async (user: Omit<User, 'id'>) => {
@@ -295,6 +310,102 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     } catch (error) {
       console.error('Error deleting task:', error);
       throw error; // Re-throw to allow UI to handle the error
+    }
+  };
+
+  const searchTasks = async (filters: TaskSearchFilters) => {
+    try {
+      return await taskService.searchTasks(filters);
+    } catch (error) {
+      console.error('Error searching tasks:', error);
+      throw error;
+    }
+  };
+
+  const searchUsers = async (filters: UserSearchFilters) => {
+    try {
+      return await userService.searchUsers(filters);
+    } catch (error) {
+      console.error('Error searching users:', error);
+      throw error;
+    }
+  };
+
+  const searchClients = async (filters: ClientSearchFilters) => {
+    try {
+      return await clientService.searchClients(filters);
+    } catch (error) {
+      console.error('Error searching clients:', error);
+      return [];
+    }
+  };
+
+  // Search reports with filters
+  const searchReports = async (filters: {
+    dateStart?: string;
+    dateEnd?: string;
+    teamId?: TeamType;
+    userId?: string;
+    status?: 'all' | 'submitted' | 'approved' | 'rejected' | 'pending';
+    clientId?: string;
+  }) => {
+    try {
+      // For now, implement client-side filtering since reports are in-memory
+      // This can be converted to database queries when reports are moved to Supabase
+      let filteredReports = [...reports];
+
+      // Filter by date range
+      if (filters.dateStart) {
+        filteredReports = filteredReports.filter(report => report.date >= filters.dateStart!);
+      }
+      if (filters.dateEnd) {
+        filteredReports = filteredReports.filter(report => report.date <= filters.dateEnd!);
+      }
+
+      // Filter by team
+      if (filters.teamId) {
+        const teamUserIds = users
+          .filter(user => user.team === filters.teamId)
+          .map(user => user.id);
+        filteredReports = filteredReports.filter(report => teamUserIds.includes(report.userId));
+      }
+
+      // Filter by user
+      if (filters.userId) {
+        filteredReports = filteredReports.filter(report => report.userId === filters.userId);
+      }
+
+      // Filter by status
+      if (filters.status && filters.status !== 'all') {
+        switch (filters.status) {
+          case 'submitted':
+            filteredReports = filteredReports.filter(report => report.submitted);
+            break;
+          case 'approved':
+            filteredReports = filteredReports.filter(report => report.approved === true);
+            break;
+          case 'rejected':
+            filteredReports = filteredReports.filter(report => report.approved === false);
+            break;
+          case 'pending':
+            filteredReports = filteredReports.filter(report => report.submitted && report.approved === null);
+            break;
+        }
+      }
+
+      // Filter by client (check tasks in report)
+      if (filters.clientId) {
+        filteredReports = filteredReports.filter(report => {
+          const reportTaskIds = report.tasks.map(t => t.taskId);
+          const reportTasks = reportTaskIds.map(id => getTaskById(id)).filter(Boolean);
+          return reportTasks.some(task => task?.clientId === filters.clientId);
+        });
+      }
+
+      return filteredReports;
+    } catch (error) {
+      console.error('Error searching reports:', error);
+      return [];
     }
   };
 
@@ -427,39 +538,29 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Analytics calculation
   const updateTaskAnalytics = (currentTasks = tasks) => {
-    // Process tasks to calculate the completion percentage
-    const creativeTeamTasks = currentTasks.filter(task => task.team === 'creative');
-    const webTeamTasks = currentTasks.filter(task => task.team === 'web');
+    // Filter tasks by team and calculate completion rates
+    const creativeTasksAll = currentTasks.filter(task => task.team === 'creative');
+    const webTasksAll = currentTasks.filter(task => task.team === 'web');
     
-    const creativeCompletedTasks = creativeTeamTasks.filter(
-      task => task.status === 'approved' || task.status === 'done'
-    ).length;
-    const webCompletedTasks = webTeamTasks.filter(
-      task => task.status === 'completed' || task.status === 'done'
-    ).length;
+    // Calculate overdue tasks (due before today)
+    const today = getIndiaDateTime();
     
-    const today = new Date();
-    const todayFormatted = format(today, 'yyyy-MM-dd');
-    
-    const creativeOverdue = creativeTeamTasks.filter(
-      task => task.dueDate < todayFormatted && 
-      task.status !== 'approved' && 
-      task.status !== 'done'
+    // Count overdue tasks by team
+    const creativeOverdue = creativeTasksAll.filter(task => 
+      task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
     ).length;
     
-    const webOverdue = webTeamTasks.filter(
-      task => task.dueDate < todayFormatted && 
-      task.status !== 'completed' && 
-      task.status !== 'done'
+    const webOverdue = webTasksAll.filter(
+      task => task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
     ).length;
     
     // Calculate completion percentages 
-    const creativeCompletion = creativeTeamTasks.length > 0 
-      ? Math.round((creativeCompletedTasks / creativeTeamTasks.length) * 100)
+    const creativeCompletion = creativeTasksAll.length > 0 
+      ? Math.round((creativeTasksAll.filter(task => task.status === 'approved' || task.status === 'done').length / creativeTasksAll.length) * 100)
       : 0;
       
-    const webCompletion = webTeamTasks.length > 0
-      ? Math.round((webCompletedTasks / webTeamTasks.length) * 100)
+    const webCompletion = webTasksAll.length > 0
+      ? Math.round((webTasksAll.filter(task => task.status === 'completed' || task.status === 'done').length / webTasksAll.length) * 100)
       : 0;
     
     // Update analytics
@@ -518,6 +619,22 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     return tasks.find(task => task.id === taskId);
   };
 
+  const syncTasksWithReports = async () => {
+    try {
+      const today = getIndiaDateTime();
+      const todayStr = today.toISOString().split('T')[0];
+      
+      // Get all tasks assigned for today
+      const todayTasks = tasks.filter(task => 
+        task.dueDate === todayStr && task.assigneeId
+      );
+
+      // ... existing code ...
+    } catch (error) {
+      console.error('Error syncing tasks with reports:', error);
+    }
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -553,7 +670,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         getUserById,
         getClientById,
         getTeamById,
-        getTaskById
+        getTaskById,
+        searchTasks,
+        searchUsers,
+        searchClients,
+        searchReports
       }}
     >
       {children}

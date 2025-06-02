@@ -1,6 +1,7 @@
 import { supabase } from '../utils/supabase';
-import { Client } from '../types';
+import { Client, TeamType } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 
 // Map from App Client to Supabase DB schema
 const mapToDbClient = (client: Omit<Client, 'id' | 'dateAdded'>) => {
@@ -88,7 +89,7 @@ export const getClientById = async (id: string): Promise<Client | null> => {
 // Create a new client
 export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Promise<Client> => {
   const id = uuidv4();
-  const dateAdded = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+  const dateAdded = getIndiaDate(); // YYYY-MM-DD format
   
   console.log('Creating client with data:', {
     id,
@@ -100,7 +101,7 @@ export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Pr
     id,
     ...mapToDbClient(client),
     date_added: dateAdded,
-    created_at: new Date().toISOString()
+    created_at: getIndiaDateTime().toISOString()
   };
   
   console.log('Raw insert data for Supabase:', clientData);
@@ -256,8 +257,8 @@ export const deleteClient = async (clientId: string): Promise<void> => {
         email: '',
         phone: '',
         team: clientTeam,
-        date_added: new Date().toISOString().split('T')[0],
-        created_at: new Date().toISOString()
+        date_added: getIndiaDate(),
+        created_at: getIndiaDateTime().toISOString()
       };
       
       const { data: newUnassigned, error: createError } = await supabase
@@ -301,4 +302,115 @@ export const deleteClient = async (clientId: string): Promise<void> => {
   }
   
   console.log(`[ClientService] Successfully deleted client ${clientId} from database`);
+};
+
+export const addClient = async (clientData: Omit<Client, 'id' | 'dateAdded'>): Promise<Client | null> => {
+  try {
+    const dateAdded = getIndiaDate(); // YYYY-MM-DD format
+    
+    const newClient: Client = {
+      id: crypto.randomUUID(),
+      ...clientData,
+      dateAdded
+    };
+
+    return await createClient(newClient);
+  } catch (error) {
+    console.error('Error adding client:', error);
+    return null;
+  }
+};
+
+export const createClientInSupabase = async (clientData: {
+  name: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  notes?: string;
+}): Promise<Client | null> => {
+  try {
+    const clientToCreate: Omit<Client, 'id' | 'dateAdded'> = {
+      name: clientData.name,
+      email: clientData.email || '',
+      phone: clientData.phone || '',
+      industry: clientData.company || '',
+      contactPerson: '',
+      team: 'creative'
+    };
+
+    return await createClient(clientToCreate);
+  } catch (error) {
+    console.error('Error creating client in Supabase:', error);
+    return null;
+  }
+};
+
+// Database-level client filtering interface
+export interface ClientSearchFilters {
+  team?: TeamType;
+  searchQuery?: string;
+  industry?: string;
+  sortBy?: 'name' | 'dateAdded' | 'none';
+}
+
+// Get filtered clients with database-level filtering
+export const searchClients = async (filters: ClientSearchFilters): Promise<Client[]> => {
+  let query = supabase
+    .from('clients')
+    .select('*');
+
+  // Apply team filter
+  if (filters.team) {
+    query = query.eq('team', filters.team);
+  }
+
+  // Apply industry filter
+  if (filters.industry) {
+    query = query.eq('industry', filters.industry);
+  }
+
+  // Apply search query
+  if (filters.searchQuery && filters.searchQuery.trim()) {
+    const searchTerm = filters.searchQuery.trim();
+    query = query.or(`name.ilike.%${searchTerm}%,industry.ilike.%${searchTerm}%,contact_person.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+  }
+
+  // Apply sorting
+  if (filters.sortBy && filters.sortBy !== 'none') {
+    switch (filters.sortBy) {
+      case 'name':
+        query = query.order('name', { ascending: true });
+        break;
+      case 'dateAdded':
+        query = query.order('date_added', { ascending: false }); // Newest first
+        break;
+    }
+  } else {
+    // Default sorting by name
+    query = query.order('name', { ascending: true });
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error searching clients:', error);
+    throw error;
+  }
+
+  return data.map(mapFromDbClient);
+};
+
+// Get clients by team with database filtering
+export const getFilteredClientsByTeam = async (
+  teamId: TeamType,
+  searchQuery?: string,
+  industry?: string,
+  sortBy?: 'name' | 'dateAdded' | 'none'
+): Promise<Client[]> => {
+  return searchClients({
+    team: teamId,
+    searchQuery,
+    industry,
+    sortBy
+  });
 }; 

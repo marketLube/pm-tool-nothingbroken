@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { useStatus } from '../../contexts/StatusContext';
+import { useAuth } from '../../contexts/AuthContext';
 import TaskStats from '../../components/dashboard/TaskStats';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import Avatar from '../../components/ui/Avatar';
@@ -24,12 +25,19 @@ import {
   Building,
   ChevronDown,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
+  BarChart3,
+  Target,
+  Activity,
+  Search,
+  Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import NewTaskModal from '../../components/tasks/NewTaskModal';
 import { Task, User } from '../../types';
 import PermissionGuard from '../../components/auth/PermissionGuard';
+import { getIndiaDate } from '../../utils/timezone';
+import { useDebounce } from '../../hooks/useDebounce';
 
 // Modal component for employee tasks
 interface EmployeeTasksModalProps {
@@ -92,36 +100,89 @@ const EmployeeTasksModal: React.FC<EmployeeTasksModalProps> = ({ isOpen, onClose
 };
 
 const WebTeam: React.FC = () => {
-  const { getUsersByTeam, getTasksByTeam, getTasksByUser, getReportsByUser, getClientsByTeam, getClientById } = useData();
+  const { 
+    getUsersByTeam, 
+    getReportsByUser, 
+    getClientsByTeam, 
+    getClientById, 
+    searchTasks,
+    searchUsers
+  } = useData();
   const { getStatusesByTeam } = useStatus();
+  const { currentUser } = useAuth();
   
+  // Core state
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [employeeTasksModalOpen, setEmployeeTasksModalOpen] = useState(false);
   
+  // Database search state
+  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounced search query to optimize database calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
+  
+  // Team data
   const teamMembers = getUsersByTeam('web');
-  const teamTasks = getTasksByTeam('web');
   const teamStatuses = getStatusesByTeam('web');
   const teamClients = getClientsByTeam('web');
   
+  // Database search effect - replaces all client-side filtering
+  useEffect(() => {
+    const performSearch = async () => {
+      setIsSearching(true);
+      try {
+        // Build search filters based on current state
+        const filters = {
+          team: 'web' as const,
+          searchQuery: debouncedSearchQuery || undefined,
+          clientId: selectedClient || undefined,
+          assigneeId: selectedEmployee?.id || undefined,
+          sortBy: 'createdDate' as const
+        };
+
+        const searchResults = await searchTasks(filters);
+        setFilteredTasks(searchResults);
+        
+        console.log(`[WebTeam Database Search] Found ${searchResults.length} tasks`);
+      } catch (error) {
+        console.error('Error performing database search:', error);
+        setFilteredTasks([]);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    performSearch();
+  }, [
+    debouncedSearchQuery,
+    selectedClient,
+    selectedEmployee?.id,
+    searchTasks
+  ]);
+  
   // Group tasks by status
   const tasksByStatus = teamStatuses.reduce((acc, status) => {
-    acc[status.id] = teamTasks.filter(task => task.status === status.id);
+    acc[status.id] = filteredTasks.filter(task => task.status === status.id);
     return acc;
-  }, {} as Record<string, typeof teamTasks>);
+  }, {} as Record<string, typeof filteredTasks>);
   
   // Group tasks by client
   const tasksByClient = Object.entries(
-    teamTasks.reduce((acc, task) => {
-      if (!acc[task.clientId]) {
-        acc[task.clientId] = [];
+    filteredTasks.reduce((acc, task) => {
+      const clientId = task.clientId || 'unassigned';
+      if (!acc[clientId]) {
+        acc[clientId] = [];
       }
-      acc[task.clientId].push(task);
+      acc[clientId].push(task);
       return acc;
-    }, {} as Record<string, typeof teamTasks>)
+    }, {} as Record<string, typeof filteredTasks>)
   ).map(([clientId, tasks]) => ({
-    client: getClientById(clientId),
+    client: clientId !== 'unassigned' ? getClientById(clientId) : null,
     clientId,
     tasks,
     activeTasks: tasks.filter(task => task.status !== 'completed').length,
@@ -130,7 +191,7 @@ const WebTeam: React.FC = () => {
   
   // Member completion rates
   const getMemberCompletionRate = (userId: string) => {
-    const userTasks = getTasksByUser(userId);
+    const userTasks = filteredTasks.filter(task => task.assigneeId === userId);
     if (userTasks.length === 0) return 0;
     
     const completedTasks = userTasks.filter(task => task.status === 'completed').length;
@@ -140,17 +201,19 @@ const WebTeam: React.FC = () => {
   // Get recent reports
   const getMemberRecentReports = (userId: string) => {
     const reports = getReportsByUser(userId);
-    return reports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+    return reports.sort((a, b) => {
+      const dateA = new Date(b.date);
+      const dateB = new Date(a.date);
+      return dateA.getTime() - dateB.getTime();
+    }).slice(0, 5);
   };
   
   // Handle employee selection
   const handleEmployeeClick = (employee: User) => {
     if (selectedEmployee && selectedEmployee.id === employee.id) {
-      // Clicking the same employee again clears the filter
       setSelectedEmployee(null);
     } else {
       setSelectedEmployee(employee);
-      // Clear client filter when selecting an employee
       setSelectedClient(null);
     }
   };
@@ -158,15 +221,11 @@ const WebTeam: React.FC = () => {
   // Handle client selection
   const handleClientClick = (clientId: string) => {
     if (selectedClient === clientId) {
-      // Clicking the same client again clears the filter
       setSelectedClient(null);
     } else {
       setSelectedClient(clientId);
-      // Clear employee filter when selecting a client
       setSelectedEmployee(null);
     }
-    
-    // Close dropdown if open
     setClientDropdownOpen(false);
   };
   
@@ -174,6 +233,7 @@ const WebTeam: React.FC = () => {
   const clearFilters = () => {
     setSelectedEmployee(null);
     setSelectedClient(null);
+    setSearchQuery('');
   };
   
   // Toggle client dropdown
@@ -188,46 +248,49 @@ const WebTeam: React.FC = () => {
   };
   
   // Team performance stats
-  const totalTasks = teamTasks.length;
-  const completedTasks = teamTasks.filter(task => task.status === 'completed').length;
-  const inProgressTasks = teamTasks.filter(task => 
+  const totalTasks = filteredTasks.length;
+  const completedTasks = filteredTasks.filter(task => task.status === 'completed').length;
+  const inProgressTasks = filteredTasks.filter(task => 
     task.status !== 'not_started' && 
     task.status !== 'proposal_awaiting' && 
     task.status !== 'completed'
   ).length;
-  const notStartedTasks = teamTasks.filter(task => 
+  const notStartedTasks = filteredTasks.filter(task => 
     task.status === 'not_started' || 
     task.status === 'proposal_awaiting'
   ).length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
   
-  // Filter tasks based on selections
-  const getFilteredTasks = () => {
-    let filtered = teamTasks.filter(task => task.status !== 'completed');
-    
-    if (selectedEmployee) {
-      filtered = filtered.filter(task => task.assigneeId === selectedEmployee.id);
-    }
-    
-    if (selectedClient) {
-      filtered = filtered.filter(task => task.clientId === selectedClient);
-    }
-    
-    // Sort by priority and due date
-    filtered.sort((a, b) => {
-      // Sort by priority
-      const priorityOrder = { high: 0, medium: 1, low: 2 };
-      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
-      if (priorityDiff !== 0) return priorityDiff;
-      
-      // Then sort by due date
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+  // Sort reports by date (most recent first)
+  const sortedReports = useMemo(() => {
+    return [...getMemberRecentReports(selectedEmployee?.id || '')].sort((a, b) => {
+      const dateA = new Date(b.date);
+      const dateB = new Date(a.date);
+      return dateA.getTime() - dateB.getTime();
     });
-    
-    return filtered;
-  };
+  }, [selectedEmployee]);
   
-  const filteredTasks = getFilteredTasks();
+  // Sort tasks by due date
+  const sortedTasks = useMemo(() => {
+    return [...filteredTasks].sort((a, b) => {
+      const dateA = new Date(a.dueDate);
+      const dateB = new Date(b.dueDate);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [filteredTasks]);
+  
+  // Sort overdue tasks by due date
+  const sortedOverdueTasks = useMemo(() => {
+    return [...filteredTasks].filter(task => {
+      const today = getIndiaDate();
+      const dueDate = new Date(task.dueDate);
+      return dueDate < new Date(today);
+    }).sort((a, b) => {
+      const dateA = new Date(a.dueDate);
+      const dateB = new Date(b.dueDate);
+      return dateA.getTime() - dateB.getTime();
+    });
+  }, [filteredTasks]);
   
   // Add scroll container ref for horizontal scrolling
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -244,7 +307,22 @@ const WebTeam: React.FC = () => {
     }
   };
   
-
+  const getUpcomingTasks = () => {
+    const today = getIndiaDate();
+    return filteredTasks
+      .filter(task => 
+        selectedEmployee && 
+        task.assigneeId === selectedEmployee.id && 
+        task.status !== 'done' && 
+        task.dueDate >= today
+      )
+      .sort((a, b) => {
+        const dateA = new Date(a.dueDate);
+        const dateB = new Date(b.dueDate);
+        return dateA.getTime() - dateB.getTime();
+      })
+      .slice(0, 5);
+  };
   
   return (
     <div className="space-y-6">
@@ -406,8 +484,8 @@ const WebTeam: React.FC = () => {
               <ul className="divide-y divide-gray-100">
                 {teamMembers.map(member => {
                   const completionRate = getMemberCompletionRate(member.id);
-                  const memberTasks = getTasksByUser(member.id);
-                  const activeTasks = memberTasks.filter(task => task.status !== 'completed').length;
+                  const memberTasks = filteredTasks.filter(task => task.assigneeId === member.id);
+                  const activeTasks = memberTasks.length;
                   
                   return (
                     <li 
@@ -528,9 +606,9 @@ const WebTeam: React.FC = () => {
               </div>
             </CardHeader>
             <CardContent className="p-4">
-              {filteredTasks.length > 0 ? (
+              {sortedTasks.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredTasks.map(task => (
+                  {sortedTasks.map(task => (
                     <TaskCard 
                       key={task.id} 
                       task={task} 

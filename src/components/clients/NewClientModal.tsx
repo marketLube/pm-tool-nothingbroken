@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import { Client, TeamType } from '../../types';
 import { useData } from '../../contexts/DataContext';
+import { getIndiaDate } from '../../utils/timezone';
 
 interface NewClientModalProps {
   isOpen: boolean;
@@ -20,18 +21,39 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
 }) => {
   const { addClient, updateClient } = useData();
   
-  const [formData, setFormData] = useState<Partial<Client>>(
-    initialData || {
-      name: '',
-      industry: '',
-      contactPerson: '',
-      email: '',
-      phone: '',
-      team: team
-    }
-  );
+  const [formData, setFormData] = useState<Omit<Client, 'id'>>({
+    name: '',
+    email: '',
+    phone: '',
+    company: '',
+    notes: '',
+    team: 'web',
+    dateAdded: getIndiaDate(),
+  });
   
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        name: initialData.name || '',
+        email: initialData.email || '',
+        phone: initialData.phone || '',
+        notes: initialData.notes || '',
+        team: initialData.team || 'web',
+        dateAdded: initialData.dateAdded || getIndiaDate(),
+      });
+    } else {
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        notes: '',
+        team: 'web',
+        dateAdded: getIndiaDate(),
+      });
+    }
+  }, [initialData, isOpen]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

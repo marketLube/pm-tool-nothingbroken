@@ -16,6 +16,7 @@ import {
   FileText
 } from 'lucide-react';
 import { TeamType, Client, User as UserType } from '../../types';
+import { getIndiaDate } from '../../utils/timezone';
 
 interface SocialCalendarTask {
   id: string;
@@ -54,7 +55,7 @@ const SocialCalendarTaskModal: React.FC<SocialCalendarTaskModalProps> = ({
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+    date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : getIndiaDate(),
     clientId: '',
     team: 'creative' as TeamType,
     assigneeId: '',
@@ -83,7 +84,7 @@ const SocialCalendarTaskModal: React.FC<SocialCalendarTaskModalProps> = ({
       setFormData({
         title: '',
         description: '',
-        date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+        date: selectedDate ? format(selectedDate, 'yyyy-MM-dd') : getIndiaDate(),
         clientId: '',
         team: 'creative',
         assigneeId: '',
@@ -358,7 +359,9 @@ const SocialCalendarTaskModal: React.FC<SocialCalendarTaskModalProps> = ({
                 </div>
                 <div className="flex items-center">
                   <span className="font-medium text-gray-600 w-20">Date:</span>
-                  <span className="text-gray-900">{format(new Date(formData.date), 'MMMM d, yyyy')}</span>
+                  <div className="text-center">
+                    <span className="text-gray-900">{format(new Date(formData.date), 'MMMM d, yyyy')}</span>
+                  </div>
                 </div>
                 <div className="flex items-center">
                   <span className="font-medium text-gray-600 w-20">Team:</span>

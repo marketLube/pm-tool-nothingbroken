@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths, startOfWeek, endOfWeek } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths, startOfWeek, endOfWeek, parseISO } from 'date-fns';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Select from '../components/ui/Select';
@@ -35,11 +36,11 @@ interface SocialCalendarTask {
 }
 
 const SocialCalendar: React.FC = () => {
-  const { clients, refreshClients } = useData();
+  const { clients, refreshClients, users } = useData();
   const { currentUser, isAdmin } = useAuth();
   
   // Calendar state
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(getIndiaDateTime());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [socialTasks, setSocialTasks] = useState<SocialCalendarTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +72,8 @@ const SocialCalendar: React.FC = () => {
   // Refs for cleanup
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   // Refresh client list when component mounts and periodically
   useEffect(() => {
@@ -162,10 +165,67 @@ const SocialCalendar: React.FC = () => {
   const createTable = async () => {
     try {
       console.log('Creating social_calendar_tasks table...');
-      console.log('Please create the social_calendar_tasks table in your database using the provided SQL script');
-      setSocialTasks([]); // Set empty tasks for now
+      
+      // Try to create the table directly using SQL
+      const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS social_calendar_tasks (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          title TEXT NOT NULL,
+          date DATE NOT NULL,
+          client_id UUID NOT NULL,
+          team TEXT NOT NULL CHECK (team IN ('creative', 'web')),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        
+        CREATE INDEX IF NOT EXISTS social_calendar_tasks_date_idx ON social_calendar_tasks(date);
+        CREATE INDEX IF NOT EXISTS social_calendar_tasks_client_id_idx ON social_calendar_tasks(client_id);
+        CREATE INDEX IF NOT EXISTS social_calendar_tasks_team_idx ON social_calendar_tasks(team);
+        
+        ALTER TABLE social_calendar_tasks ENABLE ROW LEVEL SECURITY;
+        
+        CREATE POLICY IF NOT EXISTS "Users can manage social calendar tasks"
+          ON social_calendar_tasks FOR ALL
+          TO authenticated
+          USING (true)
+          WITH CHECK (true);
+      `;
+      
+      const { error } = await supabase.rpc('exec_sql', { sql: createTableSQL });
+      
+      if (error) {
+        console.error('Error creating table with RPC:', error);
+        
+        // Fallback: Try just a simple insert to test if table exists
+        const { error: testError } = await supabase
+          .from('social_calendar_tasks')
+          .select('id')
+          .limit(1);
+        
+        if (testError && testError.message.includes('does not exist')) {
+          console.error('social_calendar_tasks table does not exist and cannot be created automatically.');
+          alert(
+            'The social calendar database table needs to be set up manually. ' +
+            'Please contact your administrator to run the table creation script. ' +
+            'This is required after database changes.'
+          );
+          return;
+        } else {
+          console.log('Table appears to exist, continuing...');
+        }
+      } else {
+        console.log('social_calendar_tasks table created successfully');
+      }
+      
+      setSocialTasks([]); // Set empty tasks after table creation
+      
     } catch (error) {
       console.error('Error creating table:', error);
+      alert(
+        'Failed to create the social calendar table. ' +
+        'Please contact your administrator to set up the database manually. ' +
+        'The table creation script needs to be run in Supabase.'
+      );
     }
   };
 
@@ -247,91 +307,73 @@ const SocialCalendar: React.FC = () => {
     if (dayTasks.length > 3) {
       const dateStr = format(day, 'yyyy-MM-dd');
       
-      // Clear any pending timeouts for immediate response
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-        hideTimeoutRef.current = null;
-      }
-      if (showTimeoutRef.current) {
-        clearTimeout(showTimeoutRef.current);
-        showTimeoutRef.current = null;
-      }
+      // Clear any existing timeouts
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+      if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current);
       
-      // Set tooltip data immediately for fast response
-      setHoveredDay(dateStr);
-      setIsDayHovered(true);
-      setIsTooltipVisible(true);
-      
-      // Calculate position with better viewport handling
+      // Set position
       const rect = event.currentTarget.getBoundingClientRect();
-      const viewport = {
-        width: window.innerWidth,
-        height: window.innerHeight,
-        scrollY: window.scrollY
-      };
+      setTooltipPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10
+      });
       
-      let tooltipX = rect.left + rect.width / 2;
-      let tooltipY = rect.top + viewport.scrollY;
+      setHoveredDay(dateStr);
       
-      // Ensure tooltip stays within viewport
-      const tooltipWidth = 400; // max-w-[400px]
-      if (tooltipX + tooltipWidth / 2 > viewport.width) {
-        tooltipX = viewport.width - tooltipWidth / 2 - 20;
-      }
-      if (tooltipX - tooltipWidth / 2 < 0) {
-        tooltipX = tooltipWidth / 2 + 20;
-      }
-      
-      setTooltipPosition({ x: tooltipX, y: tooltipY });
+      // Show tooltip with delay
+      showTimeoutRef.current = setTimeout(() => {
+        if (isDayHovered) { // Only show if still hovering
+          setIsTooltipVisible(true);
+        }
+      }, 300);
     }
   };
 
   const handleDayMouseLeave = () => {
-    setIsDayHovered(false);
-    // Don't hide immediately - let the useEffect handle it with proper delay
+    // Clear show timeout if leaving before it triggers
+    if (showTimeoutRef.current) clearTimeout(showTimeoutRef.current);
+    
+    // Hide tooltip with delay (unless tooltip is being hovered)
+    hideTimeoutRef.current = setTimeout(() => {
+      if (!isTooltipHovered) {
+        setIsTooltipVisible(false);
+        setHoveredDay(null);
+      }
+    }, 200);
   };
 
-  // Handle tooltip hover to keep it visible
   const handleTooltipMouseEnter = () => {
-    // Clear any pending hide timeout when entering tooltip
-    if (hideTimeoutRef.current) {
-      clearTimeout(hideTimeoutRef.current);
-      hideTimeoutRef.current = null;
-    }
     setIsTooltipHovered(true);
+    // Clear hide timeout when hovering tooltip
+    if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
   };
 
   const handleTooltipMouseLeave = () => {
     setIsTooltipHovered(false);
-    // The useEffect will handle hiding with proper delay
+    // Hide tooltip when leaving it
+    setIsTooltipVisible(false);
+    setHoveredDay(null);
   };
 
-  // Navigation functions
   const navigateMonth = (direction: 'prev' | 'next') => {
-    setCurrentDate(prev => direction === 'next' ? addMonths(prev, 1) : subMonths(prev, 1));
+    setCurrentDate(prev => direction === 'prev' ? subMonths(prev, 1) : addMonths(prev, 1));
   };
 
-  const goToToday = () => {
-    setCurrentDate(new Date());
+  const handleToday = () => {
+    setCurrentDate(getIndiaDateTime());
   };
 
-  // Manual refresh clients function
   const handleRefreshClients = async () => {
     setRefreshingClients(true);
     try {
       await refreshClients();
-    } catch (error) {
-      console.error('Failed to refresh clients:', error);
     } finally {
       setRefreshingClients(false);
     }
   };
 
-  // Task management functions
   const handleAddTask = (date?: Date) => {
-    if (date) {
-      setSelectedDate(date);
-    }
+    setSelectedDate(date || null);
     setEditingTask(null);
     setTaskModalOpen(true);
   };
@@ -342,219 +384,180 @@ const SocialCalendar: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (window.confirm('Are you sure you want to delete this task?')) {
-      try {
-        const { error } = await supabase
-          .from('social_calendar_tasks')
-          .delete()
-          .eq('id', taskId);
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('social_calendar_tasks')
+        .delete()
+        .eq('id', taskId);
 
-        if (error) {
-          console.error('Error deleting task:', error);
-          alert('Failed to delete task. Please try again.');
-        } else {
-          // Remove from local state
-          setSocialTasks(prev => prev.filter(task => task.id !== taskId));
-        }
-      } catch (err) {
-        console.error('Failed to delete task:', err);
-        alert('Failed to delete task. Please try again.');
-      }
+      if (error) throw error;
+      
+      // Refresh tasks
+      loadTasks();
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Failed to delete task. Please try again.');
     }
   };
 
   const handleSaveTask = async (title: string, date: string) => {
     if (!selectedClientId || !currentClient) {
-      alert('Please select a client first');
+      console.error('Missing required data:', { selectedClientId, currentClient });
+      alert('Please select a client before saving the task.');
       return;
     }
+    
+    const taskData = {
+      title,
+      date,
+      client_id: selectedClientId,
+      client_name: currentClient.name,
+      team: currentClient.team
+    };
+
+    console.log('Saving task with data:', taskData);
 
     try {
       if (editingTask) {
         // Update existing task
-        const { data, error } = await supabase
+        const updateData = {
+          title,
+          date,
+          client_id: selectedClientId,
+          client_name: currentClient.name,
+          team: currentClient.team
+        };
+        
+        console.log('Updating task with data:', updateData);
+        
+        const { error } = await supabase
           .from('social_calendar_tasks')
-          .update({ 
-            title, 
-            date,
-            client_name: currentClient.name, // Update client name too
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', editingTask.id)
-          .select()
-          .single();
+          .update(updateData)
+          .eq('id', editingTask.id);
 
         if (error) {
-          console.error('Error updating task:', error);
-          alert('Failed to update task. Please try again.');
-        } else {
-          // Update local state
-          setSocialTasks(prev => prev.map(task => 
-            task.id === editingTask.id ? data : task
-          ));
+          console.error('Update error details:', error);
+          throw error;
         }
       } else {
-        // Create new task with client-specific data
-        // Use the selected team or current client's team
-        const taskTeam = selectedTeam !== 'all' ? selectedTeam : currentClient.team;
+        // Create new task
+        console.log('Creating new task with data:', taskData);
         
-        const { data, error } = await supabase
+        const { data: insertData, error } = await supabase
           .from('social_calendar_tasks')
-          .insert({
-            title,
-            date,
-            client_id: selectedClientId,
-            client_name: currentClient.name, // Store client name for easy reference
-            team: taskTeam
-          })
-          .select()
-          .single();
+          .insert([taskData])
+          .select();
 
         if (error) {
-          console.error('Error creating task:', error);
-          alert('Failed to create task. Please try again.');
-        } else {
-          // Add to local state
-          setSocialTasks(prev => [...prev, data]);
+          console.error('Insert error details:', error);
+          console.error('Error message:', error.message);
+          console.error('Error code:', error.code);
+          console.error('Error details:', error.details);
+          throw error;
         }
+        
+        console.log('Task created successfully:', insertData);
       }
       
+      // Refresh tasks and close modal
+      loadTasks();
       setTaskModalOpen(false);
       setEditingTask(null);
       setSelectedDate(null);
-    } catch (err) {
-      console.error('Failed to save task:', err);
-      alert('Failed to save task. Please try again.');
+      
+    } catch (error: any) {
+      console.error('Error saving task:', error);
+      
+      // Provide more specific error messages
+      let errorMessage = 'Failed to save task. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('violates foreign key constraint')) {
+          errorMessage = 'The selected client is invalid. Please refresh the page and try again.';
+        } else if (error.message.includes('violates check constraint')) {
+          errorMessage = 'Invalid team value. Please contact support.';
+        } else if (error.message.includes('duplicate key value')) {
+          errorMessage = 'A task with this information already exists.';
+        } else if (error.message.includes('permission denied')) {
+          errorMessage = 'You don\'t have permission to save tasks.';
+        } else if (error.message.includes('violates not-null constraint')) {
+          errorMessage = 'Missing required information. Please try again.';
+        } else {
+          errorMessage = `Database error: ${error.message}`;
+        }
+      }
+      
+      alert(errorMessage);
     }
   };
 
-  // Export calendar functionality
   const handleExportCalendar = async () => {
-    console.log('Export button clicked!', { selectedClientId, currentClient, currentUser });
-    
-    if (!selectedClientId || !currentClient) {
-      alert('Please select a client first');
-      return;
-    }
-
-    setIsExporting(true);
-    console.log('Starting export process...');
-    
     try {
-      // Generate a unique token for the export
-      const exportToken = `export_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      console.log('Generated token:', exportToken);
+      setIsExporting(true);
       
-      // Prepare export data WITHOUT created_by to avoid foreign key issues
-      const exportData = {
-        token: exportToken,
-        client_id: selectedClientId,
-        client_name: currentClient.name,
-        team: selectedTeam === 'all' ? 'all' : selectedTeam,
-        tasks: socialTasks,
-        created_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString() // 45 days
-        // REMOVED created_by field to avoid foreign key constraint issues
+      const tasksToExport = socialTasks.filter(task => {
+        if (selectedTeam === 'all') return true;
+        return task.team === selectedTeam;
+      });
+
+      const calendarData = {
+        tasks: tasksToExport,
+        exported_by: currentUser?.id,
+        exported_at: getIndiaDateTime().toISOString(),
+        team: selectedTeam,
+        month: format(currentDate, 'yyyy-MM'),
+        created_at: getIndiaDateTime().toISOString(),
+        expires_at: new Date(getIndiaDateTime().getTime() + 45 * 24 * 60 * 60 * 1000).toISOString() // 45 days
       };
-      
-      console.log('Export data prepared:', exportData);
 
-      // Store export data in database
-      console.log('Inserting into database...');
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('calendar_exports')
-        .insert(exportData);
+        .insert([calendarData])
+        .select()
+        .single();
 
-      if (error) {
-        console.error('Error creating export:', error);
-        alert(`Failed to create export: ${error.message}`);
-      } else {
-        console.log('Export created successfully!');
-        // Generate the shareable URL
-        const baseUrl = window.location.origin;
-        const shareableUrl = `${baseUrl}/calendar-export/${exportToken}`;
-        console.log('Generated URL:', shareableUrl);
-        setExportUrl(shareableUrl);
-        setShowExportModal(true);
+      if (error) throw error;
+
+      const exportUrl = `${window.location.origin}/calendar-export/${data.id}`;
+      setExportUrl(exportUrl);
+      setShowExportModal(true);
+
+      // Copy to clipboard
+      try {
+        await navigator.clipboard.writeText(exportUrl);
+        console.log('Export URL copied to clipboard');
+      } catch (clipboardError) {
+        console.log('Could not copy to clipboard, showing URL for manual copy');
       }
-    } catch (err) {
-      console.error('Failed to export calendar:', err);
+
+    } catch (error) {
+      console.error('Error exporting calendar:', error);
       alert('Failed to export calendar. Please try again.');
     } finally {
       setIsExporting(false);
     }
   };
 
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  // Control tooltip visibility based on hover states - FIXED VERSION
-  useEffect(() => {
-    // Debug logging to track state changes
-    console.log('Hover states:', { isDayHovered, isTooltipHovered, hoveredDay, isTooltipVisible });
-    
-    if (isDayHovered || isTooltipHovered) {
-      // Clear any pending hide timeout when hovering
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-        hideTimeoutRef.current = null;
-      }
-      
-      // Show tooltip immediately if we have a hovered day
-      if (hoveredDay && !isTooltipVisible) {
-        setIsTooltipVisible(true);
-      }
-    } else {
-      // Neither day nor tooltip is hovered - hide with reasonable delay
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-      }
-      
-      // Add a reasonable delay before hiding (500ms)
-      hideTimeoutRef.current = setTimeout(() => {
-        setIsTooltipVisible(false);
-        setHoveredDay(null);
-      }, 500);
-    }
-    
-    // Cleanup function
-    return () => {
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
-        hideTimeoutRef.current = null;
-      }
-    };
-  }, [isDayHovered, isTooltipHovered, hoveredDay, isTooltipVisible]);
-
-  // Additional cleanup when hoveredDay changes or becomes null
-  useEffect(() => {
-    if (!hoveredDay) {
-      setIsTooltipVisible(false);
-      setIsDayHovered(false);
-      setIsTooltipHovered(false);
-    }
-  }, [hoveredDay]);
-
   return (
     <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-            <CalendarIcon className="h-8 w-8 mr-3 text-blue-600" />
-            {getPageTitle()}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Plan and manage {selectedTeam === 'web' ? 'project content' : selectedTeam === 'creative' ? 'social media content' : 'content'} for {currentClient?.name || 'selected client'}
-            {selectedClientId && (
-              <span className="text-sm text-gray-500 ml-2">
-                • {socialTasks.length} tasks total
-              </span>
-            )}
-          </p>
-        </div>
-        
-        <div className="flex items-center space-x-3">
-          {/* Team Filter (Admin Only) */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <CalendarIcon className="h-8 w-8 text-blue-600" />
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">{getPageTitle()}</h1>
+              {currentClient && (
+                <p className="text-lg text-gray-600 mt-1">
+                  {currentClient.name} • {format(currentDate, 'MMMM yyyy')}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          {/* Team Dropdown (Admin only) */}
           {isAdmin && (
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-700">Team:</span>
@@ -675,7 +678,7 @@ const SocialCalendar: React.FC = () => {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={goToToday}
+                  onClick={handleToday}
                   className="bg-white/20 text-white hover:bg-white/30 border-white/30"
                 >
                   Today
@@ -720,7 +723,6 @@ const SocialCalendar: React.FC = () => {
                       onMouseLeave={() => {
                         handleDayMouseLeave();
                         setIsDayHovered(false);
-                        // Remove the problematic setTimeout - let useEffect handle hiding
                       }}
                     >
                       {/* Date Header */}
@@ -755,29 +757,22 @@ const SocialCalendar: React.FC = () => {
                           >
                             <div className={`text-xs p-1.5 rounded cursor-pointer transition-all hover:shadow-md ${
                               task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
-                            } text-white truncate`}>
+                            } text-white truncate`}
+                              onClick={() => handleEditTask(task)}
+                              title={task.title}
+                            >
                               <div className="flex items-center justify-between">
-                                <span className="truncate font-medium">{task.title}</span>
-                                
-                                {/* Task Actions */}
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditTask(task);
-                                    }}
-                                    className="p-0.5 hover:bg-white/20 rounded"
-                                  >
-                                    <Edit className="h-2.5 w-2.5" />
-                                  </button>
+                                <span className="truncate">{task.title}</span>
+                                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Edit className="h-3 w-3" />
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleDeleteTask(task.id);
                                     }}
-                                    className="p-0.5 hover:bg-white/20 rounded"
+                                    className="text-white hover:text-red-200"
                                   >
-                                    <Trash2 className="h-2.5 w-2.5" />
+                                    <Trash2 className="h-3 w-3" />
                                   </button>
                                 </div>
                               </div>
@@ -785,10 +780,10 @@ const SocialCalendar: React.FC = () => {
                           </div>
                         ))}
                         
-                        {/* Show more indicator with hover hint */}
+                        {/* Show more indicator */}
                         {dayTasks.length > 3 && (
-                          <div className="text-xs text-gray-500 font-medium pl-1 cursor-help">
-                            +{dayTasks.length - 3} more (hover to see all)
+                          <div className="text-xs text-gray-500 font-medium pl-1.5">
+                            +{dayTasks.length - 3} more
                           </div>
                         )}
                       </div>
@@ -799,141 +794,144 @@ const SocialCalendar: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Hover Tooltip for All Tasks - IMPROVED WITH ANIMATIONS */}
-          {hoveredDay && isTooltipVisible && (
+          {/* Tooltip for extra tasks - IMPROVED STYLED POPUP */}
+          {isTooltipVisible && hoveredDay && (
             <div
-              className={`fixed z-50 transform -translate-x-1/2 -translate-y-full pointer-events-auto transition-all duration-200 ease-in-out ${
-                isTooltipVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
-              }`}
+              className="fixed z-50 pointer-events-auto"
               style={{
                 left: tooltipPosition.x,
-                top: tooltipPosition.y - 10,
+                top: tooltipPosition.y,
+                transform: 'translate(-50%, -100%)'
               }}
               onMouseEnter={handleTooltipMouseEnter}
               onMouseLeave={handleTooltipMouseLeave}
             >
-              <div className="bg-white rounded-lg shadow-2xl border border-gray-200 p-4 min-w-[320px] max-w-[400px] transform transition-all duration-200 ease-in-out">
+              {/* Arrow pointing down */}
+              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
+                <div className="w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-white"></div>
+                <div className="w-0 h-0 border-l-[9px] border-r-[9px] border-t-[9px] border-l-transparent border-r-transparent border-t-gray-200 absolute -top-[1px] left-1/2 transform -translate-x-1/2"></div>
+              </div>
+              
+              {/* Main popup card */}
+              <div className="bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden max-w-sm w-80 mb-2">
                 {/* Header */}
-                <div className="mb-3 border-b border-gray-100 pb-3">
-                  <h4 className="font-semibold text-gray-900 text-base">
-                    {format(new Date(hoveredDay), 'EEEE, MMMM d, yyyy')}
-                  </h4>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {getTasksForDate(new Date(hoveredDay)).length} tasks for {currentClient?.name}
-                  </p>
-                </div>
-                
-                {/* Scrollable Task List */}
-                <div 
-                  className="space-y-3 max-h-80 overflow-y-auto pr-2 scroll-smooth"
-                  style={{ 
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: '#e5e7eb #f3f4f6'
-                  }}
-                  onMouseEnter={(e) => e.stopPropagation()}
-                  onMouseLeave={(e) => e.stopPropagation()}
-                  onWheel={(e) => e.stopPropagation()}
-                >
-                  {getTasksForDate(new Date(hoveredDay)).map((task, index) => (
-                    <div
-                      key={task.id}
-                      className={`p-3 rounded-lg border-l-4 transition-all duration-200 hover:shadow-md hover:scale-[1.02] ${
-                        task.team === 'creative' 
-                          ? 'bg-purple-50 border-purple-400 hover:bg-purple-100' 
-                          : 'bg-blue-50 border-blue-400 hover:bg-blue-100'
-                      }`}
-                      style={{
-                        animationDelay: `${index * 50}ms`,
-                        animationFillMode: 'both'
-                      }}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <h5 className="text-sm font-medium text-gray-900 leading-relaxed flex-1 pr-2">
-                          {task.title}
-                        </h5>
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 transition-all duration-150 ${
-                          task.team === 'creative' 
-                            ? 'bg-purple-100 text-purple-700 border border-purple-200' 
-                            : 'bg-blue-100 text-blue-700 border border-blue-200'
-                        }`}>
-                          {task.team === 'creative' ? 'Creative' : 'Web'}
-                        </span>
-                      </div>
-                      <div className="flex items-center text-xs text-gray-500">
-                        <CalendarIcon className="h-3 w-3 mr-2 flex-shrink-0" />
-                        <span>Created {format(new Date(task.created_at), 'MMM d, h:mm a')}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                
-                {/* Scroll Hint */}
-                {getTasksForDate(new Date(hoveredDay)).length > 5 && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 animate-pulse">
-                    <p className="text-xs text-gray-400 text-center flex items-center justify-center">
-                      <span className="mr-1 animate-bounce">↕</span>
-                      Scroll inside this area to see all tasks
-                    </p>
+                <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3">
+                  <div className="flex items-center justify-between text-white">
+                    <h4 className="font-semibold text-sm">
+                      {format(parseISO(hoveredDay), 'MMMM d, yyyy')}
+                    </h4>
+                    <span className="text-xs bg-white/20 px-2 py-1 rounded-full">
+                      {getTasksForDate(parseISO(hoveredDay)).length} tasks
+                    </span>
                   </div>
-                )}
+                </div>
                 
-                {/* Tooltip Arrow */}
-                <div className="absolute top-full left-1/2 transform -translate-x-1/2">
-                  <div className="w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-transparent border-t-white"></div>
-                  <div className="w-0 h-0 border-l-[9px] border-r-[9px] border-t-[9px] border-transparent border-t-gray-200 -mt-[9px]"></div>
+                {/* Task list */}
+                <div className="max-h-80 overflow-y-auto">
+                  <div className="p-3 space-y-2">
+                    {/* Show first 3 tasks as summary */}
+                    {getTasksForDate(parseISO(hoveredDay)).slice(0, 3).map((task, index) => (
+                      <div key={`summary-${task.id}`} className="flex items-center space-x-2 text-xs text-gray-600 border-b border-gray-100 pb-1">
+                        <div className={`w-2 h-2 rounded-full ${
+                          task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                        }`}></div>
+                        <span className="truncate">{task.title}</span>
+                      </div>
+                    ))}
+                    
+                    {getTasksForDate(parseISO(hoveredDay)).length > 3 && (
+                      <div className="border-t border-gray-200 pt-2 mt-2">
+                        <h5 className="text-xs font-medium text-gray-700 mb-2">Additional Tasks:</h5>
+                      </div>
+                    )}
+                    
+                    {/* Show the overflow tasks with better styling */}
+                    {getTasksForDate(parseISO(hoveredDay)).slice(3).map((task, index) => (
+                      <div
+                        key={task.id}
+                        className={`group relative rounded-md border p-3 transition-all duration-200 hover:shadow-md cursor-pointer ${
+                          task.team === 'creative' 
+                            ? 'border-purple-200 bg-purple-50 hover:bg-purple-100' 
+                            : 'border-blue-200 bg-blue-50 hover:bg-blue-100'
+                        }`}
+                        onClick={() => handleEditTask(task)}
+                      >
+                        {/* Team indicator stripe */}
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${
+                          task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                        }`}></div>
+                        
+                        <div className="ml-1">
+                          {/* Task title */}
+                          <h6 className="font-medium text-sm text-gray-900 mb-1 line-clamp-2">
+                            {task.title}
+                          </h6>
+                          
+                          {/* Task meta info */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                task.team === 'creative'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {task.team === 'creative' ? 'Creative' : 'Web'}
+                              </span>
+                              
+                              {task.client_name && (
+                                <span className="text-xs text-gray-600 truncate max-w-24">
+                                  {task.client_name}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {/* Action buttons on hover */}
+                            <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditTask(task);
+                                }}
+                                className="p-1 rounded hover:bg-white/50 transition-colors"
+                                title="Edit task"
+                              >
+                                <Edit className="h-3 w-3 text-gray-600" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteTask(task.id);
+                                }}
+                                className="p-1 rounded hover:bg-red-100 transition-colors"
+                                title="Delete task"
+                              >
+                                <Trash2 className="h-3 w-3 text-red-600" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Footer with quick actions */}
+                <div className="bg-gray-50 border-t border-gray-200 px-4 py-3">
+                  <button
+                    onClick={() => handleAddTask(parseISO(hoveredDay))}
+                    className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white py-2 px-3 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add New Task</span>
+                  </button>
                 </div>
               </div>
             </div>
           )}
-
-          {/* Task Statistics */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100 text-sm">Total Tasks</p>
-                    <p className="text-2xl font-bold">{socialTasks.length}</p>
-                  </div>
-                  <CalendarIcon className="h-8 w-8 text-blue-200" />
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-purple-100 text-sm">This Month</p>
-                    <p className="text-2xl font-bold">
-                      {socialTasks.filter(t => {
-                        const taskDate = new Date(t.date);
-                        return taskDate.getMonth() === currentDate.getMonth() && 
-                               taskDate.getFullYear() === currentDate.getFullYear();
-                      }).length}
-                    </p>
-                  </div>
-                  <Clock className="h-8 w-8 text-purple-200" />
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-green-100 text-sm">Client</p>
-                    <p className="text-lg font-bold truncate">{currentClient?.name || 'None'}</p>
-                  </div>
-                  <Building className="h-8 w-8 text-green-200" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </>
       )}
 
-      {/* Simplified Task Modal */}
+      {/* Task Modal */}
       <SimpleSocialTaskModal
         isOpen={taskModalOpen}
         onClose={() => {
@@ -950,49 +948,29 @@ const SocialCalendar: React.FC = () => {
       {/* Export Modal */}
       {showExportModal && exportUrl && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Calendar Export Ready</h3>
-              <button
-                onClick={() => setShowExportModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Calendar Exported!</h3>
+            <p className="text-gray-600 mb-4">
+              Your calendar has been exported and is ready to share. The link will expire in 45 days.
+            </p>
+            <div className="bg-gray-100 p-3 rounded border text-sm break-all mb-4">
+              {exportUrl}
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(exportUrl);
+                }}
               >
-                ✕
-              </button>
-            </div>
-            
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-3">
-                Your calendar has been exported successfully! Share this link with your client:
-              </p>
-              <div className="bg-gray-50 p-3 rounded border">
-                <code className="text-sm break-all">{exportUrl}</code>
-              </div>
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-gray-500">
-                Link expires in 45 days
-              </div>
-              <div className="flex space-x-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(exportUrl);
-                    alert('Link copied to clipboard!');
-                  }}
-                >
-                  Copy Link
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => setShowExportModal(false)}
-                >
-                  Done
-                </Button>
-              </div>
+                Copy Link
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => setShowExportModal(false)}
+              >
+                Close
+              </Button>
             </div>
           </div>
         </div>
@@ -1001,4 +979,4 @@ const SocialCalendar: React.FC = () => {
   );
 };
 
-export default SocialCalendar; 
+export default SocialCalendar;

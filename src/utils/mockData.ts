@@ -1,5 +1,6 @@
 import { Client, Report, Task, Team, TeamType, User } from '../types';
 import { addDays, format, subDays } from 'date-fns';
+import { getIndiaDateTime, getIndiaDate } from './timezone';
 
 // Debug function to check all tasks have valid status IDs
 const debugCheckTaskStatuses = () => {
@@ -42,7 +43,7 @@ const debugCheckTaskStatuses = () => {
 setTimeout(debugCheckTaskStatuses, 1000);
 
 // Generate dates relative to current date
-const today = new Date();
+const today = getIndiaDateTime();
 const yesterday = subDays(today, 1);
 const tomorrow = addDays(today, 1);
 const nextWeek = addDays(today, 7);
@@ -75,9 +76,9 @@ export const users: User[] = [
     role: 'admin',
     team: 'creative', // Admin belongs to both teams in the UI, but primary is creative
     joinDate: '2023-01-01',
-    avatar: 'https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: '', // Removed avatar to test alphabet-styled default
     isActive: true,
-    password: 'Mark@99'
+    password: 'admin123'
   },
   {
     id: 'user8',
@@ -86,7 +87,7 @@ export const users: User[] = [
     role: 'admin',
     team: 'web', // Admin belongs to both teams in the UI, but primary is web
     joinDate: '2023-01-15',
-    avatar: 'https://images.pexels.com/photos/2379005/pexels-photo-2379005.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Fidal&backgroundColor=green',
     isActive: true
   },
   {
@@ -96,7 +97,7 @@ export const users: User[] = [
     role: 'manager',
     team: 'creative',
     joinDate: '2023-02-15',
-    avatar: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: '', // Removed avatar to test alphabet-styled default
     isActive: true
   },
   {
@@ -106,7 +107,7 @@ export const users: User[] = [
     role: 'manager',
     team: 'web',
     joinDate: '2023-03-10',
-    avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Michael&backgroundColor=yellow',
     isActive: true
   },
   {
@@ -116,7 +117,7 @@ export const users: User[] = [
     role: 'employee',
     team: 'creative',
     joinDate: '2023-04-05',
-    avatar: 'https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emily&backgroundColor=red',
     isActive: true
   },
   {
@@ -126,7 +127,7 @@ export const users: User[] = [
     role: 'employee',
     team: 'web',
     joinDate: '2023-05-20',
-    avatar: 'https://images.pexels.com/photos/91227/pexels-photo-91227.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=David&backgroundColor=indigo',
     isActive: true
   },
   {
@@ -136,7 +137,7 @@ export const users: User[] = [
     role: 'employee',
     team: 'creative',
     joinDate: '2023-06-12',
-    avatar: 'https://images.pexels.com/photos/733872/pexels-photo-733872.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Olivia&backgroundColor=pink',
     isActive: true
   },
   {
@@ -146,7 +147,7 @@ export const users: User[] = [
     role: 'employee',
     team: 'web',
     joinDate: '2023-07-03',
-    avatar: 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg?auto=compress&cs=tinysrgb&w=150',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=James&backgroundColor=teal',
     isActive: false
   }
 ];

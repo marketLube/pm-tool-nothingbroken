@@ -1,7 +1,8 @@
 import { supabase } from '../utils/supabase';
 import { DailyWorkEntry, TaskCompletion, DailyReport, WeeklyAnalytics, TeamAnalyticsData, TeamType, Task } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays } from 'date-fns';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, addDays, isSameDay } from 'date-fns';
+import { getIndiaDateTime } from '../utils/timezone';
 
 // Helper function to generate a consistent UUID for daily work entries
 const generateDailyWorkEntryId = (userId: string, date: string): string => {
@@ -21,8 +22,8 @@ export const createDailyWorkEntry = async (entry: Omit<DailyWorkEntry, 'id' | 'c
     const newEntry: DailyWorkEntry = {
       ...entry,
       id: generateDailyWorkEntryId(entry.userId, entry.date),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     const { data, error } = await supabase
@@ -58,7 +59,7 @@ export const updateDailyWorkEntry = async (entry: DailyWorkEntry): Promise<Daily
   try {
     const updatedEntry = {
       ...entry,
-      updatedAt: new Date().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     const { data, error } = await supabase
@@ -91,22 +92,53 @@ export const updateDailyWorkEntry = async (entry: DailyWorkEntry): Promise<Daily
 
 export const getDailyWorkEntry = async (userId: string, date: string): Promise<DailyWorkEntry | null> => {
   try {
+    // Validate input parameters
+    if (!userId || !date) {
+      console.error('❌ Invalid parameters for getDailyWorkEntry:', { userId, date });
+      return null;
+    }
+    
+    // Ensure date is in correct format (YYYY-MM-DD)
+    const sanitizedDate = date.trim();
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(sanitizedDate)) {
+      console.error('❌ Invalid date format for getDailyWorkEntry:', sanitizedDate);
+      return null;
+    }
+
+    console.log(`🔍 Fetching daily work entry for user ${userId} on ${sanitizedDate}`);
+
     const { data, error } = await supabase
       .from('daily_work_entries')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', date)
-      .single();
+      .eq('date', sanitizedDate)
+      .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no data exists
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
-      console.error('Error fetching daily work entry:', error);
-      throw error;
+    if (error) {
+      console.error('❌ Database error fetching daily work entry:', error);
+      console.error('❌ Query details:', { userId, date: sanitizedDate });
+      console.error('❌ Full error object:', JSON.stringify(error, null, 2));
+      
+      // Handle 406 errors specifically
+      if (error.code === '406' || error.message?.includes('406') || error.message?.includes('Not Acceptable')) {
+        console.warn('⚠️ 406 Not Acceptable error - possibly due to date validation or missing data. Returning null.');
+        console.warn('⚠️ This might be because the requested date is in the future or doesn\'t exist in the database.');
+        return null;
+      }
+      
+      // For other errors, still return null but log them
+      console.warn('⚠️ Database query failed, returning null instead of throwing error');
+      return null;
     }
 
-    if (!data) return null;
+    if (!data) {
+      console.log(`📭 No daily work entry found for user ${userId} on ${sanitizedDate}`);
+      return null;
+    }
 
     // Map database columns to TypeScript interface
-    return {
+    const result = {
       id: data.id,
       userId: data.user_id,
       date: data.date,
@@ -118,8 +150,14 @@ export const getDailyWorkEntry = async (userId: string, date: string): Promise<D
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
+
+    console.log(`✅ Successfully fetched daily work entry for user ${userId}:`, result);
+    return result;
   } catch (error) {
-    console.error('Error in getDailyWorkEntry:', error);
+    console.error('❌ Error in getDailyWorkEntry:', error);
+    console.error('❌ Parameters:', { userId, date });
+    console.error('❌ Error type:', typeof error);
+    console.error('❌ Error details:', error);
     return null;
   }
 };
@@ -189,7 +227,7 @@ export const markTaskCompleted = async (taskId: string, userId: string, notes?: 
     id: uuidv4(),
     taskId,
     userId,
-    completedAt: new Date().toISOString(),
+    completedAt: getIndiaDateTime().toISOString(),
     notes,
   };
 
@@ -249,8 +287,8 @@ export const getDailyReport = async (userId: string, date: string): Promise<Dail
         isAbsent: false,
         assignedTasks: [],
         completedTasks: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: getIndiaDateTime().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
 
       return {
@@ -335,8 +373,8 @@ export const getDailyReport = async (userId: string, date: string): Promise<Dail
       isAbsent: false,
       assignedTasks: [],
       completedTasks: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     return {
@@ -477,8 +515,8 @@ export const getOrCreateDailyWorkEntry = async (userId: string, date: string): P
           isAbsent: false,
           assignedTasks: [],
           completedTasks: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: getIndiaDateTime().toISOString(),
+          updatedAt: getIndiaDateTime().toISOString(),
         };
       }
     }
@@ -496,8 +534,8 @@ export const getOrCreateDailyWorkEntry = async (userId: string, date: string): P
       isAbsent: false,
       assignedTasks: [],
       completedTasks: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
   }
 };
@@ -523,7 +561,7 @@ export const moveTaskToCompleted = async (userId: string, date: string, taskId: 
       const updatedEntry = {
         ...workEntry,
         assignedTasks: workEntry.assignedTasks.filter(id => id !== taskId),
-        updatedAt: new Date().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
       return await updateDailyWorkEntry(updatedEntry);
     }
@@ -533,7 +571,7 @@ export const moveTaskToCompleted = async (userId: string, date: string, taskId: 
       ...workEntry,
       assignedTasks: workEntry.assignedTasks.filter(id => id !== taskId),
       completedTasks: [...workEntry.completedTasks, taskId],
-      updatedAt: new Date().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     return await updateDailyWorkEntry(updatedEntry);
@@ -549,8 +587,8 @@ export const moveTaskToCompleted = async (userId: string, date: string, taskId: 
       isAbsent: false,
       assignedTasks: [],
       completedTasks: [taskId],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
   }
 };
@@ -564,7 +602,7 @@ export const moveTaskToAssigned = async (userId: string, date: string, taskId: s
       ...workEntry,
       completedTasks: workEntry.completedTasks.filter(id => id !== taskId),
       assignedTasks: [...workEntry.assignedTasks, taskId],
-      updatedAt: new Date().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     return await updateDailyWorkEntry(updatedEntry);
@@ -580,8 +618,8 @@ export const moveTaskToAssigned = async (userId: string, date: string, taskId: s
       isAbsent: false,
       assignedTasks: [taskId],
       completedTasks: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
   }
 };
@@ -599,7 +637,7 @@ export const updateCheckInOut = async (
       ...workEntry,
       checkInTime: checkInTime !== undefined ? checkInTime : workEntry.checkInTime,
       checkOutTime: checkOutTime !== undefined ? checkOutTime : workEntry.checkOutTime,
-      updatedAt: new Date().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     return await updateDailyWorkEntry(updatedEntry);
@@ -615,8 +653,8 @@ export const updateCheckInOut = async (
       isAbsent: false,
       assignedTasks: [],
       completedTasks: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
   }
 };
@@ -631,7 +669,7 @@ export const markAbsent = async (userId: string, date: string, isAbsent: boolean
       // Clear check-in/out times if marking as absent
       checkInTime: isAbsent ? undefined : workEntry.checkInTime,
       checkOutTime: isAbsent ? undefined : workEntry.checkOutTime,
-      updatedAt: new Date().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
 
     return await updateDailyWorkEntry(updatedEntry);
@@ -647,8 +685,8 @@ export const markAbsent = async (userId: string, date: string, isAbsent: boolean
       isAbsent,
       assignedTasks: [],
       completedTasks: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: getIndiaDateTime().toISOString(),
+      updatedAt: getIndiaDateTime().toISOString(),
     };
   }
 };
@@ -680,7 +718,7 @@ export const moveUnfinishedTasksToNextDay = async (userId: string, fromDate: str
       const updatedNextDayEntry = {
         ...nextDayEntry,
         assignedTasks: updatedAssignedTasks,
-        updatedAt: new Date().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
 
       await updateDailyWorkEntry(updatedNextDayEntry);
@@ -692,7 +730,7 @@ export const moveUnfinishedTasksToNextDay = async (userId: string, fromDate: str
         assignedTasks: previousDayEntry.assignedTasks.filter(taskId => 
           previousDayEntry.completedTasks.includes(taskId) // Keep only completed tasks
         ),
-        updatedAt: new Date().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
 
       await updateDailyWorkEntry(updatedPreviousDayEntry);
@@ -782,7 +820,7 @@ export const assignTaskToSpecificDay = async (userId: string, date: string, task
       const updatedEntry = {
         ...workEntry,
         assignedTasks: [...workEntry.assignedTasks, taskId],
-        updatedAt: new Date().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
       
       await updateDailyWorkEntry(updatedEntry);
@@ -826,7 +864,7 @@ export const removeTaskFromAllDailyReports = async (taskId: string): Promise<voi
       const updatedEntry = {
         ...entry,
         assignedTasks: entry.assignedTasks.filter(id => id !== taskId),
-        updatedAt: new Date().toISOString(),
+        updatedAt: getIndiaDateTime().toISOString(),
       };
       
       await updateDailyWorkEntry(updatedEntry);
@@ -861,7 +899,7 @@ export const moveTaskToCompletedAcrossDays = async (userId: string, date: string
           const updatedEntry = {
             ...entry,
             assignedTasks: entry.assignedTasks.filter(id => id !== taskId),
-            updatedAt: new Date().toISOString(),
+            updatedAt: getIndiaDateTime().toISOString(),
           };
           
           await updateDailyWorkEntry(updatedEntry);
@@ -923,7 +961,7 @@ export const moveTaskToAssignedAcrossDays = async (userId: string, date: string,
             const updatedEntry = {
               ...existingEntry,
               assignedTasks: [...assignedTasks, taskId],
-              updatedAt: new Date().toISOString(),
+              updatedAt: getIndiaDateTime().toISOString(),
             };
             
             await updateDailyWorkEntry(updatedEntry);
@@ -940,7 +978,7 @@ export const moveTaskToAssignedAcrossDays = async (userId: string, date: string,
               const updatedEntry = {
                 ...newEntry,
                 assignedTasks: [...newEntry.assignedTasks, taskId],
-                updatedAt: new Date().toISOString(),
+                updatedAt: getIndiaDateTime().toISOString(),
               };
               await updateDailyWorkEntry(updatedEntry);
               console.log(`Created new entry and added task ${taskId} for date ${dateStr}`);
@@ -1079,10 +1117,12 @@ const processRolloverForDay = async (userId: string, fromDate: string, toDate: s
       return;
     }
 
+    console.log(`🔄 Processing rollover: ${fromDate} → ${toDate} for user ${userId}`);
+
     // Get yesterday's work entry
     const fromEntry = await getDailyWorkEntry(userId, fromDate);
     if (!fromEntry) {
-      // No work entry for yesterday, nothing to roll over
+      console.log(`❌ No work entry found for ${fromDate}, nothing to roll over`);
       return;
     }
 
@@ -1091,33 +1131,110 @@ const processRolloverForDay = async (userId: string, fromDate: string, toDate: s
       !fromEntry.completedTasks.includes(taskId)
     );
 
+    console.log(`📋 Found ${unfinishedTasks.length} unfinished tasks on ${fromDate}:`, unfinishedTasks);
+
     if (unfinishedTasks.length === 0) {
-      // No unfinished tasks to roll over
+      console.log(`✅ No unfinished tasks to roll over from ${fromDate}`);
       return;
     }
 
     // Get or create today's work entry
     const toEntry = await getOrCreateDailyWorkEntry(userId, toDate);
+    console.log(`📝 Current assigned tasks on ${toDate}:`, toEntry.assignedTasks || []);
     
     // Add unfinished tasks to today's assigned tasks (avoid duplicates)
     const currentAssigned = toEntry.assignedTasks || [];
     const newAssignedTasks = [...new Set([...currentAssigned, ...unfinishedTasks])];
+
+    console.log(`🔀 Merging tasks for ${toDate}:`, {
+      current: currentAssigned.length,
+      unfinished: unfinishedTasks.length,
+      merged: newAssignedTasks.length
+    });
 
     // Only update if there are actually new tasks to add
     if (newAssignedTasks.length > currentAssigned.length) {
       const updatedEntry: DailyWorkEntry = {
         ...toEntry,
         assignedTasks: newAssignedTasks,
-        updatedAt: new Date().toISOString()
+        updatedAt: getIndiaDateTime().toISOString()
       };
 
-      await updateDailyWorkEntry(updatedEntry);
+      // 🚀 CRITICAL: Persist to database
+      const savedEntry = await updateDailyWorkEntry(updatedEntry);
       
-      console.log(`Rolled over ${unfinishedTasks.length} tasks from ${fromDate} to ${toDate} for user ${userId}`);
+      console.log(`💾 Database updated for ${toDate}:`, {
+        userId: userId,
+        date: toDate,
+        assignedTasks: savedEntry.assignedTasks,
+        taskCount: savedEntry.assignedTasks.length
+      });
+
+      // 🔍 VERIFICATION: Re-fetch from database to confirm persistence
+      const verificationEntry = await getDailyWorkEntry(userId, toDate);
+      if (verificationEntry && verificationEntry.assignedTasks.length === newAssignedTasks.length) {
+        console.log(`✅ DATABASE VERIFICATION PASSED: ${unfinishedTasks.length} tasks successfully rolled over from ${fromDate} to ${toDate}`);
+      } else {
+        console.error(`❌ DATABASE VERIFICATION FAILED: Expected ${newAssignedTasks.length} tasks, found ${verificationEntry?.assignedTasks.length || 0}`);
+      }
+    } else {
+      console.log(`⚠️ No new tasks to add - all unfinished tasks already exist on ${toDate}`);
     }
   } catch (error) {
-    console.error(`Error processing rollover from ${fromDate} to ${toDate} for user ${userId}:`, error);
+    console.error(`❌ Error processing rollover from ${fromDate} to ${toDate} for user ${userId}:`, error);
     // Don't throw to prevent cascading failures
+  }
+};
+
+/**
+ * Verify that tasks are properly stored in the database
+ */
+export const verifyDatabasePersistence = async (userId: string, date: string): Promise<{
+  success: boolean;
+  assignedTasks: string[];
+  completedTasks: string[];
+  taskCount: number;
+}> => {
+  try {
+    console.log(`🔍 Verifying database persistence for user ${userId} on ${date}`);
+    
+    // Fetch directly from database
+    const { data, error } = await supabase
+      .from('daily_work_entries')
+      .select('assigned_tasks, completed_tasks')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .single();
+
+    if (error) {
+      console.error('Database verification error:', error);
+      return { success: false, assignedTasks: [], completedTasks: [], taskCount: 0 };
+    }
+
+    if (!data) {
+      console.log(`📄 No database entry found for ${userId} on ${date}`);
+      return { success: true, assignedTasks: [], completedTasks: [], taskCount: 0 };
+    }
+
+    const assignedTasks = data.assigned_tasks || [];
+    const completedTasks = data.completed_tasks || [];
+
+    console.log(`💾 Database contents for ${userId} on ${date}:`, {
+      assignedTasks: assignedTasks,
+      completedTasks: completedTasks,
+      assignedCount: assignedTasks.length,
+      completedCount: completedTasks.length
+    });
+
+    return {
+      success: true,
+      assignedTasks,
+      completedTasks,
+      taskCount: assignedTasks.length
+    };
+  } catch (error) {
+    console.error('Error verifying database persistence:', error);
+    return { success: false, assignedTasks: [], completedTasks: [], taskCount: 0 };
   }
 };
 
@@ -1134,6 +1251,8 @@ export const processComprehensiveRollover = async (userId: string, targetDate: s
       return;
     }
 
+    console.log(`🚀 Starting comprehensive rollover for user ${userId} up to ${targetDate}`);
+
     // Get user's last rollover date
     const rolloverRecord = await getOrCreateUserRollover(userId);
     const lastRolloverDate = parseISO(rolloverRecord.last_rollover_date);
@@ -1141,7 +1260,7 @@ export const processComprehensiveRollover = async (userId: string, targetDate: s
 
     // If we've already processed up to or past the target date, nothing to do
     if (lastRolloverDate >= target) {
-      console.log(`Rollover already processed for user ${userId} up to ${targetDate}`);
+      console.log(`✅ Rollover already processed for user ${userId} up to ${targetDate}`);
       return;
     }
 
@@ -1153,17 +1272,34 @@ export const processComprehensiveRollover = async (userId: string, targetDate: s
     // Process each day from the day after last rollover to target date
     let currentDate = addDays(startDate, 1);
     
-    console.log(`Processing rollover for user ${userId} from ${format(currentDate, 'yyyy-MM-dd')} to ${targetDate}`);
+    console.log(`📅 Processing rollover for user ${userId} from ${format(currentDate, 'yyyy-MM-dd')} to ${targetDate}`);
     
     let daysProcessed = 0;
+    let totalTasksRolledOver = 0;
     const maxDaysToProcess = 31; // Safety limit
     
     while (currentDate <= target && daysProcessed < maxDaysToProcess) {
       const fromDateStr = format(addDays(currentDate, -1), 'yyyy-MM-dd');
       const toDateStr = format(currentDate, 'yyyy-MM-dd');
       
+      console.log(`📆 Processing day ${daysProcessed + 1}: ${fromDateStr} → ${toDateStr}`);
+      
+      // Get task count before rollover
+      const beforeVerification = await verifyDatabasePersistence(userId, toDateStr);
+      const tasksBefore = beforeVerification.taskCount;
+      
       // Process rollover for this day
       await processRolloverForDay(userId, fromDateStr, toDateStr);
+      
+      // Verify task count after rollover
+      const afterVerification = await verifyDatabasePersistence(userId, toDateStr);
+      const tasksAfter = afterVerification.taskCount;
+      const tasksAdded = tasksAfter - tasksBefore;
+      
+      if (tasksAdded > 0) {
+        totalTasksRolledOver += tasksAdded;
+        console.log(`✅ Day ${daysProcessed + 1} complete: ${tasksAdded} tasks rolled over, total: ${tasksAfter}`);
+      }
       
       // Move to next day
       currentDate = addDays(currentDate, 1);
@@ -1173,9 +1309,14 @@ export const processComprehensiveRollover = async (userId: string, targetDate: s
     // Update the rollover tracking to mark we've processed up to target date
     await updateUserRollover(userId, targetDate);
     
-    console.log(`Completed comprehensive rollover for user ${userId} up to ${targetDate} (${daysProcessed} days processed)`);
+    console.log(`🎉 Comprehensive rollover completed for user ${userId}:`, {
+      targetDate,
+      daysProcessed,
+      totalTasksRolledOver,
+      finalVerification: await verifyDatabasePersistence(userId, targetDate)
+    });
   } catch (error) {
-    console.error(`Error in comprehensive rollover for user ${userId} to ${targetDate}:`, error);
+    console.error(`❌ Error in comprehensive rollover for user ${userId} to ${targetDate}:`, error);
     // Don't throw to prevent cascading failures
   }
 };

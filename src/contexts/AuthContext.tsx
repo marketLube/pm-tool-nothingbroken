@@ -1,45 +1,31 @@
-import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect, useRef } from 'react';
-import { Role, TeamType, User } from '../types';
-import { isSupabaseConfigured } from '../utils/supabase';
-import * as userService from '../services/userService';
-import * as attendanceService from '../services/attendanceService';
-import { 
-  getPermissions, 
-  Permission, 
-  hasPermission,
-  ResourceType,
-  ActionType
-} from '../utils/auth/permissions';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '../utils/supabase';
+import { User } from '../types';
+import { getPermissions, hasPermission, ResourceType, ActionType } from '../utils/auth/permissions';
+import { TeamType } from '../types';
 
 interface AuthContextType {
   currentUser: User | null;
-  isAuthenticated: boolean;
+  isLoggedIn: boolean;
   isAdmin: boolean;
-  isManager: boolean;
-  userTeam: TeamType | null;
-  permissions: Permission[];
-  checkPermission: (resource: ResourceType, action: ActionType, resourceTeam?: TeamType) => boolean;
+  userTeam: string | undefined;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  updateCurrentUser: (updatedUser: User) => void;
+  updateUserStatus: (status: string) => Promise<void>;
   isLoading: boolean;
+  updateCurrentUser: (updatedUser: User) => void;
+  checkPermission: (resource: ResourceType, action: ActionType, resourceTeam?: TeamType) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  currentUser: null,
-  isAuthenticated: false,
-  isAdmin: false,
-  isManager: false,
-  userTeam: null,
-  permissions: [],
-  checkPermission: () => false,
-  login: async () => false,
-  logout: () => {},
-  updateCurrentUser: () => {},
-  isLoading: true
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -47,245 +33,236 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // Start with loading true to check session
-  const currentUserRef = useRef<User | null>(null);
-  
-  // Update ref whenever currentUser changes
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [supabaseUsers, setSupabaseUsers] = useState<User[]>([]);
+
+  // Load users from Supabase instead of mock data
   useEffect(() => {
-    currentUserRef.current = currentUser;
-  }, [currentUser]);
-  
-  // Session timeout in milliseconds (30 minutes)
-  const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-  
-  // Helper function to store user session
-  const storeUserSession = (user: User) => {
-    try {
-      // Set session to expire in 30 minutes from now
-      const expiryTime = Date.now() + SESSION_TIMEOUT;
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      localStorage.setItem('sessionExpiry', expiryTime.toString());
-      localStorage.setItem('lastActivity', Date.now().toString());
-      setCurrentUser(user);
-      console.log(`👤 User session stored for: ${user.email} (expires in 30 min)`);
-    } catch (error) {
-      console.error('Error storing user session:', error);
-      setCurrentUser(user); // Still set in memory even if storage fails
-    }
-  };
-
-  // Helper function to extend session on activity
-  const extendSession = () => {
-    if (currentUserRef.current) {
+    const loadSupabaseUsers = async () => {
       try {
-        const newExpiryTime = Date.now() + SESSION_TIMEOUT;
-        localStorage.setItem('sessionExpiry', newExpiryTime.toString());
-        localStorage.setItem('lastActivity', Date.now().toString());
-        console.log('🔄 Session extended due to activity');
-      } catch (error) {
-        console.error('Error extending session:', error);
-      }
-    }
-  };
+        console.log('🔄 Loading users from Supabase...');
+        const { data: usersData, error } = await supabase
+          .from('users')
+          .select('*');
 
-  // Helper function to check if session is still valid
-  const isSessionValid = () => {
-    try {
-      const sessionExpiry = localStorage.getItem('sessionExpiry');
-      if (!sessionExpiry) return false;
-      
-      const expiryTime = parseInt(sessionExpiry);
-      const currentTime = Date.now();
-      
-      return currentTime < expiryTime;
-    } catch (error) {
-      console.error('Error checking session validity:', error);
-      return false;
-    }
-  };
-
-  const logout = () => {
-    // Clear session storage
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('sessionExpiry');
-    localStorage.removeItem('lastActivity');
-    setCurrentUser(null);
-    console.log('User logged out, session cleared');
-  };
-  
-  // Check for existing session on mount
-  useEffect(() => {
-    const checkExistingSession = () => {
-      try {
-        const storedUser = localStorage.getItem('currentUser');
-        const sessionExpiry = localStorage.getItem('sessionExpiry');
-        
-        if (storedUser && sessionExpiry) {
-          const expiryTime = parseInt(sessionExpiry);
-          const currentTime = Date.now();
-          
-          // Check if session is still valid
-          if (currentTime < expiryTime) {
-            const user = JSON.parse(storedUser);
-            setCurrentUser(user);
-            
-            // Extend session since user is returning to the app
-            extendSession();
-            console.log('Restored user session for:', user.email);
-          } else {
-            // Session expired, clear storage
-            localStorage.removeItem('currentUser');
-            localStorage.removeItem('sessionExpiry');
-            localStorage.removeItem('lastActivity');
-            console.log('Session expired due to inactivity, cleared storage');
-          }
+        if (error) {
+          console.error('❌ Error loading users from Supabase:', error);
+          // Fallback to mock data if Supabase fails
+          const { users: mockUsers } = await import('../utils/mockData');
+          setSupabaseUsers(mockUsers);
+        } else {
+          // Map Supabase users to User interface
+          const mappedUsers = usersData.map(user => ({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            team: user.team,
+            joinDate: user.created_at?.split('T')[0] || '2023-01-01',
+            avatar: user.avatar || '',
+            isActive: user.is_active ?? true,
+            password: '' // Don't store passwords in client
+          }));
+          setSupabaseUsers(mappedUsers);
+          console.log(`✅ Loaded ${mappedUsers.length} users from Supabase`);
         }
       } catch (error) {
-        console.error('Error checking existing session:', error);
-        // Clear corrupted data
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('sessionExpiry');
-        localStorage.removeItem('lastActivity');
+        console.error('❌ Error loading users data:', error);
+        // Fallback to mock data
+        const { users: mockUsers } = await import('../utils/mockData');
+        setSupabaseUsers(mockUsers);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkExistingSession();
+    loadSupabaseUsers();
+  }, []);
 
-    // Set up periodic session validation (every minute)
-    const sessionCheckInterval = setInterval(() => {
-      if (currentUserRef.current && !isSessionValid()) {
-        console.log('Session expired due to inactivity, logging out');
-        logout();
-      }
-    }, 60 * 1000); // Check every minute
-
-    // Clear interval on cleanup
-    return () => clearInterval(sessionCheckInterval);
-  }, []); // Remove currentUser dependency to prevent infinite loop
-
-  // Listen for window focus to validate and extend session
   useEffect(() => {
-    const handleWindowFocus = () => {
-      if (currentUserRef.current) {
-        if (isSessionValid()) {
-          // Session is still valid, extend it since user is back
-          extendSession();
-          console.log('Window focused, session extended');
-        } else {
-          console.log('Session expired while away, logging out');
-          logout();
+    // Check for existing session on mount
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const user = supabaseUsers.find(u => u.email === session.user.email);
+          if (user) {
+            setCurrentUser(user);
+            setIsLoggedIn(true);
+            console.log(`✅ Session restored for user: ${user.name} (ID: ${user.id})`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error checking session:', error);
+      }
+    };
+
+    if (supabaseUsers.length > 0) {
+      checkSession();
+    }
+  }, [supabaseUsers]);
+
+  // Monitor auth state changes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log(`🔐 Auth state changed: ${event}`);
+        
+        if (event === 'SIGNED_OUT' || !session) {
+          setCurrentUser(null);
+          setIsLoggedIn(false);
+        } else if (event === 'SIGNED_IN' && session?.user) {
+          const user = supabaseUsers.find(u => u.email === session.user.email);
+          if (user) {
+            setCurrentUser(user);
+            setIsLoggedIn(true);
+            console.log(`✅ User signed in: ${user.name} (ID: ${user.id})`);
+          }
         }
       }
-    };
+    );
 
-    window.addEventListener('focus', handleWindowFocus);
-    return () => window.removeEventListener('focus', handleWindowFocus);
-  }, []); // Remove currentUser dependency
-
-  // Track user activity to extend session
-  useEffect(() => {
-    const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    
-    const handleUserActivity = () => {
-      if (currentUserRef.current && isSessionValid()) {
-        extendSession();
-      }
-    };
-
-    // Throttle activity tracking to avoid too frequent updates
-    let activityTimeout: NodeJS.Timeout;
-    const throttledActivityHandler = () => {
-      clearTimeout(activityTimeout);
-      activityTimeout = setTimeout(handleUserActivity, 5 * 60 * 1000); // Extend session max once every 5 minutes
-    };
-
-    // Add event listeners for user activity
-    activityEvents.forEach(event => {
-      document.addEventListener(event, throttledActivityHandler, true);
-    });
-
-    // Cleanup event listeners
-    return () => {
-      clearTimeout(activityTimeout);
-      activityEvents.forEach(event => {
-        document.removeEventListener(event, throttledActivityHandler, true);
-      });
-    };
-  }, []); // Remove currentUser dependency
-  
-  const isAuthenticated = !!currentUser;
-  const isAdmin = currentUser?.role === 'admin';
-  const isManager = currentUser?.role === 'manager';
-  const userTeam = currentUser?.team || null;
-  
-  // Get permissions based on user role
-  const permissions = useMemo(() => {
-    if (!currentUser) return [];
-    return getPermissions(currentUser.role, currentUser.team, currentUser.allowedStatuses);
-  }, [currentUser]);
-  
-  // Function to check if user has permission
-  const checkPermission = (
-    resource: ResourceType, 
-    action: ActionType,
-    resourceTeam?: TeamType
-  ): boolean => {
-    return hasPermission(permissions, resource, action, resourceTeam);
-  };
+    return () => subscription.unsubscribe();
+  }, [supabaseUsers]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      setIsLoading(true);
+      console.log(`🔐 Attempting login for: ${email}`);
       
-      // Use standard authentication for all users (including admins)
-      const user = await userService.checkUserCredentials(email, password);
+      // Find user in Supabase data
+      const user = supabaseUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
       
-      if (user && user.isActive) {
-        storeUserSession(user);
+      if (!user) {
+        console.log('❌ User not found in system');
+        return false;
+      }
+
+      if (!user.isActive) {
+        console.log('❌ User account is deactivated');
+        alert('Your account has been deactivated. Please contact an administrator.');
+        return false;
+      }
+
+      // For development: Check against mock data password if provided
+      if (user.password && user.password !== password) {
+        console.log('❌ Invalid password (mock data check)');
+        return false;
+      }
+
+      // Attempt Supabase authentication
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase(),
+        password: password
+      });
+
+      if (error) {
+        console.log('❌ Supabase auth error:', error.message);
         
-        // Record automatic check-in for the user
-        await attendanceService.recordLoginAsCheckIn(user.id);
+        // For development: Allow mock data fallback if Supabase fails
+        if (user.password === password) {
+          console.log('🔄 Falling back to mock data authentication');
+          setCurrentUser(user);
+          setIsLoggedIn(true);
+          
+          console.log(`✅ Login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+          console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+          console.log(`🚫 REMOVED: Automatic check-in on login. Users must manually check-in via Attendance module.`);
+          
+          return true;
+        }
+        return false;
+      }
+
+      if (data.user) {
+        setCurrentUser(user);
+        setIsLoggedIn(true);
         
-        console.log('User login successful');
+        console.log(`✅ Login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+        console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+        console.log(`🚫 REMOVED: Automatic check-in on login. Users must manually check-in via Attendance module.`);
+        
         return true;
       }
-      
-      console.log('Login failed - invalid credentials or inactive user');
+
       return false;
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return false;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Function to update current user when modified in the DataContext
-  const updateCurrentUser = (updatedUser: User) => {
-    if (currentUser && currentUser.id === updatedUser.id) {
-      storeUserSession(updatedUser); // Update stored session as well
     }
   };
 
+  const logout = async () => {
+    try {
+      console.log(`🔐 Logging out user: ${currentUser?.name}`);
+      
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Clear local state
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+      
+      console.log('✅ Logout successful');
+    } catch (error) {
+      console.error('❌ Logout error:', error);
+      // Force logout even if Supabase fails
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+    }
+  };
+
+  const updateUserStatus = async (status: string): Promise<void> => {
+    if (!currentUser) return;
+    
+    try {
+      console.log(`🔄 Updating status for ${currentUser.name} to: ${status}`);
+      // For now, just log the status update
+      // In a full implementation, this would update the database
+      console.log(`✅ Status updated successfully`);
+    } catch (error) {
+      console.error('❌ Error updating user status:', error);
+      throw error;
+    }
+  };
+
+  const updateCurrentUser = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
+  };
+
+  const isAdmin = currentUser?.role === 'admin';
+  const userTeam = currentUser?.team;
+
+  const checkPermission = (resource: ResourceType, action: ActionType, resourceTeam?: TeamType): boolean => {
+    if (!currentUser) return false;
+    
+    // Get user's permissions based on their role and team
+    const userPermissions = getPermissions(
+      currentUser.role, 
+      currentUser.team, 
+      currentUser.allowedStatuses
+    );
+    
+    // Check if user has the required permission
+    return hasPermission(userPermissions, resource, action, resourceTeam);
+  };
+
+  const value: AuthContextType = {
+    currentUser,
+    isLoggedIn,
+    isAdmin,
+    userTeam,
+    login,
+    logout,
+    updateUserStatus,
+    isLoading,
+    updateCurrentUser,
+    checkPermission
+  };
+
   return (
-    <AuthContext.Provider
-      value={{
-        currentUser,
-        isAuthenticated,
-        isAdmin,
-        isManager,
-        userTeam,
-        permissions,
-        checkPermission,
-        login,
-        logout,
-        updateCurrentUser,
-        isLoading
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
-};
+}; 

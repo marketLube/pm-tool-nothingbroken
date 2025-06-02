@@ -1,0 +1,39 @@
+name: Scheduled Task Rollover
+
+on:
+  schedule:
+    # Runs at 12:00 AM IST (6:30 PM UTC) every day
+    - cron: '30 18 * * *'
+  workflow_dispatch: # Allow manual trigger for testing
+
+jobs:
+  rollover:
+    runs-on: ubuntu-latest
+    name: Trigger Daily Task Rollover
+    
+    steps:
+      - name: Trigger Rollover Edge Function
+        run: |
+          echo "🕛 Triggering scheduled rollover at $(date)"
+          
+          response=$(curl -s -w "%{http_code}" -X POST \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/quick-processor" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json")
+          
+          http_code="${response: -3}"
+          body="${response%???}"
+          
+          echo "📡 HTTP Status: $http_code"
+          echo "📄 Response: $body"
+          
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Rollover triggered successfully"
+          else
+            echo "❌ Rollover failed with status $http_code"
+            exit 1
+          fi
+
+      - name: Log Completion
+        run: |
+          echo "🎉 Scheduled rollover workflow completed at $(date)" 

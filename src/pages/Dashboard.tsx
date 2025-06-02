@@ -8,6 +8,8 @@ import { Layers, PaintBucket, LayoutList, CheckCircle, Clock, AlertTriangle, Cal
 import Avatar from '../components/ui/Avatar';
 import { Status, StatusCode, TeamType } from '../types';
 import { canAccessStatus } from '../utils/auth/permissions';
+import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
+import { parseISO, addDays, isBefore, isAfter, startOfDay } from 'date-fns';
 
 interface TeamStatsCardProps {
   title: string;
@@ -92,23 +94,23 @@ const Dashboard: React.FC = () => {
     ? Math.round((creativeCompleted / creativeTotal) * 100) 
     : 0;
 
-  // Calculate overdue and upcoming tasks for Creative team
-  const today = new Date();
-  const nextWeek = new Date();
-  nextWeek.setDate(today.getDate() + 7);
-  
-  const creativeOverdueTasks = creativeTasks.filter(task => 
-    task.status !== 'approved' && 
-    task.dueDate && 
-    new Date(task.dueDate) < today
-  ).length;
-  
-  const creativeUpcomingTasks = creativeTasks.filter(task => 
-    task.status !== 'approved' && 
-    task.dueDate && 
-    new Date(task.dueDate) >= today && 
-    new Date(task.dueDate) <= nextWeek
-  ).length;
+  // Get overdue and upcoming tasks using IST
+  const getOverdueTasks = () => {
+    const todayIST = startOfDay(getIndiaDateTime());
+    return displayCreativeTasks.filter(task => 
+      isBefore(parseISO(task.dueDate), todayIST)
+    ).slice(0, 5);
+  };
+
+  const getUpcomingTasks = () => {
+    const todayIST = startOfDay(getIndiaDateTime());
+    const nextWeekIST = addDays(todayIST, 7);
+    
+    return displayCreativeTasks.filter(task => {
+      const taskDate = parseISO(task.dueDate);
+      return !isBefore(taskDate, todayIST) && !isAfter(taskDate, nextWeekIST);
+    }).slice(0, 5);
+  };
 
   // Get Web team stats with actual statuses (excluding completed tasks)
   const webTotal = webTasks.filter(task => task.status !== 'completed').length;
@@ -128,19 +130,23 @@ const Dashboard: React.FC = () => {
     ? Math.round((webCompleted / webTotal) * 100) 
     : 0;
      
-  // Calculate overdue and upcoming tasks for Web team
-  const webOverdueTasks = webTasks.filter(task => 
-    task.status !== 'completed' && 
-    task.dueDate && 
-    new Date(task.dueDate) < today
-  ).length;
-  
-  const webUpcomingTasks = webTasks.filter(task => 
-    task.status !== 'completed' && 
-    task.dueDate && 
-    new Date(task.dueDate) >= today && 
-    new Date(task.dueDate) <= nextWeek
-  ).length;
+  // Get team overdue and upcoming tasks using IST
+  const getTeamOverdueTasks = () => {
+    const todayIST = startOfDay(getIndiaDateTime());
+    return displayWebTasks.filter(task => 
+      isBefore(parseISO(task.dueDate), todayIST)
+    ).slice(0, 5);
+  };
+
+  const getTeamUpcomingTasks = () => {
+    const todayIST = startOfDay(getIndiaDateTime());
+    const nextWeekIST = addDays(todayIST, 7);
+    
+    return displayWebTasks.filter(task => {
+      const taskDate = parseISO(task.dueDate);
+      return !isBefore(taskDate, todayIST) && !isAfter(taskDate, nextWeekIST);
+    }).slice(0, 5);
+  };
 
   // Function to check if user has access to a status
   const hasAccessToStatus = (status: Status): boolean => {
@@ -177,16 +183,16 @@ const Dashboard: React.FC = () => {
               <h2 className="text-lg font-medium text-gray-800">Creative Team</h2>
             </div>
             <div className="flex space-x-3">
-              {creativeOverdueTasks > 0 && (
+              {getOverdueTasks().length > 0 && (
                 <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
                   <AlertCircle className="h-3.5 w-3.5 mr-1" />
-                  <span>{creativeOverdueTasks} overdue</span>
+                  <span>{getOverdueTasks().length} overdue</span>
                 </div>
               )}
-              {creativeUpcomingTasks > 0 && (
+              {getUpcomingTasks().length > 0 && (
                 <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
                   <CalendarClock className="h-3.5 w-3.5 mr-1" />
-                  <span>{creativeUpcomingTasks} upcoming</span>
+                  <span>{getUpcomingTasks().length} upcoming</span>
                 </div>
               )}
             </div>
@@ -263,16 +269,16 @@ const Dashboard: React.FC = () => {
               <h2 className="text-lg font-medium text-gray-800">Web Team</h2>
             </div>
             <div className="flex space-x-3">
-              {webOverdueTasks > 0 && (
+              {getTeamOverdueTasks().length > 0 && (
                 <div className="flex items-center text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full">
                   <AlertCircle className="h-3.5 w-3.5 mr-1" />
-                  <span>{webOverdueTasks} overdue</span>
+                  <span>{getTeamOverdueTasks().length} overdue</span>
                 </div>
               )}
-              {webUpcomingTasks > 0 && (
+              {getTeamUpcomingTasks().length > 0 && (
                 <div className="flex items-center text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full">
                   <CalendarClock className="h-3.5 w-3.5 mr-1" />
-                  <span>{webUpcomingTasks} upcoming</span>
+                  <span>{getTeamUpcomingTasks().length} upcoming</span>
                 </div>
               )}
             </div>

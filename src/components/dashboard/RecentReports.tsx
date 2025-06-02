@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { format } from 'date-fns';
 import { useData } from '../../contexts/DataContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { getIndiaDate } from '../../utils/timezone';
 import {
   Card,
   CardHeader,
@@ -11,21 +13,20 @@ import Avatar from '../ui/Avatar';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
+import { DailyReport } from '../../types';
 
 const RecentReports: React.FC = () => {
   const { reports, getUserById } = useData();
+  const { currentUser } = useAuth();
   
-  // Get today's date and format it
-  const today = format(new Date(), 'yyyy-MM-dd');
-  
-  // Get reports from today, sorted by user name
-  const todaysReports = reports
-    .filter(report => report.date === today)
-    .sort((a, b) => {
-      const userA = getUserById(a.userId);
-      const userB = getUserById(b.userId);
-      return (userA?.name || '').localeCompare(userB?.name || '');
-    });
+  // Get recent reports for current user
+  const today = getIndiaDate();
+  const recentReports = useMemo(() => {
+    return reports
+      .filter(report => report.submitted)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5);
+  }, [reports]);
 
   const getStatusBadge = (report: typeof reports[0]) => {
     if (!report.submitted) {
@@ -49,9 +50,9 @@ const RecentReports: React.FC = () => {
         <CardTitle className="text-lg">Daily Work Reports</CardTitle>
       </CardHeader>
       <CardContent>
-        {todaysReports.length > 0 ? (
+        {recentReports.length > 0 ? (
           <div className="divide-y divide-gray-200">
-            {todaysReports.map((report) => {
+            {recentReports.map((report) => {
               const user = getUserById(report.userId);
               
               return (
