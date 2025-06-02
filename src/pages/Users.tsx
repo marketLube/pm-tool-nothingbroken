@@ -22,6 +22,7 @@ import { generateUserFriendlyPassword, copyToClipboard } from '../utils/password
 import { getIndiaDate } from '../utils/timezone';
 import PermissionGuard from '../components/auth/PermissionGuard';
 import { useDebounce } from '../hooks/useDebounce';
+import { updateUser, createUser, getUsersByTeam, toggleUserStatus, updateUserPassword } from '../services/userService';
 
 const UserModal: React.FC<{
   isOpen: boolean;
@@ -182,12 +183,9 @@ const UserModal: React.FC<{
     
     try {
       setIsSavingPassword(true);
-      const updatedUser: User = {
-        ...user,
-        password: formData.password
-      } as User;
+      setErrors(prev => ({ ...prev, password: '' })); // Clear previous errors
       
-      await updateUser(updatedUser);
+      await updateUserPassword(user.id, formData.password);
       setPasswordSaved(true);
       console.log('Password saved successfully for user:', user.email);
       
@@ -195,11 +193,12 @@ const UserModal: React.FC<{
       setTimeout(() => {
         setPasswordSaved(false);
       }, 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving password:', error);
+      const errorMessage = error.message || 'Failed to save password. Please try again.';
       setErrors(prev => ({
         ...prev,
-        password: 'Failed to save password. Please try again.'
+        password: errorMessage
       }));
     } finally {
       setIsSavingPassword(false);

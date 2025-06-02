@@ -9,19 +9,33 @@ import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 // - Admin operations should be handled through proper RLS policies
 
 // Database mapping functions
-const mapToDbUser = (user: User) => {
-  return {
+const mapToDbUser = (user: User, isUpdate: boolean = false) => {
+  const baseData: any = {
     id: user.id,
-    email: user.email,
-    name: user.name,
+    email: user.email?.toLowerCase().trim(), // Ensure consistent email format
+    name: user.name?.trim(),
     role: user.role,
     team: user.team,
     is_active: user.isActive,
-    avatar_url: user.avatar,
+    avatar_url: user.avatar || null,
     join_date: user.joinDate || getIndiaDate(),
-    allowed_statuses: user.allowedStatuses,
-    created_at: getIndiaDateTime().toISOString()
+    allowed_statuses: user.allowedStatuses || []
   };
+
+  // Add password only if it exists (for creation or password updates)
+  if (user.password && user.password.trim()) {
+    baseData.password = user.password.trim();
+  }
+
+  // Only add created_at for new records
+  if (!isUpdate) {
+    baseData.created_at = getIndiaDateTime().toISOString();
+  } else {
+    // Add updated_at for updates
+    baseData.updated_at = getIndiaDateTime().toISOString();
+  }
+
+  return baseData;
 };
 
 const mapFromDbUser = (dbUser: any): User => {
@@ -177,14 +191,26 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
   try {
     const id = crypto.randomUUID();
     
-    const userDbData = mapToDbUser({ ...user, id } as User);
-    
-    console.log('Raw insert data:', JSON.stringify(userDbData));
-    
-    // Ensure joinDate is set
-    if (!userDbData.join_date) {
-      userDbData.join_date = getIndiaDate();
+    // Validate required fields
+    if (!user.name?.trim()) {
+      throw new Error('Name is required');
     }
+    if (!user.email?.trim()) {
+      throw new Error('Email is required');
+    }
+    if (!user.password?.trim()) {
+      throw new Error('Password is required');
+    }
+    
+    const userDbData = mapToDbUser({ ...user, id } as User, false);
+    
+    console.log('Creating user with data:', {
+      email: userDbData.email,
+      name: userDbData.name,
+      role: userDbData.role,
+      team: userDbData.team,
+      hasPassword: !!userDbData.password
+    });
     
     const { data, error } = await supabase
       .from('users')
@@ -193,11 +219,14 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
       .single();
 
     if (error) {
-      console.error('Supabase error:', error);
-      throw error;
+      console.error('Supabase error creating user:', error);
+      if (error.code === '23505') {
+        throw new Error('A user with this email already exists');
+      }
+      throw new Error(`Failed to create user: ${error.message}`);
     }
 
-    console.log('User created successfully:', data);
+    console.log('User created successfully:', data.id);
     return mapFromDbUser(data);
   } catch (error) {
     console.error('Error creating user:', error);
@@ -208,28 +237,96 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
 // Update user
 export const updateUser = async (user: User): Promise<User> => {
   try {
+    // Validate required fields
+    if (!user.id) {
+      throw new Error('User ID is required for updates');
+    }
+    if (!user.name?.trim()) {
+      throw new Error('Name is required');
+    }
+    if (!user.email?.trim()) {
+      throw new Error('Email is required');
+    }
+
+    const updateData = mapToDbUser(user, true);
+    
+    console.log('Updating user with data:', {
+      id: user.id,
+      email: updateData.email,
+      name: updateData.name,
+      role: updateData.role,
+      team: updateData.team,
+      hasPassword: !!updateData.password
+    });
+
     const { data, error } = await supabase
       .from('users')
-      .update({
-        ...mapToDbUser(user),
-        updated_at: getIndiaDateTime().toISOString()
-      })
+      .update(updateData)
       .eq('id', user.id)
       .select()
       .single();
 
     if (error) {
       console.error('Error updating user:', error);
-      throw error;
+      if (error.code === '23505') {
+        throw new Error('A user with this email already exists');
+      }
+      if (error.code === 'PGRST116') {
+        throw new Error('User not found');
+      }
+      throw new Error(`Failed to update user: ${error.message}`);
     }
     
     if (!data) {
       throw new Error('Failed to update user: No data returned');
     }
-    
+
+    console.log('User updated successfully:', data.id);
     return mapFromDbUser(data);
   } catch (error) {
     console.error('Error updating user:', error);
+    throw error;
+  }
+};
+
+// Update user password specifically
+export const updateUserPassword = async (userId: string, newPassword: string): Promise<User> => {
+  try {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+    if (!newPassword?.trim() || newPassword.trim().length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
+
+    console.log('Updating password for user:', userId);
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({ 
+        password: newPassword.trim(),
+        updated_at: getIndiaDateTime().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating user password:', error);
+      if (error.code === 'PGRST116') {
+        throw new Error('User not found');
+      }
+      throw new Error(`Failed to update password: ${error.message}`);
+    }
+    
+    if (!data) {
+      throw new Error('Failed to update password: No data returned');
+    }
+
+    console.log('Password updated successfully for user:', userId);
+    return mapFromDbUser(data);
+  } catch (error) {
+    console.error('Error updating user password:', error);
     throw error;
   }
 };
