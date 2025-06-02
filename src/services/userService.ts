@@ -27,12 +27,9 @@ const mapToDbUser = (user: User, isUpdate: boolean = false) => {
     baseData.password = user.password.trim();
   }
 
-  // Only add created_at for new records
+  // Only add created_at for new records (don't add updated_at since column doesn't exist)
   if (!isUpdate) {
     baseData.created_at = getIndiaDateTime().toISOString();
-  } else {
-    // Add updated_at for updates
-    baseData.updated_at = getIndiaDateTime().toISOString();
   }
 
   return baseData;
@@ -304,8 +301,7 @@ export const updateUserPassword = async (userId: string, newPassword: string): P
     const { data, error } = await supabase
       .from('users')
       .update({ 
-        password: newPassword.trim(),
-        updated_at: getIndiaDateTime().toISOString()
+        password: newPassword.trim()
       })
       .eq('id', userId)
       .select()
@@ -336,7 +332,7 @@ export const updateUserAvatar = async (userId: string, avatar: string): Promise<
   const { error } = await supabase
     .from('users')
     .update({ 
-      avatar
+      avatar_url: avatar
     })
     .eq('id', userId);
   
