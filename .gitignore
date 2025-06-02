@@ -31,3 +31,4 @@ dist-ssr
 .env.local
 # Production environment files
 .env.production
+.vercel
