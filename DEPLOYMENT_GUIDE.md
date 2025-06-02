@@ -146,3 +146,6 @@ Once set up, you'll have:
 ---
 
 🎊 **Your PM Tool will now automatically deploy every time you push code!** 🎊 
+
+npx vercel login
+# Choose "Continue with GitHub" 
