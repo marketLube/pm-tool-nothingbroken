@@ -49,13 +49,20 @@ const UserModal: React.FC<{
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [passwordGenerated, setPasswordGenerated] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [autoSavedFields, setAutoSavedFields] = useState<Record<string, boolean>>({});
   
   // Reset form data when the user prop changes (for editing different users)
   useEffect(() => {
     if (user) {
       setFormData(user);
       setSelectedFile(null);
+      setPasswordGenerated(false);
+      setPasswordSaved(false);
+      setAutoSavedFields({});
     } else {
       setFormData({
         name: '',
@@ -68,8 +75,29 @@ const UserModal: React.FC<{
         password: ''
       });
       setSelectedFile(null);
+      setPasswordGenerated(false);
+      setPasswordSaved(false);
+      setAutoSavedFields({});
     }
   }, [user]);
+  
+  // Clear auto-saved field indicators after 3 seconds
+  useEffect(() => {
+    const fieldNames = Object.keys(autoSavedFields).filter(field => autoSavedFields[field]);
+    if (fieldNames.length > 0) {
+      const timer = setTimeout(() => {
+        setAutoSavedFields(prev => {
+          const updated = { ...prev };
+          fieldNames.forEach(field => {
+            updated[field] = false;
+          });
+          return updated;
+        });
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [autoSavedFields]);
   
   // Get statuses for the selected team
   const teamStatuses = useMemo(() => {
@@ -99,6 +127,42 @@ const UserModal: React.FC<{
         return newErrors;
       });
     }
+
+    // Auto-save for existing users (except password)
+    if (user && name !== 'password') {
+      handleAutoSave(name, value);
+    }
+  };
+
+  const handleAutoSave = async (fieldName: string, value: string) => {
+    if (!user || isUpdating) return;
+    
+    try {
+      setIsUpdating(true);
+      let updatedUser: User = {
+        ...user,
+        [fieldName]: fieldName === 'team' ? value as TeamType : value
+      } as User;
+      
+      // If team changes, reset allowedStatuses and update form data
+      if (fieldName === 'team') {
+        updatedUser.allowedStatuses = [];
+        setFormData(prev => ({ ...prev, allowedStatuses: [] }));
+      }
+      
+      await updateUser(updatedUser);
+      console.log(`Auto-saved ${fieldName} for user ${user.email}`);
+      setAutoSavedFields(prev => ({ ...prev, [fieldName]: true }));
+    } catch (error) {
+      console.error(`Error auto-saving ${fieldName}:`, error);
+      // Show user-friendly error
+      setErrors(prev => ({
+        ...prev,
+        [fieldName]: `Failed to save ${fieldName}. Please try again.`
+      }));
+    } finally {
+      setIsUpdating(false);
+    }
   };
   
   const handleFileChange = (file: File | null) => {
@@ -109,7 +173,37 @@ const UserModal: React.FC<{
     const newPassword = generateUserFriendlyPassword(10);
     setFormData(prev => ({ ...prev, password: newPassword }));
     setPasswordGenerated(true);
+    setPasswordSaved(false);
     setShowPassword(true);
+  };
+
+  const handleSavePassword = async () => {
+    if (!user || !formData.password || isSavingPassword) return;
+    
+    try {
+      setIsSavingPassword(true);
+      const updatedUser: User = {
+        ...user,
+        password: formData.password
+      } as User;
+      
+      await updateUser(updatedUser);
+      setPasswordSaved(true);
+      console.log('Password saved successfully for user:', user.email);
+      
+      // Show success message briefly
+      setTimeout(() => {
+        setPasswordSaved(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Error saving password:', error);
+      setErrors(prev => ({
+        ...prev,
+        password: 'Failed to save password. Please try again.'
+      }));
+    } finally {
+      setIsSavingPassword(false);
+    }
   };
 
   const handleCopyPassword = async () => {
@@ -126,20 +220,47 @@ const UserModal: React.FC<{
     setFormData(prev => {
       const currentStatuses = prev.allowedStatuses || [];
       
+      let newStatuses: string[];
       if (currentStatuses.includes(statusId)) {
         // Remove status if already selected
-        return {
-          ...prev,
-          allowedStatuses: currentStatuses.filter(id => id !== statusId)
-        };
+        newStatuses = currentStatuses.filter(id => id !== statusId);
       } else {
         // Add status if not already selected
-        return {
-          ...prev,
-          allowedStatuses: [...currentStatuses, statusId]
-        };
+        newStatuses = [...currentStatuses, statusId];
       }
+      
+      const updatedFormData = {
+        ...prev,
+        allowedStatuses: newStatuses
+      };
+      
+      // Auto-save for existing users
+      if (user && !isUpdating) {
+        handleAutoSaveStatuses(newStatuses);
+      }
+      
+      return updatedFormData;
     });
+  };
+
+  const handleAutoSaveStatuses = async (newStatuses: string[]) => {
+    if (!user || isUpdating) return;
+    
+    try {
+      setIsUpdating(true);
+      const updatedUser: User = {
+        ...user,
+        allowedStatuses: newStatuses
+      } as User;
+      
+      await updateUser(updatedUser);
+      console.log(`Auto-saved status permissions for user ${user.email}`);
+      setAutoSavedFields(prev => ({ ...prev, allowedStatuses: true }));
+    } catch (error) {
+      console.error('Error auto-saving status permissions:', error);
+    } finally {
+      setIsUpdating(false);
+    }
   };
   
   const validate = () => {
@@ -182,6 +303,8 @@ const UserModal: React.FC<{
     }
     
     try {
+      setIsUpdating(true);
+      
       // Process avatar file if available
       let avatarUrl = formData.avatar || '';
       if (selectedFile) {
@@ -238,6 +361,8 @@ const UserModal: React.FC<{
       onClose();
     } catch (error) {
       console.error('Error saving user:', error);
+    } finally {
+      setIsUpdating(false);
     }
   };
   
@@ -272,26 +397,44 @@ const UserModal: React.FC<{
           />
         </div>
         
-        <Input
-          label="Name"
-          name="name"
-          value={formData.name || ''}
-          onChange={handleChange}
-          error={errors.name}
-          fullWidth
-          required
-        />
+        <div className="relative">
+          <Input
+            label="Name"
+            name="name"
+            value={formData.name || ''}
+            onChange={handleChange}
+            error={errors.name}
+            fullWidth
+            required
+          />
+          {user && autoSavedFields.name && (
+            <div className="absolute top-0 right-0 mt-1 mr-1">
+              <div className="bg-green-100 text-green-600 rounded-full p-1">
+                <Check className="h-3 w-3" />
+              </div>
+            </div>
+          )}
+        </div>
         
-        <Input
-          label="Email"
-          name="email"
-          type="email"
-          value={formData.email || ''}
-          onChange={handleChange}
-          error={errors.email}
-          fullWidth
-          required
-        />
+        <div className="relative">
+          <Input
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email || ''}
+            onChange={handleChange}
+            error={errors.email}
+            fullWidth
+            required
+          />
+          {user && autoSavedFields.email && (
+            <div className="absolute top-0 right-0 mt-1 mr-1">
+              <div className="bg-green-100 text-green-600 rounded-full p-1">
+                <Check className="h-3 w-3" />
+              </div>
+            </div>
+          )}
+        </div>
         
         {/* Password field - show for new users or when editing with reset option */}
         {(!user || passwordGenerated) && (
@@ -341,10 +484,31 @@ const UserModal: React.FC<{
             {errors.password && (
               <p className="mt-1 text-sm text-red-600">{errors.password}</p>
             )}
-            {passwordGenerated && (
-              <p className="mt-1 text-sm text-green-600">
-                New password generated! Make sure to copy it before saving.
-              </p>
+            {passwordGenerated && !passwordSaved && (
+              <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-md p-3">
+                <p className="text-sm text-blue-700">
+                  New password generated! Copy it and click Save Password to apply.
+                </p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  icon={isSavingPassword ? Loader2 : Check}
+                  onClick={handleSavePassword}
+                  disabled={isSavingPassword || !formData.password}
+                  className={`ml-3 ${isSavingPassword ? 'animate-spin' : ''}`}
+                >
+                  {isSavingPassword ? 'Saving...' : 'Save Password'}
+                </Button>
+              </div>
+            )}
+            {passwordSaved && (
+              <div className="mt-2 bg-green-50 border border-green-200 rounded-md p-3">
+                <p className="text-sm text-green-700 flex items-center">
+                  <Check className="h-4 w-4 mr-2" />
+                  Password saved successfully!
+                </p>
+              </div>
             )}
           </div>
         )}
@@ -377,25 +541,43 @@ const UserModal: React.FC<{
         )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Select
-            label="Role"
-            name="role"
-            options={roleOptions}
-            value={formData.role as string || ''}
-            onChange={handleChange}
-            fullWidth
-            required
-          />
+          <div className="relative">
+            <Select
+              label="Role"
+              name="role"
+              options={roleOptions}
+              value={formData.role as string || ''}
+              onChange={handleChange}
+              fullWidth
+              required
+            />
+            {user && autoSavedFields.role && (
+              <div className="absolute top-0 right-0 mt-1 mr-1">
+                <div className="bg-green-100 text-green-600 rounded-full p-1">
+                  <Check className="h-3 w-3" />
+                </div>
+              </div>
+            )}
+          </div>
           
-          <Select
-            label="Team"
-            name="team"
-            options={teamOptions}
-            value={formData.team as string || ''}
-            onChange={handleChange}
-            fullWidth
-            required
-          />
+          <div className="relative">
+            <Select
+              label="Team"
+              name="team"
+              options={teamOptions}
+              value={formData.team as string || ''}
+              onChange={handleChange}
+              fullWidth
+              required
+            />
+            {user && autoSavedFields.team && (
+              <div className="absolute top-0 right-0 mt-1 mr-1">
+                <div className="bg-green-100 text-green-600 rounded-full p-1">
+                  <Check className="h-3 w-3" />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         
         <DatePicker
@@ -411,10 +593,16 @@ const UserModal: React.FC<{
         
         {/* Status Permissions - only show for non-admin users */}
         {showStatusPermissions && (
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-3">
               <UserCog className="h-4 w-4 inline mr-2" />
               Status View Permissions
+              {user && autoSavedFields.allowedStatuses && (
+                <span className="ml-2 inline-flex items-center text-green-600">
+                  <Check className="h-3 w-3 mr-1" />
+                  <span className="text-xs">Saved</span>
+                </span>
+              )}
             </label>
             <div className="border border-gray-200 rounded-lg p-4 bg-gradient-to-br from-gray-50 to-white">
               <div className="flex items-center justify-between mb-3">
@@ -470,10 +658,16 @@ const UserModal: React.FC<{
                   <div className="flex space-x-2">
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ 
-                        ...prev, 
-                        allowedStatuses: teamStatuses.map(s => s.id) 
-                      }))}
+                      onClick={() => {
+                        const allStatuses = teamStatuses.map(s => s.id);
+                        setFormData(prev => ({ 
+                          ...prev, 
+                          allowedStatuses: allStatuses 
+                        }));
+                        if (user && !isUpdating) {
+                          handleAutoSaveStatuses(allStatuses);
+                        }
+                      }}
                       className="text-xs text-blue-600 hover:text-blue-800 font-medium"
                     >
                       Select All
@@ -481,10 +675,15 @@ const UserModal: React.FC<{
                     <span className="text-gray-300">|</span>
                     <button
                       type="button"
-                      onClick={() => setFormData(prev => ({ 
-                        ...prev, 
-                        allowedStatuses: [] 
-                      }))}
+                      onClick={() => {
+                        setFormData(prev => ({ 
+                          ...prev, 
+                          allowedStatuses: [] 
+                        }));
+                        if (user && !isUpdating) {
+                          handleAutoSaveStatuses([]);
+                        }
+                      }}
                       className="text-xs text-gray-600 hover:text-gray-800 font-medium"
                     >
                       Clear All
@@ -512,19 +711,34 @@ const UserModal: React.FC<{
           </div>
         )}
         
+        {/* Auto-save indicator */}
+        {user && isUpdating && !isSavingPassword && (
+          <div className="flex items-center justify-center py-2">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600 mr-2" />
+            <span className="text-sm text-blue-600">Saving changes...</span>
+          </div>
+        )}
+        
         <div className="flex justify-end space-x-3 pt-4">
           <Button
             variant="secondary"
             onClick={onClose}
             type="button"
+            disabled={isUpdating || isSavingPassword}
           >
             Cancel
           </Button>
           <Button
             variant="primary"
             type="submit"
+            disabled={isUpdating || isSavingPassword}
+            icon={isUpdating ? Loader2 : undefined}
+            className={isUpdating ? 'animate-spin' : ''}
           >
-            {user ? 'Update User' : 'Add User'}
+            {isUpdating 
+              ? (user ? 'Updating...' : 'Creating...') 
+              : (user ? 'Update User' : 'Add User')
+            }
           </Button>
         </div>
       </form>
