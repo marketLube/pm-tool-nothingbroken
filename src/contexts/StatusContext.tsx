@@ -122,7 +122,7 @@ export const StatusProvider: React.FC<StatusProviderProps> = ({ children }) => {
   // Load statuses on mount
   useEffect(() => {
     loadStatusesFromDatabase();
-  }, [loadStatusesFromDatabase]);
+  }, []);
 
   const addStatus = useCallback(async (status: Omit<Status, 'id'> & { id?: StatusCode }) => {
     try {

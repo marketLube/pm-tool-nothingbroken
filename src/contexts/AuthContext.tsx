@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import { User } from '../types';
 import { getPermissions, hasPermission, ResourceType, ActionType } from '../utils/auth/permissions';
@@ -36,12 +36,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [supabaseUsers, setSupabaseUsers] = useState<User[]>([]);
+  
+  // 🔥 CRITICAL FIX: Use ref to prevent cascading re-renders
+  const supabaseUsersRef = useRef<User[]>([]);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    supabaseUsersRef.current = supabaseUsers;
+  }, [supabaseUsers]);
 
-  // Load users from Supabase instead of mock data
+  // Load users from Supabase instead of mock data - ONLY RUN ONCE
   useEffect(() => {
     const loadSupabaseUsers = async () => {
       try {
         console.log('🔄 Loading users from Supabase...');
+        
+        if (!supabase) {
+          console.warn('⚠️ Supabase not configured, using mock data');
+          const { users: mockUsers } = await import('../utils/mockData');
+          setSupabaseUsers(mockUsers);
+          return;
+        }
+        
         const { data: usersData, error } = await supabase
           .from('users')
           .select('*');
@@ -79,33 +95,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     loadSupabaseUsers();
+  }, []); // 🔥 EMPTY DEPS - only run once
+
+  // 🔥 STABLE: Session check function
+  const checkSession = useCallback(async () => {
+    try {
+      if (!supabase) {
+        console.warn('⚠️ Supabase not configured, skipping session check');
+        return;
+      }
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const user = supabaseUsersRef.current.find(u => u.email === session.user.email);
+        if (user) {
+          setCurrentUser(user);
+          setIsLoggedIn(true);
+          console.log(`✅ Session restored for user: ${user.name} (ID: ${user.id})`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking session:', error);
+    }
   }, []);
 
+  // Check session when users are loaded
   useEffect(() => {
-    // Check for existing session on mount
-    const checkSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          const user = supabaseUsers.find(u => u.email === session.user.email);
-          if (user) {
-            setCurrentUser(user);
-            setIsLoggedIn(true);
-            console.log(`✅ Session restored for user: ${user.name} (ID: ${user.id})`);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error checking session:', error);
-      }
-    };
-
     if (supabaseUsers.length > 0) {
       checkSession();
     }
-  }, [supabaseUsers]);
+  }, [supabaseUsers, checkSession]);
 
-  // Monitor auth state changes
+  // Monitor auth state changes - STABLE FUNCTION
   useEffect(() => {
+    if (!supabase) {
+      console.warn('⚠️ Supabase not configured, skipping auth state monitoring');
+      return;
+    }
+    
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log(`🔐 Auth state changed: ${event}`);
@@ -114,7 +141,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setCurrentUser(null);
           setIsLoggedIn(false);
         } else if (event === 'SIGNED_IN' && session?.user) {
-          const user = supabaseUsers.find(u => u.email === session.user.email);
+          const user = supabaseUsersRef.current.find(u => u.email === session.user.email);
           if (user) {
             setCurrentUser(user);
             setIsLoggedIn(true);
@@ -125,7 +152,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     );
 
     return () => subscription.unsubscribe();
-  }, [supabaseUsers]);
+  }, []); // 🔥 EMPTY DEPS - only set up once, uses ref for users
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -145,27 +172,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return false;
       }
 
+      // Check status-based permissions for non-admin users
+      if (user.role !== 'admin') {
+        if (!user.allowedStatuses || user.allowedStatuses.length === 0) {
+          console.log('❌ User has no status permissions assigned');
+          alert('Your account has no permissions assigned. Please contact an administrator to set up your access permissions.');
+          return false;
+        }
+        
+        console.log(`✅ User has ${user.allowedStatuses.length} status permission(s) assigned`);
+      } else {
+        console.log('✅ Admin user - has full access');
+      }
+
       // Method 1: Try Supabase authentication first
       console.log('🔑 Attempting Supabase Auth login...');
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase(),
-        password: password
-      });
+      
+      if (!supabase) {
+        console.log('⚠️ Supabase not configured, skipping Supabase Auth');
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.toLowerCase(),
+          password: password
+        });
 
-      if (!error && data.user) {
-        // Supabase Auth successful
-        setCurrentUser(user);
-        setIsLoggedIn(true);
+        if (!error && data.user) {
+          // Supabase Auth successful
+          setCurrentUser(user);
+          setIsLoggedIn(true);
+          
+          console.log(`✅ Supabase Auth login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
+          console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+          console.log(`🔐 Status permissions: ${user.allowedStatuses?.length || 0} status(es) allowed`);
+          
+          return true;
+        }
         
-        console.log(`✅ Supabase Auth login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
-        console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
-        
-        return true;
+        console.log('🔄 Supabase Auth failed, trying database authentication...');
+        console.log(`   Auth error: ${error?.message || 'Unknown error'}`);
       }
 
       // Method 2: Fallback to database-only authentication
-      console.log('🔄 Supabase Auth failed, trying database authentication...');
-      console.log(`   Auth error: ${error?.message || 'Unknown error'}`);
+      console.log('🔄 Trying database authentication...');
       
       // Import the user service to check credentials against database
       const { checkUserCredentials } = await import('../services/userService');
@@ -178,6 +226,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         console.log(`✅ Database auth login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
         console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+        console.log(`🔐 Status permissions: ${user.allowedStatuses?.length || 0} status(es) allowed`);
         console.log(`⚠️ Note: User exists in database but not in Supabase Auth. Consider recreating user for full functionality.`);
         
         return true;
@@ -191,6 +240,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         console.log(`✅ Local data login successful for: ${user.name} (${user.role}) - ID: ${user.id}`);
         console.log(`📋 User teams: ${user.team}, Active: ${user.isActive}`);
+        console.log(`🔐 Status permissions: ${user.allowedStatuses?.length || 0} status(es) allowed`);
         
         return true;
       }
@@ -207,19 +257,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log(`🔐 Logging out user: ${currentUser?.name}`);
       
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-      
-      // Clear local state
+      // Clear local state first
       setCurrentUser(null);
       setIsLoggedIn(false);
       
+      // Sign out from Supabase if available
+      if (supabase) {
+        await supabase.auth.signOut();
+      } else {
+        console.warn('⚠️ Supabase not configured, skipping Supabase sign out');
+      }
+      
       console.log('✅ Logout successful');
+      
+      // Force a page reload to ensure all contexts are reset
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+      
     } catch (error) {
       console.error('❌ Logout error:', error);
       // Force logout even if Supabase fails
       setCurrentUser(null);
       setIsLoggedIn(false);
+      
+      // Still reload the page to ensure cleanup
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
     }
   };
 

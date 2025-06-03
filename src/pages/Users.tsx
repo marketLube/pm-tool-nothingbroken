@@ -280,8 +280,21 @@ const UserModal: React.FC<{
           updated.allowedStatuses = currentTeamStatuses.map(s => s.id);
         }
       } else if (name === 'team' && updated.role !== 'admin') {
-        // Only reset statuses for non-admin users when team changes
+        // For new users, auto-assign common statuses based on team
+        if (!user) {
+          const teamStatuses = getStatusesByTeam(value as TeamType);
+          // Auto-assign the most common statuses for new users
+          const defaultStatuses = teamStatuses
+            .filter(status => 
+              ['in-progress', 'pending-review', 'completed', 'ready-to-start'].includes(status.name.toLowerCase().replace(/\s/g, '-'))
+            )
+            .map(s => s.id);
+          
+          updated.allowedStatuses = defaultStatuses.length > 0 ? defaultStatuses : teamStatuses.slice(0, 3).map(s => s.id);
+        } else {
+          // For existing users, only reset statuses for non-admin users when team changes
         updated.allowedStatuses = [];
+        }
       }
       
       return updated;
@@ -1235,6 +1248,52 @@ const UsersPage: React.FC = () => {
         />
       )}
       
+      {/* Users Needing Attention Alert */}
+      {(() => {
+        const usersWithoutPermissions = filteredUsers.filter(user => 
+          user.role !== 'admin' && (!user.allowedStatuses || user.allowedStatuses.length === 0) && user.isActive
+        );
+        
+        return usersWithoutPermissions.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-start">
+              <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 mr-3 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-amber-800">
+                  Users Need Status Permissions
+                </h3>
+                <div className="mt-2 text-sm text-amber-700">
+                  <p>
+                    <strong>{usersWithoutPermissions.length} active user{usersWithoutPermissions.length !== 1 ? 's' : ''}</strong> don't have status permissions assigned and won't be able to log in:
+                  </p>
+                  <ul className="mt-2 list-disc list-inside space-y-1">
+                    {usersWithoutPermissions.slice(0, 3).map(user => (
+                      <li key={user.id} className="flex items-center justify-between">
+                        <span>{user.name} ({user.email})</span>
+                        <Button
+                          variant="warning"
+                          size="xs"
+                          icon={Edit}
+                          onClick={() => handleEditUser(user)}
+                          className="ml-2 bg-amber-600 hover:bg-amber-700 text-white"
+                        >
+                          Assign Permissions
+                        </Button>
+                      </li>
+                    ))}
+                    {usersWithoutPermissions.length > 3 && (
+                      <li className="text-amber-600 font-medium">
+                        ...and {usersWithoutPermissions.length - 3} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -1345,7 +1404,7 @@ const UsersPage: React.FC = () => {
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Permissions
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -1420,24 +1479,28 @@ const UsersPage: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <div className="flex justify-center space-x-2">
                         <PermissionGuard resource="user" action="update">
                           <Button
-                            variant="ghost"
+                            variant="primary"
                             size="xs"
                             icon={Edit}
                             onClick={() => handleEditUser(user)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white border-blue-600 hover:border-blue-700"
+                            title="Edit user details, permissions, and password"
                           >
-                            Edit
+                            Edit User
                           </Button>
                         </PermissionGuard>
                         
                         <PermissionGuard resource="user" action="update">
                           <Button
-                            variant={user.isActive ? 'danger' : 'primary'}
+                            variant={user.isActive ? 'warning' : 'success'}
                             size="xs"
+                            icon={user.isActive ? UserX : UserCheck}
                             onClick={() => handleToggleUserStatus(user.id)}
+                            title={user.isActive ? 'Deactivate this user' : 'Activate this user'}
                           >
                             {user.isActive ? 'Deactivate' : 'Activate'}
                           </Button>
@@ -1450,6 +1513,7 @@ const UsersPage: React.FC = () => {
                             icon={Trash2}
                             onClick={() => handleDeleteUser(user)}
                             className="bg-red-600 hover:bg-red-700 text-white"
+                            title="Delete this user permanently"
                           >
                             Delete
                           </Button>

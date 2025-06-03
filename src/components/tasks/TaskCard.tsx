@@ -73,6 +73,11 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
   const client = task.clientId ? getClientById(task.clientId) : null;
   
+  // 🔥 DEBUG: Log if assignee is missing when it should exist
+  if (task.assigneeId && !assignee) {
+    console.warn(`TaskCard: Assignee not found for task "${task.title}" (assigneeId: ${task.assigneeId})`);
+  }
+  
   // Get the actual status object from StatusContext
   const currentStatus = statuses.find(
     s => s.id === task.status && s.team === task.team
@@ -293,7 +298,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
               />
               <span className="ml-1.5 text-xs font-medium text-secondary-700">{assignee.name}</span>
             </div>
+          ) : task.assigneeId ? (
+            // Show assigneeId if user data is missing but ID exists
+            <div className="flex items-center">
+              <div className="w-6 h-6 rounded-full bg-orange-200 flex items-center justify-center">
+                <span className="text-xs text-orange-600">!</span>
+              </div>
+              <span className="ml-1.5 text-xs font-medium text-orange-600 italic">
+                Assignee ID: {task.assigneeId.slice(0, 8)}... (User not found)
+              </span>
+            </div>
           ) : (
+            // Truly unassigned task
             <div className="flex items-center">
               <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
                 <span className="text-xs text-gray-500">?</span>

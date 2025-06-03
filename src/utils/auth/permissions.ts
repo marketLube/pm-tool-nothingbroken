@@ -37,6 +37,7 @@ export const getPermissions = (
       { resource: 'user', action: 'view', team: 'all' },
       { resource: 'user', action: 'create', team: 'all' },
       { resource: 'user', action: 'edit', team: 'all' },
+      { resource: 'user', action: 'update', team: 'all' },
       { resource: 'user', action: 'delete', team: 'all' },
       { resource: 'user', action: 'manage', team: 'all' },
       
@@ -81,6 +82,7 @@ export const getPermissions = (
       // User permissions
       { resource: 'user', action: 'view', team: 'all' },
       { resource: 'user', action: 'edit', team: userTeam },
+      { resource: 'user', action: 'update', team: userTeam },
       
       // Client permissions
       { resource: 'client', action: 'view', team: 'all' },

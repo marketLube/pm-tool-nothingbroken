@@ -1,12 +1,26 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-  DropResult,
-  DragStart,
-  DragUpdate,
-} from '@hello-pangea/dnd';
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  useDroppable,
+  UniqueIdentifier,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import {
+  CSS,
+} from '@dnd-kit/utilities';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import TaskCard from '../components/tasks/TaskCard';
 import Button from '../components/ui/Button';
@@ -36,56 +50,63 @@ interface Column {
 // 🔥 PERFORMANCE OPTIMIZATION: Memoized components to prevent unnecessary re-renders
 const MemoizedTaskCard = React.memo(TaskCard);
 
-// 🔥 HELLO-PANGEA: Draggable Task with minimal re-renders
+// 🔥 OPTIMIZED: Draggable Task with minimal re-renders
 interface DraggableTaskProps {
   task: Task;
-  index: number;
   onClick: (task: Task) => void;
   onDelete: (taskId: string) => void;
 }
 
 const DraggableTask = React.memo<DraggableTaskProps>(({ 
   task, 
-  index,
   onClick, 
   onDelete 
 }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: task.id,
+    // 🔥 PERFORMANCE: Remove disabled check for faster initialization
+  });
+
+  const style = useMemo(() => ({
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // 🔥 OPTIMIZATION: Use CSS transforms for better performance
+    willChange: isDragging ? 'transform' : 'auto',
+  }), [transform, transition, isDragging]);
+
   const handleClick = useCallback(() => onClick(task), [onClick, task]);
   const handleDelete = useCallback(() => onDelete(task.id), [onDelete, task.id]);
 
   return (
-    <Draggable draggableId={task.id} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          className={`mb-3 transform select-none transition-all duration-200 ${
-            snapshot.isDragging 
-              ? 'z-50 shadow-xl opacity-95 scale-[1.02] rotate-1' 
-              : 'hover:shadow-md'
-          }`}
-          style={{
-            ...provided.draggableProps.style,
-            // 🔥 OPTIMIZATION: Better performance with CSS transforms
-            willChange: snapshot.isDragging ? 'transform' : 'auto',
-          }}
-        >
-          <MemoizedTaskCard
-            task={task}
-            isDragging={snapshot.isDragging}
-            onClick={handleClick}
-            onDelete={handleDelete}
-          />
-        </div>
-      )}
-    </Draggable>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`mb-3 transform select-none ${
+        isDragging ? 'z-50 shadow-xl opacity-95 scale-[1.02] rotate-1' : 'hover:shadow-md transition-shadow duration-200'
+      }`}
+    >
+      <MemoizedTaskCard
+        task={task}
+        isDragging={isDragging}
+        onClick={handleClick}
+        onDelete={handleDelete}
+      />
+    </div>
   );
 });
 
 DraggableTask.displayName = 'DraggableTask';
 
-// 🔥 HELLO-PANGEA: Droppable Column with virtualization support
+// 🔥 OPTIMIZED: Droppable Column with virtualization support
 interface DroppableColumnProps {
   column: Column;
   onNewTask: (statusId: StatusCode) => void;
@@ -100,6 +121,13 @@ const DroppableColumn = React.memo<DroppableColumnProps>(({
   onTaskDelete,
 }) => {
   const { currentUser, isAdmin } = useAuth();
+  
+  const {
+    isOver,
+    setNodeRef
+  } = useDroppable({
+    id: column.id,
+  });
 
   // 🔥 MEMOIZED: Permission check
   const canCreateTaskInStatus = useMemo(() => 
@@ -114,9 +142,9 @@ const DroppableColumn = React.memo<DroppableColumnProps>(({
   const tasksToRender = shouldVirtualize ? column.tasks.slice(0, 20) : column.tasks;
 
   return (
-    <div className="h-full flex flex-col min-h-0">
-      <Card className="flex-1 h-full flex flex-col min-h-0" hover>
-        <CardHeader className="pb-2 border-b border-gray-100 flex-shrink-0">
+    <div className="h-full flex flex-col">
+      <Card className="flex-1 h-full" hover>
+        <CardHeader className="pb-2 border-b border-gray-100">
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center">
               <div
@@ -130,64 +158,62 @@ const DroppableColumn = React.memo<DroppableColumnProps>(({
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
-          <Droppable droppableId={column.id} type="TASK">
-            {(provided, snapshot) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                className={`flex-1 flex flex-col min-h-[200px] transition-colors duration-150 ${
-                  snapshot.isDraggingOver ? 'bg-blue-50/50 rounded-md' : ''
-                }`}
-              >
-                {column.tasks.length === 0 ? (
-                  <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
-                    <p className="text-sm text-gray-500">No tasks</p>
-                  </div>
-                ) : (
-                  <div className="flex-1 space-y-2 min-h-0">
-                    {tasksToRender.map((task, index) => (
-                      <DraggableTask
-                        key={task.id}
-                        task={task}
-                        index={index}
-                        onClick={onTaskClick}
-                        onDelete={onTaskDelete}
-                      />
-                    ))}
-                    {shouldVirtualize && column.tasks.length > 20 && (
-                      <div className="text-xs text-gray-500 text-center py-2">
-                        +{column.tasks.length - 20} more tasks
-                      </div>
-                    )}
-                  </div>
-                )}
-                {provided.placeholder}
-                
-                {canCreateTaskInStatus && (
-                  <div className="mt-4 flex justify-center flex-shrink-0">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={Plus}
-                      onClick={handleNewTask}
-                      className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-200"
-                    >
-                      <span className="text-xs font-medium">New Task</span>
-                    </Button>
-                  </div>
-                )}
-                
-                {!canCreateTaskInStatus && (
-                  <div className="mt-4 flex justify-center flex-shrink-0">
-                    <div className="text-xs text-gray-400 text-center py-2">
-                      No permission to create tasks in this status
+        <CardContent className="p-4 overflow-hidden flex-1">
+          <div
+            ref={setNodeRef}
+            className={`space-y-2 min-h-[200px] h-full flex flex-col transition-colors duration-150 ${
+              isOver ? 'bg-blue-50/50 rounded-md' : ''
+            }`}
+          >
+            {column.tasks.length === 0 ? (
+              <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
+                <p className="text-sm text-gray-500">No tasks</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto">
+                <SortableContext 
+                  items={column.tasks.map(task => task.id)} 
+                  strategy={verticalListSortingStrategy}
+                >
+                  {tasksToRender.map((task) => (
+                    <DraggableTask
+                      key={task.id}
+                      task={task}
+                      onClick={onTaskClick}
+                      onDelete={onTaskDelete}
+                    />
+                  ))}
+                  {shouldVirtualize && column.tasks.length > 20 && (
+                    <div className="text-xs text-gray-500 text-center py-2">
+                      +{column.tasks.length - 20} more tasks
                     </div>
-                  </div>
-                )}
+                  )}
+                </SortableContext>
               </div>
             )}
-          </Droppable>
+            
+            {canCreateTaskInStatus && (
+              <div className="mt-4 flex justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Plus}
+                  onClick={handleNewTask}
+                  className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-200"
+                >
+                  <span className="text-xs font-medium">New Task</span>
+                </Button>
+              </div>
+            )}
+            
+            {!canCreateTaskInStatus && (
+              <div className="mt-4 flex justify-center">
+                <div className="text-xs text-gray-400 text-center py-2">
+                  No permission to create tasks in this status
+                </div>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -229,9 +255,24 @@ const TaskBoard: React.FC = () => {
   // Scrolling state
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   
-  // 🔥 HELLO-PANGEA: Drag operation state
+  // 🔥 SIMPLIFIED: Drag operation state
   const [isDragging, setIsDragging] = useState(false);
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
+  const dragTaskRef = useRef<Task | null>(null);
+  
+  // 🔥 OPTIMIZED: Enhanced sensors with better performance
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // Reduced from 8px for faster activation
+        delay: 50,   // Reduced from 100ms for snappier response
+        tolerance: 3, // Reduced tolerance for more precision
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
   
   // ---------------------------------------------------
   // 🔥 MEMOIZED: Derived state and computations
@@ -316,6 +357,7 @@ const TaskBoard: React.FC = () => {
     sortBy,
     viewMode,
     currentUser?.id,
+    searchTasks,
     isDragging
   ]);
   
@@ -382,55 +424,48 @@ const TaskBoard: React.FC = () => {
   }, []);
   
   // ---------------------------------------------------
-  // 🔥 HELLO-PANGEA: Ultra-Fast Drag and Drop handlers
+  // 🔥 ULTRA-FAST: Drag and Drop handlers
   // ---------------------------------------------------
   
-  const handleDragStart = useCallback((start: DragStart) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const { active } = event;
+    
+    // Store dragged task reference
+    const task = filteredTasks.find(t => t.id === active.id);
+    dragTaskRef.current = task || null;
+    
+    setActiveId(active.id);
     setIsDragging(true);
-    setDraggedTaskId(start.draggableId);
     setDragOperationActive(true);
     
     // Visual feedback
     document.body.style.cursor = 'grabbing';
     document.body.classList.add('dragging');
-  }, [setDragOperationActive]);
+  }, [filteredTasks, setDragOperationActive]);
   
-  const handleDragEnd = useCallback(async (result: DropResult) => {
-    const { destination, source, draggableId } = result;
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event;
     
     // Cleanup
     setIsDragging(false);
-    setDraggedTaskId(null);
+    setActiveId(null);
     setDragOperationActive(false);
+    dragTaskRef.current = null;
     
     document.body.style.cursor = '';
     document.body.classList.remove('dragging');
     
-    // No destination
-    if (!destination) {
-      return;
-    }
+    if (!over) return;
     
-    // Same position
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-    
-    const activeTask = filteredTasks.find(task => task.id === draggableId);
-    if (!activeTask) {
-      showError('Task not found');
-      return;
-    }
+    const activeTask = filteredTasks.find(task => task.id === active.id);
+    if (!activeTask) return;
     
     // Find target column
-    const targetColumn = columns.find(col => col.id === destination.droppableId);
-    if (!targetColumn) {
-      showError('Invalid drop target');
-      return;
-    }
+    const targetColumn = columns.find(col => 
+      col.id === over.id || col.tasks.some(task => task.id === over.id)
+    );
+    
+    if (!targetColumn) return;
     
     // Validation checks
     if (activeTask.team !== targetColumn.team) {
@@ -446,7 +481,7 @@ const TaskBoard: React.FC = () => {
     // Update if status changed
     if (activeTask.status !== targetColumn.status) {
       try {
-        // Optimistic update - preserve ALL task data, only change status
+        // Optimistic update
         setFilteredTasks(prev => 
           prev.map(task => 
             task.id === activeTask.id 
@@ -455,24 +490,14 @@ const TaskBoard: React.FC = () => {
           )
         );
         
-        // Database update and get the updated task with all preserved data
-        const updatedTask = await updateTaskStatus(activeTask.id, targetColumn.status);
-        
-        // 🔥 IMPORTANT: Use the actual updated task from database to ensure complete data integrity
-        setFilteredTasks(prev => 
-          prev.map(task => 
-            task.id === activeTask.id 
-              ? updatedTask
-              : task
-          )
-        );
-        
+        // Database update
+        await updateTaskStatus(activeTask.id, targetColumn.status);
         showSuccess(`Task moved to ${targetColumn.name}`);
       } catch (error) {
         console.error('Failed to update task status:', error);
         showError('Failed to update task status. Please try again.');
         
-        // Revert optimistic update - restore original status
+        // Revert optimistic update
         setFilteredTasks(prev => 
           prev.map(task => 
             task.id === activeTask.id 
@@ -483,6 +508,12 @@ const TaskBoard: React.FC = () => {
       }
     }
   }, [columns, filteredTasks, updateTaskStatus, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, setDragOperationActive]);
+  
+  // Get active task for drag overlay
+  const activeTask = useMemo(() => {
+    if (!activeId) return null;
+    return dragTaskRef.current || filteredTasks.find(task => task.id === activeId) || null;
+  }, [activeId, filteredTasks]);
   
   // Scroll handlers
   const scrollLeft = useCallback(() => {
@@ -526,7 +557,7 @@ const TaskBoard: React.FC = () => {
               {teamFilter === 'creative' ? 'Creative Team' : 'Web Team'} Tasks
             </h1>
             <p className="text-sm text-gray-600 mt-1">
-              {filteredTasks.length} tasks • {columns.length} columns • Hello Pangea DnD ⚡
+              {filteredTasks.length} tasks • {columns.length} columns
             </p>
           </div>
           <LiveIndicator className="flex-shrink-0" />
@@ -795,35 +826,52 @@ const TaskBoard: React.FC = () => {
         )}
         
         {/* 🔥 ULTRA-FAST DndContext */}
-        <DragDropContext onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
           {columns.length > 0 ? (
-            <div className="overflow-x-auto">
-              <div 
-                ref={scrollContainerRef} 
-                className="flex gap-5 pb-4"
-                style={{ 
-                  minWidth: `${columns.length * 350}px`,
-                  width: 'max-content'
-                }}
-              >
-                {columns.map(column => (
-                  <div key={column.id} className="w-[330px] flex-shrink-0">
-                    <DroppableColumn
-                      column={column}
-                      onNewTask={handleNewTaskInStatus}
-                      onTaskClick={handleTaskClick}
-                      onTaskDelete={handleTaskDelete}
-                    />
-                  </div>
-                ))}
-              </div>
+            <div 
+              ref={scrollContainerRef} 
+              className="grid grid-cols-1 gap-5 overflow-x-auto pb-4 hide-scrollbar"
+              style={{ 
+                gridTemplateColumns: `repeat(${columns.length}, minmax(330px, 1fr))`, 
+                scrollbarWidth: 'none', 
+                msOverflowStyle: 'none' 
+              }}
+            >
+              {columns.map(column => (
+                <DroppableColumn
+                  key={column.id}
+                  column={column}
+                  onNewTask={handleNewTaskInStatus}
+                  onTaskClick={handleTaskClick}
+                  onTaskDelete={handleTaskDelete}
+                />
+              ))}
             </div>
           ) : (
             <div className="flex justify-center items-center py-10 border-2 border-dashed border-gray-200 rounded-lg">
               <p className="text-gray-500">No columns found for {teamFilter} team</p>
             </div>
           )}
-        </DragDropContext>
+
+          {/* 🔥 OPTIMIZED DragOverlay */}
+          <DragOverlay>
+            {activeTask ? (
+              <div className="opacity-95 scale-105 rotate-2 shadow-2xl">
+                <MemoizedTaskCard
+                  task={activeTask}
+                  isDragging={true}
+                  onClick={() => {}}
+                  onDelete={() => {}}
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
       
       {/* Modals */}

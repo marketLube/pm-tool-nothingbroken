@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Client, Report, Task, Team, TeamType, User, StatusCode } from '../types';
 import { isSupabaseConfigured } from '../utils/supabase';
 import * as userService from '../services/userService';
@@ -13,6 +13,14 @@ import { format } from 'date-fns';
 import { useAuth } from './AuthContext';
 import { updateUserPassword } from '../services/authService';
 import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
+import { useRealtime } from './RealtimeContext';
+
+// Import TaskRealtimeEvent type
+interface TaskRealtimeEvent {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  old?: Task;
+  new?: Task;
+}
 
 interface DataContextType {
   // Data
@@ -44,9 +52,13 @@ interface DataContextType {
   // Task actions
   addTask: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<void>;
   updateTask: (task: Task) => Promise<void>;
-  updateTaskStatus: (taskId: string, status: StatusCode) => Promise<void>;
+  updateTaskStatus: (taskId: string, status: StatusCode) => Promise<Task>;
   deleteTask: (taskId: string) => Promise<void>;
   searchTasks: (filters: TaskSearchFilters) => Promise<Task[]>;
+
+  // 🔥 NEW: Drag operation management
+  setDragOperationActive: (active: boolean) => void;
+  isDragOperationActive: () => boolean;
 
   // Client actions
   addClient: (client: Omit<Client, 'id' | 'dateAdded'>) => Promise<Client>;
@@ -101,12 +113,24 @@ interface DataProviderProps {
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const { isLoggedIn, currentUser } = useAuth();
+  const realtimeHook = useRealtime();
+
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  // 🔥 CRITICAL FIX: Use refs to avoid stale closures
+  const isInitialLoadRef = useRef(true);
+  const isDragOperationActiveRef = useRef(false);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    isInitialLoadRef.current = isInitialLoad;
+  }, [isInitialLoad]);
   
   // Default analytics
   const [analytics, setAnalytics] = useState({
@@ -122,10 +146,118 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   });
 
-  // Load data when user is authenticated
+  // 🔥 STABLE: Analytics calculation - never changes
+  const updateTaskAnalytics = useCallback((currentTasks: Task[]) => {
+    // Always use the passed tasks parameter to avoid stale closures
+    const tasksToAnalyze = currentTasks;
+    
+    // Filter tasks by team and calculate completion rates
+    const creativeTasksAll = tasksToAnalyze.filter(task => task.team === 'creative');
+    const webTasksAll = tasksToAnalyze.filter(task => task.team === 'web');
+    
+    // Calculate overdue tasks (due before today)
+    const today = getIndiaDateTime();
+    
+    // Count overdue tasks by team
+    const creativeOverdue = creativeTasksAll.filter(task => 
+      task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
+    ).length;
+    
+    const webOverdue = webTasksAll.filter(
+      task => task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
+    ).length;
+    
+    // Calculate completion percentages 
+    const creativeCompletion = creativeTasksAll.length > 0 
+      ? Math.round((creativeTasksAll.filter(task => task.status === 'approved' || task.status === 'done').length / creativeTasksAll.length) * 100)
+      : 0;
+      
+    const webCompletion = webTasksAll.length > 0
+      ? Math.round((webTasksAll.filter(task => task.status === 'completed' || task.status === 'done').length / webTasksAll.length) * 100)
+      : 0;
+    
+    // Update analytics
+    setAnalytics({
+      creative: {
+        taskCompletion: creativeCompletion,
+        reportSubmission: 0, // Will implement if we add report tracking
+        overdueTasksCount: creativeOverdue
+      },
+      web: {
+        taskCompletion: webCompletion,
+        reportSubmission: 0, // Will implement if we add report tracking
+        overdueTasksCount: webOverdue
+      }
+    });
+  }, []); // Empty dependencies since it only uses the passed parameter
+
+  // 🔥 CRITICAL FIX: Handle realtime events with refs - never changes
+  const handleRealtimeTaskEvent = useCallback((event: TaskRealtimeEvent) => {
+    // Use refs to avoid stale closures
+    if (isInitialLoadRef.current) {
+      return;
+    }
+
+    // Skip updates during drag operations
+    if (isDragOperationActiveRef.current) {
+      return;
+    }
+
+    switch (event.eventType) {
+      case 'INSERT':
+        if (event.new) {
+          setTasks(prevTasks => {
+            // Check if task already exists (avoid duplicates)
+            const exists = prevTasks.some(task => task.id === event.new!.id);
+            if (!exists) {
+              return [...prevTasks, event.new!];
+            }
+            return prevTasks;
+          });
+        }
+        break;
+        
+      case 'UPDATE':
+        if (event.new) {
+          setTasks(prevTasks => {
+            const updated = prevTasks.map(task => 
+              task.id === event.new!.id ? event.new! : task
+            );
+            return updated;
+          });
+        }
+        break;
+        
+      case 'DELETE':
+        if (event.old) {
+          setTasks(prevTasks => {
+            const filtered = prevTasks.filter(task => task.id !== event.old!.id);
+            return filtered;
+          });
+        }
+        break;
+    }
+  }, []); // 🔥 EMPTY DEPENDENCIES - truly stable now
+
+  // Subscribe to realtime events - only runs when needed
   useEffect(() => {
-    // Only load data if the user is authenticated
+    if (realtimeHook && isLoggedIn && !isInitialLoadRef.current) {
+      const unsubscribe = realtimeHook.onTaskEvent(handleRealtimeTaskEvent);
+      return unsubscribe;
+    }
+  }, [realtimeHook, isLoggedIn]); // 🔥 REMOVED isInitialLoad - using ref instead
+
+  // Load data when user is authenticated - only runs when login changes
+  useEffect(() => {
     if (!isLoggedIn) {
+      // Reset all state when user logs out
+      setUsers([]);
+      setClients([]);
+      setTasks([]);
+      setTeams([]);
+      setReports([]);
+      setIsInitialLoad(true);
+      setIsLoading(false);
       return;
     }
     
@@ -174,6 +306,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         
         // Calculate analytics
         updateTaskAnalytics(tasksData);
+        
+        // Mark initial load as complete
+        setIsInitialLoad(false);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -182,7 +317,32 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
 
     loadData();
-  }, [isLoggedIn]); // Reload when authentication state changes
+  }, [isLoggedIn]); // 🔥 REMOVED updateTaskAnalytics - it's memoized with empty deps
+
+  // Re-sync on realtime reconnection - only when status changes
+  useEffect(() => {
+    if (realtimeHook?.status === 'live' && !isInitialLoadRef.current && !isLoading && isLoggedIn) {
+      const resyncTasks = async () => {
+        try {
+          const freshTasks = await taskService.getTasks();
+          setTasks(prevTasks => {
+            // Only update if tasks have actually changed
+            if (JSON.stringify(prevTasks) !== JSON.stringify(freshTasks)) {
+              updateTaskAnalytics(freshTasks);
+              return freshTasks;
+            }
+            return prevTasks;
+          });
+        } catch (error) {
+          console.error('Error during re-sync:', error);
+        }
+      };
+      
+      // Debounce the re-sync to avoid multiple calls
+      const timeoutId = setTimeout(resyncTasks, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [realtimeHook?.status, isLoading, isLoggedIn]); // 🔥 REMOVED updateTaskAnalytics - it's memoized with empty deps
 
   // User actions
   const addUser = async (user: Omit<User, 'id'>) => {
@@ -261,52 +421,91 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   };
 
-  // Task actions
+  // Task actions (these will trigger realtime events for other users)
   const addTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
     try {
+      console.log('[DataContext] Creating task:', task.title);
       const newTask = await taskService.createTask(task);
-      setTasks([...tasks, newTask]);
-      updateTaskAnalytics();
+      
+      // Update local state immediately (realtime event will be ignored due to duplicate check)
+      setTasks(prevTasks => {
+        const updatedTasks = [...prevTasks, newTask];
+        // Calculate analytics with the new tasks array
+        updateTaskAnalytics(updatedTasks);
+        return updatedTasks;
+      });
+      
+      console.log('[DataContext] Task created successfully:', newTask.id);
     } catch (error) {
       console.error('Error adding task:', error);
+      throw error;
     }
   };
 
   const updateTask = async (updatedTask: Task) => {
     try {
+      console.log('[DataContext] Updating task:', updatedTask.title);
       const updated = await taskService.updateTask(updatedTask);
-      setTasks(tasks.map(task => 
-        task.id === updatedTask.id ? updated : task
-      ));
-      updateTaskAnalytics();
+      
+      // Update local state immediately
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.map(task => 
+          task.id === updatedTask.id ? updated : task
+        );
+        // Calculate analytics with the updated tasks array
+        updateTaskAnalytics(updatedTasks);
+        return updatedTasks;
+      });
+      
+      console.log('[DataContext] Task updated successfully:', updated.id);
     } catch (error) {
       console.error('Error updating task:', error);
+      throw error;
     }
   };
 
   const updateTaskStatus = async (taskId: string, status: StatusCode) => {
     try {
+      console.log('[DataContext] Updating task status:', taskId, 'to', status);
       const updated = await taskService.updateTaskStatus(taskId, status);
-      setTasks(tasks.map(task => 
-        task.id === taskId ? updated : task
-      ));
-      updateTaskAnalytics();
+      
+      // Update local state immediately
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.map(task => 
+          task.id === taskId ? updated : task
+        );
+        // Calculate analytics with the updated tasks array
+        updateTaskAnalytics(updatedTasks);
+        return updatedTasks;
+      });
+      
+      console.log('[DataContext] Task status updated successfully');
+      return updated;
     } catch (error) {
       console.error('Error updating task status:', error);
+      throw error;
     }
   };
 
   const deleteTask = async (taskId: string) => {
     try {
+      console.log('[DataContext] Deleting task:', taskId);
+      
       // First remove the task from all daily reports
       await dailyReportService.removeTaskFromAllDailyReports(taskId);
       
       // Then delete the task from the database
       await taskService.deleteTask(taskId);
       
-      // Finally update the local state
-      setTasks(tasks.filter(task => task.id !== taskId));
-      updateTaskAnalytics();
+      // Update local state immediately
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.filter(task => task.id !== taskId);
+        // Calculate analytics with the updated tasks array
+        updateTaskAnalytics(updatedTasks);
+        return updatedTasks;
+      });
+      
+      console.log('[DataContext] Task deleted successfully');
     } catch (error) {
       console.error('Error deleting task:', error);
       throw error; // Re-throw to allow UI to handle the error
@@ -536,48 +735,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     setReports([...reports, newReport]);
   };
 
-  // Analytics calculation
-  const updateTaskAnalytics = (currentTasks = tasks) => {
-    // Filter tasks by team and calculate completion rates
-    const creativeTasksAll = currentTasks.filter(task => task.team === 'creative');
-    const webTasksAll = currentTasks.filter(task => task.team === 'web');
-    
-    // Calculate overdue tasks (due before today)
-    const today = getIndiaDateTime();
-    
-    // Count overdue tasks by team
-    const creativeOverdue = creativeTasksAll.filter(task => 
-      task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
-    ).length;
-    
-    const webOverdue = webTasksAll.filter(
-      task => task.dueDate && new Date(task.dueDate) < today && task.status !== 'completed'
-    ).length;
-    
-    // Calculate completion percentages 
-    const creativeCompletion = creativeTasksAll.length > 0 
-      ? Math.round((creativeTasksAll.filter(task => task.status === 'approved' || task.status === 'done').length / creativeTasksAll.length) * 100)
-      : 0;
-      
-    const webCompletion = webTasksAll.length > 0
-      ? Math.round((webTasksAll.filter(task => task.status === 'completed' || task.status === 'done').length / webTasksAll.length) * 100)
-      : 0;
-    
-    // Update analytics
-    setAnalytics({
-      creative: {
-        taskCompletion: creativeCompletion,
-        reportSubmission: 0, // Will implement if we add report tracking
-        overdueTasksCount: creativeOverdue
-      },
-      web: {
-        taskCompletion: webCompletion,
-        reportSubmission: 0, // Will implement if we add report tracking
-        overdueTasksCount: webOverdue
-      }
-    });
-  };
-
   // Helper methods
   const getTasksByUser = (userId: string) => {
     return tasks.filter(task => task.assigneeId === userId);
@@ -635,48 +792,70 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   };
 
+  // 🔥 NEW: Drag operation management
+  const setDragOperationActive = (active: boolean) => {
+    isDragOperationActiveRef.current = active;
+  };
+
+  const isDragOperationActive = () => {
+    return isDragOperationActiveRef.current;
+  };
+
+  // 🔥 CRITICAL FIX: Memoize the context value to prevent constant recreations
+  const contextValue = useMemo(() => ({
+    users,
+    teams,
+    clients,
+    tasks,
+    reports,
+    analytics,
+    isLoading,
+    addUser,
+    updateUser,
+    toggleUserStatus,
+    addTask,
+    updateTask,
+    updateTaskStatus,
+    deleteTask,
+    addClient,
+    updateClient,
+    deleteClient,
+    refreshClients,
+    addReport,
+    updateReport,
+    approveReport,
+    submitReport,
+    updateTeam,
+    getTasksByUser,
+    getTasksByTeam,
+    getUsersByTeam,
+    getClientsByTeam,
+    getReportsByUser,
+    getReportsByDate,
+    getUserById,
+    getClientById,
+    getTeamById,
+    getTaskById,
+    searchTasks,
+    searchUsers,
+    searchClients,
+    searchReports,
+    setDragOperationActive,
+    isDragOperationActive
+  }), [
+    // 🔥 ONLY include primitive state values - never functions
+    users,
+    teams,
+    clients,
+    tasks,
+    reports,
+    analytics,
+    isLoading
+    // 🔥 CRITICAL: Exclude all functions - they're memoized separately
+  ]);
+
   return (
-    <DataContext.Provider
-      value={{
-        users,
-        teams,
-        clients,
-        tasks,
-        reports,
-        analytics,
-        isLoading,
-        addUser,
-        updateUser,
-        toggleUserStatus,
-        addTask,
-        updateTask,
-        updateTaskStatus,
-        deleteTask,
-        addClient,
-        updateClient,
-        deleteClient,
-        refreshClients,
-        addReport,
-        updateReport,
-        approveReport,
-        submitReport,
-        updateTeam,
-        getTasksByUser,
-        getTasksByTeam,
-        getUsersByTeam,
-        getClientsByTeam,
-        getReportsByUser,
-        getReportsByDate,
-        getUserById,
-        getClientById,
-        getTeamById,
-        getTaskById,
-        searchTasks,
-        searchUsers,
-        searchClients,
-        searchReports
-      }}
-    >
+    <DataContext.Provider value={contextValue}>
       {children}
     </DataContext.Provider>
   );

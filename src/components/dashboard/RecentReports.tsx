@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { format } from 'date-fns';
 import { useData } from '../../contexts/DataContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { getIndiaDate } from '../../utils/timezone';
@@ -13,14 +12,15 @@ import Avatar from '../ui/Avatar';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
-import { DailyReport } from '../../types';
 
 const RecentReports: React.FC = () => {
-  const { reports, getUserById } = useData();
-  const { currentUser } = useAuth();
+  const { 
+    reports,
+    users,
+    getUserById
+  } = useData();
   
   // Get recent reports for current user
-  const today = getIndiaDate();
   const recentReports = useMemo(() => {
     return reports
       .filter(report => report.submitted)

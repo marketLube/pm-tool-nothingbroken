@@ -162,7 +162,7 @@ export const getEmployeesAttendance = async (
     console.log(`📊 Getting employees attendance for ${userIds.length} users on ${targetDate}`);
     
     // Filter user IDs based on role permissions
-    let filteredUserIds = userIds;
+    const filteredUserIds = userIds;
     
     if (requestingUserRole !== 'admin') {
       // Non-admin users can only see their team + themselves

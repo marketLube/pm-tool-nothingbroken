@@ -53,7 +53,7 @@ const StatusSidebar: React.FC<StatusSidebarProps> = ({ team }) => {
   });
 
   // Use the provided team prop if available, otherwise use the user's team
-  const currentTeam = team || userTeam || 'creative';
+  const currentTeam = (team || userTeam || 'creative') as TeamType;
   
   // Memoize teamStatuses to prevent infinite re-renders
   const teamStatuses = useMemo(() => {
@@ -77,7 +77,7 @@ const StatusSidebar: React.FC<StatusSidebarProps> = ({ team }) => {
       console.log('🎯 Initializing edit mode with', teamStatuses.length, 'statuses');
       setPendingOrder([...teamStatuses]);
     }
-  }, [isEditMode, teamStatuses.length]); // Only depend on length, not the full array
+  }, [isEditMode, teamStatuses]); // 🔥 FIXED: Use actual array instead of length property
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

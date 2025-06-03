@@ -1,4 +1,4 @@
-import { supabase } from '../utils/supabase';
+import { supabase, isSupabaseConfigured } from '../utils/supabase';
 import { User, TeamType, Role } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
@@ -51,6 +51,11 @@ const mapFromDbUser = (dbUser: any): User => {
 
 // Get all users
 export const getUsers = async (): Promise<User[]> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.warn('⚠️ Supabase not configured, returning mock users');
+    return []; // Return empty array instead of crashing
+  }
+
   const { data, error } = await supabase
     .from('users')
     .select('*');
@@ -73,6 +78,11 @@ export interface UserSearchFilters {
 
 // Get filtered users with database-level filtering
 export const searchUsers = async (filters: UserSearchFilters): Promise<User[]> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.warn('⚠️ Supabase not configured, returning empty users list');
+    return [];
+  }
+
   let query = supabase
     .from('users')
     .select('*');
@@ -134,6 +144,11 @@ export const getUsersByTeam = async (teamId: TeamType, includeAdmins: boolean = 
 
 // Get user by ID
 export const getUserById = async (id: string): Promise<User | null> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.warn('⚠️ Supabase not configured, cannot get user by ID');
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('users')
     .select('*')
@@ -153,6 +168,11 @@ export const getUserById = async (id: string): Promise<User | null> => {
 
 // Check user credentials
 export const checkUserCredentials = async (email: string, password: string): Promise<User | null> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.warn('⚠️ Supabase not configured, cannot check credentials');
+    return null;
+  }
+
   try {
     // First try to get the user with credentials
     const { data, error } = await supabase
@@ -185,6 +205,11 @@ export const checkUserCredentials = async (email: string, password: string): Pro
 
 // Create a new user
 export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot create user');
+    throw new Error('Database not available');
+  }
+
   try {
     const id = uuidv4();
     
@@ -338,6 +363,11 @@ export const createUser = async (user: Omit<User, 'id'>): Promise<User> => {
 
 // Update user
 export const updateUser = async (user: User): Promise<User> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot update user');
+    throw new Error('Database not available');
+  }
+
   try {
     // Validate required fields
     if (!user.id) {
@@ -393,6 +423,11 @@ export const updateUser = async (user: User): Promise<User> => {
 
 // Update user password specifically
 export const updateUserPassword = async (userId: string, newPassword: string): Promise<User> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot update password');
+    throw new Error('Database not available');
+  }
+
   try {
     if (!userId) {
       throw new Error('User ID is required');
@@ -434,6 +469,11 @@ export const updateUserPassword = async (userId: string, newPassword: string): P
 
 // Update user avatar
 export const updateUserAvatar = async (userId: string, avatar: string): Promise<void> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot update avatar');
+    throw new Error('Database not available');
+  }
+
   const { error } = await supabase
     .from('users')
     .update({ 
@@ -449,6 +489,11 @@ export const updateUserAvatar = async (userId: string, avatar: string): Promise<
 
 // Delete user
 export const deleteUser = async (userId: string): Promise<void> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot delete user');
+    throw new Error('Database not available');
+  }
+
   const { error } = await supabase
     .from('users')
     .delete()
@@ -461,6 +506,11 @@ export const deleteUser = async (userId: string): Promise<void> => {
 };
 
 export const toggleUserStatus = async (userId: string): Promise<User> => {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.error('❌ Supabase not configured, cannot toggle user status');
+    throw new Error('Database not available');
+  }
+
   // First get the current user to toggle their status
   const user = await getUserById(userId);
   if (!user) {

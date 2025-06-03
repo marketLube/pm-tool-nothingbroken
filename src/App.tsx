@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import { StatusProvider } from './contexts/StatusContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { RealtimeProvider } from './contexts/RealtimeContext';
 import MainLayout from './components/layout/MainLayout';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import UserSyncComponent from './components/UserSyncComponent';
@@ -44,6 +45,7 @@ function App() {
   return (
     <NotificationProvider>
       <AuthProvider>
+        <RealtimeProvider>
         <DataProvider>
           <StatusProvider>
             <UserSyncComponent />
@@ -179,6 +181,7 @@ function App() {
             </Router>
           </StatusProvider>
         </DataProvider>
+        </RealtimeProvider>
       </AuthProvider>
     </NotificationProvider>
   );

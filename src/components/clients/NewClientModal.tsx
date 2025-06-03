@@ -23,37 +23,45 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
   
   const [formData, setFormData] = useState<Omit<Client, 'id'>>({
     name: '',
+    industry: '',
+    contactPerson: '',
     email: '',
     phone: '',
-    company: '',
-    notes: '',
-    team: 'web',
+    team: 'creative',
     dateAdded: getIndiaDate(),
   });
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   
   useEffect(() => {
-    if (initialData) {
-      setFormData({
-        name: initialData.name || '',
-        email: initialData.email || '',
-        phone: initialData.phone || '',
-        notes: initialData.notes || '',
-        team: initialData.team || 'web',
-        dateAdded: initialData.dateAdded || getIndiaDate(),
-      });
-    } else {
-      setFormData({
-        name: '',
-        email: '',
-        phone: '',
-        notes: '',
-        team: 'web',
-        dateAdded: getIndiaDate(),
-      });
+    if (isOpen) {
+      if (initialData?.id) {
+        // Editing existing client
+        setFormData({
+          name: initialData.name || '',
+          industry: initialData.industry || '',
+          contactPerson: initialData.contactPerson || '',
+          email: initialData.email || '',
+          phone: initialData.phone || '',
+          team: initialData.team || team,
+          dateAdded: initialData.dateAdded || getIndiaDate(),
+        });
+      } else {
+        // Creating new client
+        setFormData({
+          name: '',
+          industry: '',
+          contactPerson: '',
+          email: '',
+          phone: '',
+          team: team,
+          dateAdded: getIndiaDate(),
+        });
+      }
+      // Clear any previous errors when modal opens
+      setErrors({});
     }
-  }, [initialData, isOpen]);
+  }, [isOpen, initialData?.id, initialData?.name, initialData?.industry, initialData?.contactPerson, initialData?.email, initialData?.phone, initialData?.team, initialData?.dateAdded, team]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
