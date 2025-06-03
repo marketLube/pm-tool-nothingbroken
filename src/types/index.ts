@@ -79,10 +79,10 @@ export interface Team {
 export interface Client {
   id: string;
   name: string;
-  industry: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
+  industry?: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
   dateAdded: string;
   team: TeamType;
 }

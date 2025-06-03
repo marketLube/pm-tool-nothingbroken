@@ -8,10 +8,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useStatus } from '../../contexts/StatusContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
-import { Plus, ChevronDown, ArrowRight, Trash2 } from 'lucide-react';
+import { Plus, ChevronDown, ArrowRight, Trash2, User, Building2 } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 import { format, startOfDay, parseISO } from 'date-fns';
 import { getIndiaDate, getIndiaTodayForValidation, getIndiaDateTime } from '../../utils/timezone';
+import DeleteConfirmationModal from '../ui/DeleteConfirmationModal';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const { clients, users, addTask, updateTask, deleteTask } = useData();
   const { currentUser } = useAuth();
   const { getStatusesByTeam, statuses } = useStatus();
-  const { showError } = useNotification();
+  const { showError, showSuccess } = useNotification();
   
   const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Task>>({
@@ -72,6 +73,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   
   // Date validation - minimum date is today in India timezone
   const today = getIndiaTodayForValidation();
@@ -125,6 +127,11 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     
     if (!formData.title?.trim()) {
       newErrors.title = 'Title is required';
+    }
+    
+    // Require client selection
+    if (!formData.clientId) {
+      newErrors.clientId = 'Client selection is required';
     }
     
     if (!formData.dueDate) {
@@ -202,25 +209,31 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     setNewClientModalOpen(false);
   };
 
-  const handleDelete = async () => {
+  const handleDeleteClick = () => {
+    setDeleteConfirmationOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
     if (!initialData?.id) return;
     
-    if (window.confirm(`Are you sure you want to delete the task "${formData.title}"?\n\nThis will remove the task from:\n• TaskBoard\n• All daily reports (assigned tasks only)\n• Historical completion records will be preserved\n\nThis action cannot be undone.`)) {
-      setIsDeleting(true);
-      try {
-        await deleteTask(initialData.id);
-        onClose();
-      } catch (error) {
-        console.error('Error deleting task:', error);
-        showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
-      } finally {
-        setIsDeleting(false);
-      }
+    setIsDeleting(true);
+    try {
+      await deleteTask(initialData.id);
+      showSuccess('Task deleted successfully');
+      onClose();
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmationOpen(false);
     }
   };
 
+  const handleCancelDelete = () => {
+    setDeleteConfirmationOpen(false);
+  };
 
-  
   // Filter users based on team selection
   const teamUsers = users.filter(user => 
     user.team === formData.team || user.role === 'admin'
@@ -243,15 +256,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     { value: 'web', label: 'Web Team' }
   ];
   
-  // Filter clients based on team selection
+  // Filter clients based on team selection - removed "Unassigned" option
   const teamClients = clients.filter(client => 
     client.team === formData.team
   );
   
-  const clientOptions = teamClients.map(client => ({
-    value: client.id,
-    label: client.name
-  }));
+  const clientOptions = [
+    { value: '', label: 'Select a client...' },
+    ...teamClients.map(client => ({
+      value: client.id,
+      label: client.name
+    }))
+  ];
   
   const userOptions = [
     { value: '', label: 'Unassigned' },
@@ -310,33 +326,22 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Enhanced Client Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Client
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <Building2 className="inline w-4 h-4 mr-1" />
+                Client *
               </label>
               <div className="flex items-center space-x-2">
-                <div className="flex-grow relative">
-                  <select
-                    name="clientId"
+                <div className="flex-grow">
+                  <Select
+                    options={clientOptions}
                     value={formData.clientId || ''}
-                    onChange={handleChange}
-                    className={`block w-full pl-3 pr-10 py-2.5 text-base rounded-md border appearance-none transition-all duration-200 ${errors.clientId ? 'border-red-300 focus:ring-red-400 focus:border-red-500' : 'border-gray-300 hover:border-gray-400 focus:ring-blue-200 focus:border-blue-500'} bg-white focus:outline-none focus:ring-2 focus:shadow-sm sm:text-sm`}
-                  >
-                    <option value="">Unassigned</option>
-                    {clientOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                    <ChevronDown className="h-4 w-4" />
-                  </div>
-                  {errors.clientId && (
-                    <p className="mt-1.5 text-sm text-red-600">
-                      {errors.clientId}
-                    </p>
-                  )}
+                    onChange={(e) => setFormData(prev => ({ ...prev, clientId: e.target.value }))}
+                    error={errors.clientId}
+                    required
+                    selectClassName="text-sm"
+                  />
                 </div>
                 <Button
                   variant="secondary"
@@ -344,6 +349,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                   icon={Plus}
                   type="button"
                   onClick={handleOpenNewClientModal}
+                  className="flex-shrink-0"
                 >
                   New
                 </Button>
@@ -360,15 +366,20 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
               required
             />
             
-            <Select
-              label="Assignee"
-              name="assigneeId"
-              options={userOptions}
-              value={formData.assigneeId || ''}
-              onChange={handleChange}
-              error={errors.assigneeId}
-              fullWidth
-            />
+            {/* Enhanced Assignee Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <User className="inline w-4 h-4 mr-1" />
+                Assignee
+              </label>
+              <Select
+                options={userOptions}
+                value={formData.assigneeId || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, assigneeId: e.target.value }))}
+                error={errors.assigneeId}
+                selectClassName="text-sm"
+              />
+            </div>
             
             <Select
               label="Priority"
@@ -504,41 +515,34 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
             </div>
           </div>
           
-          <div className="flex justify-between items-center pt-4">
-            {/* Delete button - only show when editing existing task */}
-            {initialData?.id && (
-              <Button
-                variant="danger"
-                onClick={handleDelete}
-                type="button"
-                disabled={isDeleting}
-                icon={Trash2}
-                className="bg-red-600 text-white hover:bg-red-700 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
-              >
-                <span className="font-medium text-sm">
+          <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+            <div>
+              {initialData?.id && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  icon={Trash2}
+                  onClick={handleDeleteClick}
+                  disabled={isDeleting}
+                >
                   {isDeleting ? 'Deleting...' : 'Delete Task'}
-                </span>
-              </Button>
-            )}
-            
-            {/* Cancel and Submit buttons */}
-            <div className="flex space-x-3 ml-auto">
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center space-x-3">
               <Button
                 variant="secondary"
                 onClick={onClose}
-                type="button"
-                className="bg-white text-blue-600 border border-blue-300 hover:bg-blue-50 hover:text-blue-800 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
+                disabled={isDeleting}
               >
-                <span className="font-medium text-sm">Cancel</span>
+                Cancel
               </Button>
               <Button
                 variant="primary"
                 type="submit"
-                className="bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow-md transition-all duration-300 transform hover:scale-105 active:scale-95"
+                disabled={isDeleting}
               >
-                <span className="font-medium text-sm">
-                  {initialData?.id ? 'Update Task' : 'Create Task'}
-                </span>
+                {isDeleting ? 'Saving...' : (initialData?.id ? 'Update Task' : 'Create Task')}
               </Button>
             </div>
           </div>
@@ -549,6 +553,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         isOpen={newClientModalOpen}
         onClose={handleCloseNewClientModal}
         team={formData.team as TeamType || 'creative'}
+      />
+
+      {/* Custom Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteConfirmationOpen}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Delete Task"
+        message={`Are you sure you want to delete the task "${formData.title}"? This will remove the task from the TaskBoard and all daily reports. Historical completion records will be preserved.`}
+        confirmButtonText="Delete Task"
+        cancelButtonText="Cancel"
+        isLoading={isDeleting}
       />
     </>
   );

@@ -28,7 +28,7 @@ interface RealtimeProviderProps {
   children: ReactNode;
 }
 
-export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) => {
+export function RealtimeProvider({ children }: RealtimeProviderProps) {
   const { isLoggedIn, currentUser } = useAuth();
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -151,12 +151,24 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
           table: 'tasks'
         },
         (payload) => {
-          console.log('[Realtime] Task updated:', payload.new);
-          broadcastEvent({
-            eventType: 'UPDATE',
-            old: payload.old ? mapFromDbTask(payload.old) : undefined,
-            new: mapFromDbTask(payload.new)
-          });
+          console.log('📥 [Realtime] Task updated payload received:', payload);
+          console.log('📄 [Realtime] Old task data:', payload.old);
+          console.log('📄 [Realtime] New task data:', payload.new);
+          
+          const mappedOld = payload.old ? mapFromDbTask(payload.old) : undefined;
+          const mappedNew = mapFromDbTask(payload.new);
+          
+          console.log('🔄 [Realtime] Mapped old task:', mappedOld);
+          console.log('🔄 [Realtime] Mapped new task:', mappedNew);
+          
+          const event = {
+            eventType: 'UPDATE' as const,
+            old: mappedOld,
+            new: mappedNew
+          };
+          
+          console.log('📡 [Realtime] Broadcasting UPDATE event:', event);
+          broadcastEvent(event);
         }
       )
       .on(
@@ -202,7 +214,7 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
       });
 
     channelRef.current = newChannel;
-  }, []);
+  }, [mapFromDbTask, broadcastEvent]);
 
   // 🔥 STABLE: Manual reconnection - truly stable
   const reconnect = useCallback(() => {
@@ -228,8 +240,24 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
             broadcastEvent({ eventType: 'INSERT', new: mapFromDbTask(payload.new) });
           })
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
-            console.log('[Realtime] Task updated:', payload.new);
-            broadcastEvent({ eventType: 'UPDATE', old: payload.old ? mapFromDbTask(payload.old) : undefined, new: mapFromDbTask(payload.new) });
+            console.log('📥 [Realtime] Task updated payload received:', payload);
+            console.log('📄 [Realtime] Old task data:', payload.old);
+            console.log('📄 [Realtime] New task data:', payload.new);
+            
+            const mappedOld = payload.old ? mapFromDbTask(payload.old) : undefined;
+            const mappedNew = mapFromDbTask(payload.new);
+            
+            console.log('🔄 [Realtime] Mapped old task:', mappedOld);
+            console.log('🔄 [Realtime] Mapped new task:', mappedNew);
+            
+            const event = {
+              eventType: 'UPDATE' as const,
+              old: mappedOld,
+              new: mappedNew
+            };
+            
+            console.log('📡 [Realtime] Broadcasting UPDATE event:', event);
+            broadcastEvent(event);
           })
           .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload) => {
             console.log('[Realtime] Task deleted:', payload.old);
@@ -255,7 +283,7 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
         channelRef.current = newChannel;
       }
     }, 1000);
-  }, []); // 🔥 EMPTY DEPS - completely self-contained
+  }, [mapFromDbTask, broadcastEvent]); // 🔥 EMPTY DEPS - completely self-contained
 
   // 🔥 STABLE: Primary effect - only runs when auth state changes
   useEffect(() => {
@@ -266,7 +294,7 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
     }
 
     return cleanup;
-  }, [isLoggedIn, currentUser?.id]); // Only primitive values
+  }, [isLoggedIn, currentUser?.id, setupSubscription, cleanup]); // Only primitive values
 
   // 🔥 STABLE: Reconnection effect - only runs when status changes
   useEffect(() => {
@@ -290,7 +318,24 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
                 broadcastEvent({ eventType: 'INSERT', new: mapFromDbTask(payload.new) });
               })
               .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, (payload) => {
-                broadcastEvent({ eventType: 'UPDATE', old: payload.old ? mapFromDbTask(payload.old) : undefined, new: mapFromDbTask(payload.new) });
+                console.log('📥 [Realtime] Task updated payload received:', payload);
+                console.log('📄 [Realtime] Old task data:', payload.old);
+                console.log('📄 [Realtime] New task data:', payload.new);
+                
+                const mappedOld = payload.old ? mapFromDbTask(payload.old) : undefined;
+                const mappedNew = mapFromDbTask(payload.new);
+                
+                console.log('🔄 [Realtime] Mapped old task:', mappedOld);
+                console.log('🔄 [Realtime] Mapped new task:', mappedNew);
+                
+                const event = {
+                  eventType: 'UPDATE' as const,
+                  old: mappedOld,
+                  new: mappedNew
+                };
+                
+                console.log('📡 [Realtime] Broadcasting UPDATE event:', event);
+                broadcastEvent(event);
               })
               .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks' }, (payload) => {
                 broadcastEvent({ eventType: 'DELETE', old: mapFromDbTask(payload.old) });
@@ -318,7 +363,7 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
         clearTimeout(reconnectTimer);
       }
     };
-  }, [status]); // Only primitive values
+  }, [status, mapFromDbTask, broadcastEvent]); // Only primitive values
 
   // Keep refs in sync with auth state
   useEffect(() => {
@@ -335,7 +380,9 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
   }), [
     // 🔥 ONLY primitive state values - functions are already memoized
     status,
-    isSubscribed
+    isSubscribed,
+    onTaskEvent,
+    reconnect
     // 🔥 CRITICAL: onTaskEvent and reconnect are already useCallback-ed
   ]);
 
@@ -344,12 +391,12 @@ export const RealtimeProvider: React.FC<RealtimeProviderProps> = ({ children }) 
       {children}
     </RealtimeContext.Provider>
   );
-};
+}
 
-export const useRealtime = () => {
+export function useRealtime() {
   const context = useContext(RealtimeContext);
   if (!context) {
     throw new Error('useRealtime must be used within a RealtimeProvider');
   }
   return context;
-}; 
+} 

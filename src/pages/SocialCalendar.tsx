@@ -596,99 +596,134 @@ const SocialCalendar: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="flex items-center space-x-3">
-            <CalendarIcon className="h-8 w-8 text-blue-600" />
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{getPageTitle()}</h1>
-              {currentClient && (
-                <p className="text-lg text-gray-600 mt-1">
-                  {currentClient.name} • {format(currentDate, 'MMMM yyyy')}
-                </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Social Calendar</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            {currentClient ? `${currentClient.name} • ${format(currentDate, 'MMMM yyyy')}` : `${format(currentDate, 'MMMM yyyy')}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Modern Filter Bar */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+        <div className="p-5">
+          <div className="flex items-center justify-between gap-8">
+            {/* Left side - Team toggle (Admin only) and Client selection */}
+            <div className="flex items-center gap-8">
+              {/* Team Toggle - Minimal Design (Admin only) */}
+              {isAdmin && (
+                <>
+                  <div className="relative">
+                    <div className="flex bg-gray-50 rounded-xl p-1">
+                      <button
+                        onClick={() => {
+                          setSelectedTeam('creative');
+                          setIsTeamManuallySet(true);
+                          // Find first client of the selected team
+                          const teamClients = clients.filter(c => c.team === 'creative');
+                          if (teamClients.length > 0) {
+                            setSelectedClientId(teamClients[0].id);
+                          }
+                        }}
+                        className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
+                          selectedTeam === 'creative'
+                            ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Creative
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedTeam('web');
+                          setIsTeamManuallySet(true);
+                          // Find first client of the selected team
+                          const teamClients = clients.filter(c => c.team === 'web');
+                          if (teamClients.length > 0) {
+                            setSelectedClientId(teamClients[0].id);
+                          }
+                        }}
+                        className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
+                          selectedTeam === 'web'
+                            ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Web
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedTeam('all');
+                          setIsTeamManuallySet(true);
+                          // Keep current client if it exists, otherwise pick first available
+                          if (!selectedClientId || !clients.find(c => c.id === selectedClientId)) {
+                            const firstClient = clients[0];
+                            if (firstClient) setSelectedClientId(firstClient.id);
+                          }
+                        }}
+                        className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
+                          selectedTeam === 'all'
+                            ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
+                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        All Teams
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Minimal Divider */}
+                  <div className="h-5 w-px bg-gray-200"></div>
+                </>
               )}
+
+              {/* Client Selection - Minimal Design */}
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Select
+                    value={selectedClientId}
+                    onChange={(e) => setSelectedClientId(e.target.value)}
+                    options={clientOptions}
+                    className="pl-10 pr-8 py-2.5 text-sm bg-gray-50 border-0 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:shadow-sm min-w-[200px] transition-all duration-200"
+                  />
+                </div>
+                
+                <button
+                  onClick={handleRefreshClients}
+                  disabled={refreshingClients}
+                  className="flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg border border-gray-200 transition-all duration-200"
+                  title="Refresh client list"
+                >
+                  <RefreshCw className={`w-4 h-4 ${refreshingClients ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
-          </div>
-          
-          {/* Team Dropdown (Admin only) */}
-          {isAdmin && (
-            <div className="flex items-center space-x-2">
-              <span className="text-sm font-medium text-gray-700">Team:</span>
-              <Select
-                value={selectedTeam}
-                onChange={(e) => {
-                  const newTeam = e.target.value as TeamType | 'all';
-                  setSelectedTeam(newTeam);
-                  setIsTeamManuallySet(true); // Mark as manually set
-                  
-                  // Find appropriate client for the new team
-                  if (newTeam === 'all') {
-                    // Keep current client if it exists, otherwise pick first available
-                    if (!selectedClientId || !clients.find(c => c.id === selectedClientId)) {
-                      const firstClient = clients[0];
-                      if (firstClient) setSelectedClientId(firstClient.id);
-                    }
-                  } else {
-                    // Find first client of the selected team
-                    const teamClients = clients.filter(c => c.team === newTeam);
-                    if (teamClients.length > 0) {
-                      setSelectedClientId(teamClients[0].id);
-                    } else {
-                      setSelectedClientId(''); // No clients for this team
-                    }
-                  }
-                }}
-                options={teamOptions}
-                className="min-w-[140px] border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-              />
+
+            {/* Right side - Action Buttons */}
+            <div className="flex items-center gap-3">
+              {/* Action Buttons */}
+              <button
+                onClick={() => handleAddTask()}
+                disabled={!selectedClientId}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                Add Task
+              </button>
+              
+              <button
+                onClick={handleExportCalendar}
+                disabled={!selectedClientId || isExporting}
+                className="flex items-center gap-2 px-4 py-2.5 bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isExporting ? <Download className="w-4 h-4" /> : <Share className="w-4 h-4" />}
+                {isExporting ? 'Exporting...' : 'Export & Share'}
+              </button>
             </div>
-          )}
-          
-          {/* Client Dropdown with Refresh */}
-          <div className="flex items-center space-x-2">
-            <Building className="h-4 w-4 text-gray-600" />
-            <Select
-              value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
-              options={clientOptions}
-              className="min-w-[200px] border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRefreshClients}
-              disabled={refreshingClients}
-              className="px-2"
-              title="Refresh client list"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshingClients ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="primary"
-              size="sm"
-              icon={Plus}
-              onClick={() => handleAddTask()}
-              className="bg-blue-600 hover:bg-blue-700"
-              disabled={!selectedClientId}
-            >
-              Add Task
-            </Button>
-            
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={isExporting ? Download : Share}
-              onClick={handleExportCalendar}
-              disabled={!selectedClientId || isExporting}
-              className="border-blue-600 text-blue-600 hover:bg-blue-50"
-            >
-              {isExporting ? 'Exporting...' : 'Export & Share'}
-            </Button>
           </div>
         </div>
       </div>

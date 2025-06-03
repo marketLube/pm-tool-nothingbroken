@@ -19,16 +19,11 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
   initialData,
   team = 'creative'
 }) => {
-  const { addClient, updateClient } = useData();
+  const { addClient, updateClient, clients } = useData();
   
-  const [formData, setFormData] = useState<Omit<Client, 'id'>>({
+  const [formData, setFormData] = useState<Omit<Client, 'id' | 'dateAdded'>>({
     name: '',
-    industry: '',
-    contactPerson: '',
-    email: '',
-    phone: '',
-    team: 'creative',
-    dateAdded: getIndiaDate(),
+    team: team || 'creative',
   });
   
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -39,31 +34,21 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
         // Editing existing client
         setFormData({
           name: initialData.name || '',
-          industry: initialData.industry || '',
-          contactPerson: initialData.contactPerson || '',
-          email: initialData.email || '',
-          phone: initialData.phone || '',
           team: initialData.team || team,
-          dateAdded: initialData.dateAdded || getIndiaDate(),
         });
       } else {
-        // Creating new client
+        // Creating new client - don't set default team, let user choose
         setFormData({
           name: '',
-          industry: '',
-          contactPerson: '',
-          email: '',
-          phone: '',
-          team: team,
-          dateAdded: getIndiaDate(),
+          team: 'creative', // Default but user must confirm
         });
       }
       // Clear any previous errors when modal opens
       setErrors({});
     }
-  }, [isOpen, initialData?.id, initialData?.name, initialData?.industry, initialData?.contactPerson, initialData?.email, initialData?.phone, initialData?.team, initialData?.dateAdded, team]);
+  }, [isOpen, initialData?.id, initialData?.name, initialData?.team, team]);
   
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
@@ -82,11 +67,21 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
     
     if (!formData.name?.trim()) {
       newErrors.name = 'Client name is required';
+    } else {
+      // Check for duplicate client name within the same team
+      const existingClient = clients.find(client => 
+        client.name.toLowerCase() === formData.name.trim().toLowerCase() &&
+        client.team === formData.team &&
+        client.id !== initialData?.id // Exclude current client when editing
+      );
+      
+      if (existingClient) {
+        newErrors.name = `A client named "${formData.name.trim()}" already exists in the ${formData.team === 'creative' ? 'Creative' : 'Web'} team`;
+      }
     }
     
-    // Email validation only if an email is provided
-    if (formData.email?.trim() && !/\S+@\S+\.\S+/.test(formData.email)) {
-      newErrors.email = 'Email is invalid';
+    if (!formData.team) {
+      newErrors.team = 'Team selection is required';
     }
     
     setErrors(newErrors);
@@ -114,7 +109,7 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
         // Add new client
         const newClient = await addClient({
           ...formData,
-          team: team
+          team: formData.team // Use the selected team from form
         } as Omit<Client, 'id' | 'dateAdded'>);
         console.log('NewClientModal: Client added successfully:', newClient);
       }
@@ -122,11 +117,26 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
       onClose();
     } catch (error) {
       console.error('NewClientModal: Error saving client:', error);
-      // Add error handling here - could show an error message to the user
-      setErrors(prev => ({
-        ...prev,
-        submit: 'Error saving client. Please try again.'
-      }));
+      
+      // Handle database constraint errors
+      if (error instanceof Error) {
+        if (error.message.includes('duplicate key') || error.message.includes('unique constraint')) {
+          setErrors(prev => ({
+            ...prev,
+            name: `A client with this name already exists in the ${formData.team === 'creative' ? 'Creative' : 'Web'} team`
+          }));
+        } else {
+          setErrors(prev => ({
+            ...prev,
+            submit: 'Error saving client. Please try again.'
+          }));
+        }
+      } else {
+        setErrors(prev => ({
+          ...prev,
+          submit: 'Error saving client. Please try again.'
+        }));
+      }
     }
   };
 
@@ -148,39 +158,27 @@ const NewClientModal: React.FC<NewClientModalProps> = ({
           required
         />
         
-        <Input
-          label="Industry"
-          name="industry"
-          value={formData.industry || ''}
-          onChange={handleChange}
-          fullWidth
-        />
-        
-        <Input
-          label="Contact Person"
-          name="contactPerson"
-          value={formData.contactPerson || ''}
-          onChange={handleChange}
-          fullWidth
-        />
-        
-        <Input
-          label="Email"
-          name="email"
-          type="email"
-          value={formData.email || ''}
-          onChange={handleChange}
-          error={errors.email}
-          fullWidth
-        />
-        
-        <Input
-          label="Phone Number"
-          name="phone"
-          value={formData.phone || ''}
-          onChange={handleChange}
-          fullWidth
-        />
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            Team <span className="text-red-500">*</span>
+          </label>
+          <select
+            name="team"
+            value={formData.team}
+            onChange={handleChange}
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              errors.team ? 'border-red-500' : 'border-gray-300'
+            }`}
+            required
+          >
+            <option value="">Select Team</option>
+            <option value="creative">Creative Team</option>
+            <option value="web">Web Team</option>
+          </select>
+          {errors.team && (
+            <p className="text-red-600 text-sm">{errors.team}</p>
+          )}
+        </div>
         
         <div className="flex justify-end space-x-3 pt-4">
           {errors.submit && (

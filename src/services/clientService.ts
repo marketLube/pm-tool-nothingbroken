@@ -26,10 +26,10 @@ const mapFromDbClient = (dbClient: any): Client => {
   return {
     id: dbClient.id,
     name: dbClient.name,
-    industry: dbClient.industry,
-    contactPerson: dbClient.contact_person,
-    email: dbClient.email,
-    phone: dbClient.phone,
+    industry: dbClient.industry || '',
+    contactPerson: dbClient.contact_person || '',
+    email: dbClient.email || '',
+    phone: dbClient.phone || '',
     dateAdded: dbClient.date_added,
     team: dbClient.team || 'creative'
   };
@@ -37,6 +37,10 @@ const mapFromDbClient = (dbClient: any): Client => {
 
 // Get all clients
 export const getClients = async (): Promise<Client[]> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   const { data, error } = await supabase
     .from('clients')
     .select('*');
@@ -51,6 +55,10 @@ export const getClients = async (): Promise<Client[]> => {
 
 // Get clients by team
 export const getClientsByTeam = async (team: string): Promise<Client[]> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   // First try to get clients with team filter
   const { data, error } = await supabase
     .from('clients')
@@ -72,6 +80,10 @@ export const getClientsByTeam = async (team: string): Promise<Client[]> => {
 
 // Get client by ID
 export const getClientById = async (id: string): Promise<Client | null> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   const { data, error } = await supabase
     .from('clients')
     .select('*')
@@ -88,6 +100,10 @@ export const getClientById = async (id: string): Promise<Client | null> => {
 
 // Create a new client
 export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Promise<Client> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   const id = uuidv4();
   const dateAdded = getIndiaDate(); // YYYY-MM-DD format
   
@@ -134,6 +150,10 @@ export const createClient = async (client: Omit<Client, 'id' | 'dateAdded'>): Pr
 
 // Update a client
 export const updateClient = async (client: Client): Promise<Client> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   const { data, error } = await supabase
     .from('clients')
     .update({
@@ -158,62 +178,37 @@ export const updateClient = async (client: Client): Promise<Client> => {
 
 // Delete a client
 export const deleteClient = async (clientId: string): Promise<void> => {
-  console.log(`[ClientService] Starting deletion of client: ${clientId}`);
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
+  console.log(`[ClientService] Starting deletion check for client: ${clientId}`);
   
-  // First, check if the client exists and get its details
-  // Try with team column first, fallback to without team column if it doesn't exist
-  let clientData;
-  let clientTeam = 'creative'; // Default team
-  
-  const { data: clientWithTeam, error: teamError } = await supabase
+  // First, get client details
+  const { data: clientData, error: clientError } = await supabase
     .from('clients')
-    .select('team, name')
+    .select('name, team')
     .eq('id', clientId)
     .single();
   
-  if (teamError && teamError.code === '42703') {
-    // Column doesn't exist, try without team
-    console.log(`[ClientService] Team column doesn't exist, fetching client without team field`);
-    const { data: clientWithoutTeam, error: clientError } = await supabase
-      .from('clients')
-      .select('name')
-      .eq('id', clientId)
-      .single();
-    
-    if (clientError) {
-      console.error(`[ClientService] Error fetching client ${clientId}:`, clientError);
-      
-      // If client doesn't exist (404), it might already be deleted
-      if (clientError.code === 'PGRST116') {
-        console.log(`[ClientService] Client ${clientId} not found in database - it may already be deleted`);
-        return; // Exit gracefully
-      }
-      
-      throw clientError;
-    }
-    
-    clientData = clientWithoutTeam;
-    console.log(`[ClientService] Found client: ${clientData.name} (using default team: ${clientTeam})`);
-  } else if (teamError) {
-    console.error(`[ClientService] Error fetching client ${clientId}:`, teamError);
+  if (clientError) {
+    console.error(`[ClientService] Error fetching client ${clientId}:`, clientError);
     
     // If client doesn't exist (404), it might already be deleted
-    if (teamError.code === 'PGRST116') {
+    if (clientError.code === 'PGRST116') {
       console.log(`[ClientService] Client ${clientId} not found in database - it may already be deleted`);
       return; // Exit gracefully
     }
     
-    throw teamError;
-  } else {
-    clientData = clientWithTeam;
-    clientTeam = clientData.team || 'creative';
-    console.log(`[ClientService] Found client: ${clientData.name} (team: ${clientTeam})`);
+    throw clientError;
   }
   
   if (!clientData) {
     console.log(`[ClientService] Client ${clientId} not found in database`);
     return; // Exit gracefully
   }
+  
+  console.log(`[ClientService] Found client: ${clientData.name} (team: ${clientData.team})`);
   
   // Check if client has related tasks
   console.log(`[ClientService] Checking for tasks assigned to client ${clientId}`);
@@ -227,69 +222,16 @@ export const deleteClient = async (clientId: string): Promise<void> => {
     throw tasksError;
   }
   
-  console.log(`[ClientService] Found ${tasks?.length || 0} tasks assigned to client ${clientId}:`, tasks);
+  console.log(`[ClientService] Found ${tasks?.length || 0} tasks assigned to client ${clientId}`);
   
-  // If client has tasks, reassign them to "Unassigned" client
+  // If client has tasks, prevent deletion
   if (tasks && tasks.length > 0) {
-    // Find or create "Unassigned" client for this team
-    let unassignedClient;
-    const { data: existingUnassigned, error: unassignedError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('name', 'Unassigned')
-      .eq('team', clientTeam)
-      .single();
-    
-    if (unassignedError && unassignedError.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error('Error checking for unassigned client:', unassignedError);
-      throw unassignedError;
-    }
-    
-    if (existingUnassigned) {
-      unassignedClient = existingUnassigned;
-    } else {
-      // Create "Unassigned" client for this team
-      const unassignedClientData = {
-        id: uuidv4(), // Use proper UUID instead of string
-        name: 'Unassigned',
-        industry: '',
-        contact_person: '',
-        email: '',
-        phone: '',
-        team: clientTeam,
-        date_added: getIndiaDate(),
-        created_at: getIndiaDateTime().toISOString()
-      };
-      
-      const { data: newUnassigned, error: createError } = await supabase
-        .from('clients')
-        .insert([unassignedClientData])
-        .select('id')
-        .single();
-      
-      if (createError) {
-        console.error('Error creating unassigned client:', createError);
-        throw createError;
-      }
-      
-      unassignedClient = newUnassigned;
-    }
-    
-    // Reassign all tasks to the unassigned client
-    const { error: updateError } = await supabase
-      .from('tasks')
-      .update({ client_id: unassignedClient.id })
-      .eq('client_id', clientId);
-    
-    if (updateError) {
-      console.error(`Error reassigning tasks for client ${clientId}:`, updateError);
-      throw updateError;
-    }
-    
-    console.log(`Reassigned ${tasks.length} tasks from client ${clientId} to unassigned client`);
+    const errorMessage = `Cannot delete client "${clientData.name}". There are ${tasks.length} active task${tasks.length > 1 ? 's' : ''} assigned to this client. Please reassign or complete these tasks before deleting the client.`;
+    console.log(`[ClientService] ${errorMessage}`);
+    throw new Error(errorMessage);
   }
   
-  // Delete the client
+  // Delete the client (only if no tasks are assigned)
   console.log(`[ClientService] Deleting client ${clientId} from database`);
   const { error } = await supabase
     .from('clients')
@@ -323,19 +265,16 @@ export const addClient = async (clientData: Omit<Client, 'id' | 'dateAdded'>): P
 
 export const createClientInSupabase = async (clientData: {
   name: string;
-  email?: string;
-  phone?: string;
-  company?: string;
-  notes?: string;
+  team?: 'creative' | 'web';
 }): Promise<Client | null> => {
   try {
     const clientToCreate: Omit<Client, 'id' | 'dateAdded'> = {
       name: clientData.name,
-      email: clientData.email || '',
-      phone: clientData.phone || '',
-      industry: clientData.company || '',
+      industry: '',
       contactPerson: '',
-      team: 'creative'
+      email: '',
+      phone: '',
+      team: clientData.team || 'creative'
     };
 
     return await createClient(clientToCreate);
@@ -349,12 +288,15 @@ export const createClientInSupabase = async (clientData: {
 export interface ClientSearchFilters {
   team?: TeamType;
   searchQuery?: string;
-  industry?: string;
   sortBy?: 'name' | 'dateAdded' | 'none';
 }
 
 // Get filtered clients with database-level filtering
 export const searchClients = async (filters: ClientSearchFilters): Promise<Client[]> => {
+  if (!supabase) {
+    throw new Error('Supabase client not initialized');
+  }
+
   let query = supabase
     .from('clients')
     .select('*');
@@ -364,15 +306,10 @@ export const searchClients = async (filters: ClientSearchFilters): Promise<Clien
     query = query.eq('team', filters.team);
   }
 
-  // Apply industry filter
-  if (filters.industry) {
-    query = query.eq('industry', filters.industry);
-  }
-
-  // Apply search query
+  // Apply search query (removed industry from search)
   if (filters.searchQuery && filters.searchQuery.trim()) {
     const searchTerm = filters.searchQuery.trim();
-    query = query.or(`name.ilike.%${searchTerm}%,industry.ilike.%${searchTerm}%,contact_person.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+    query = query.or(`name.ilike.%${searchTerm}%,contact_person.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
   }
 
   // Apply sorting
@@ -404,13 +341,11 @@ export const searchClients = async (filters: ClientSearchFilters): Promise<Clien
 export const getFilteredClientsByTeam = async (
   teamId: TeamType,
   searchQuery?: string,
-  industry?: string,
   sortBy?: 'name' | 'dateAdded' | 'none'
 ): Promise<Client[]> => {
   return searchClients({
     team: teamId,
     searchQuery,
-    industry,
     sortBy
   });
 }; 

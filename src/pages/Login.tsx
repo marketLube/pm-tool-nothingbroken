@@ -465,14 +465,14 @@ const Login: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </div>
+          </div>
 
-            {/* Main Content */}
+          {/* Main Content */}
             <div className="px-8 pb-8">
-              {/* Error Message */}
-              {error && (
+            {/* Error Message */}
+            {error && (
                 <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 backdrop-blur-sm">
-                  <div className="flex items-start">
+                <div className="flex items-start">
                   <AlertCircle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0 mt-0.5" />
                     <span className="text-red-700 text-sm font-medium">{error}</span>
                 </div>

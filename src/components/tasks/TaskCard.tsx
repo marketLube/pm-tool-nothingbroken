@@ -18,6 +18,8 @@ import { getIndiaDateTime } from '../../utils/timezone';
 import { useStatus } from '../../contexts/StatusContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
+import DeleteConfirmationModal from '../ui/DeleteConfirmationModal';
+import { deleteTask } from '../../services/taskService';
 
 // Import BadgeVariant type
 type BadgeVariant = 
@@ -46,12 +48,13 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onClick,
   onDelete
 }) => {
-  const { getUserById, getClientById, deleteTask } = useData();
+  const { getUserById, getClientById } = useData();
   const { statuses } = useStatus();
   const [showActions, setShowActions] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const actionMenuRef = useRef<HTMLDivElement>(null);
-  const { showError } = useNotification();
+  const { showError, showSuccess } = useNotification();
 
   // Close action menu when clicking outside
   useEffect(() => {
@@ -192,19 +195,34 @@ const TaskCard: React.FC<TaskCardProps> = ({
     }
   };
 
-  // Handle delete task
-  const handleDelete = async (e: React.MouseEvent) => {
+  // Handle delete task with custom modal
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setShowActions(false);
+    setDeleteConfirmationOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
     
-    if (window.confirm('Are you sure you want to delete this task?')) {
-      try {
-        await deleteTask(task.id);
-      } catch (error) {
-        console.error('Failed to delete task:', error);
-        showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
+    try {
+      await deleteTask(task.id);
+      showSuccess('Task deleted successfully');
+      if (onDelete) {
+        onDelete(task.id);
       }
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmationOpen(false);
     }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteConfirmationOpen(false);
   };
 
   // Handle card click
@@ -258,7 +276,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
               </button>
               <button
                 className="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center"
-                onClick={handleDelete}
+                onClick={handleDeleteClick}
                 disabled={isDeleting}
               >
                 <Trash2 className="h-3 w-3 mr-2" />
@@ -336,6 +354,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
           </div>
         </div>
       </CardContent>
+
+      {/* Custom Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={deleteConfirmationOpen}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Delete Task"
+        message={`Are you sure you want to delete the task "${task.title}"? This will remove the task from the TaskBoard and all daily reports. Historical completion records will be preserved.`}
+        confirmButtonText="Delete Task"
+        cancelButtonText="Cancel"
+        isLoading={isDeleting}
+      />
     </Card>
   );
 };

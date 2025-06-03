@@ -95,21 +95,23 @@ export interface Database {
         Row: {
           id: string;
           name: string;
-          industry: string;
-          contact_person: string;
-          email: string;
-          phone: string;
+          industry?: string;
+          contact_person?: string;
+          email?: string;
+          phone?: string;
           date_added: string;
+          team: 'creative' | 'web';
           created_at: string;
         };
         Insert: {
           id?: string;
           name: string;
-          industry: string;
-          contact_person: string;
-          email: string;
-          phone: string;
+          industry?: string;
+          contact_person?: string;
+          email?: string;
+          phone?: string;
           date_added: string;
+          team?: 'creative' | 'web';
           created_at?: string;
         };
         Update: {
@@ -120,6 +122,7 @@ export interface Database {
           email?: string;
           phone?: string;
           date_added?: string;
+          team?: 'creative' | 'web';
           created_at?: string;
         };
       };

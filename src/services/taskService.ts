@@ -37,6 +37,11 @@ const mapFromDbTask = (dbTask: any): Task => {
 
 // Get all tasks
 export const getTasks = async (): Promise<Task[]> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .select('*');
@@ -51,6 +56,11 @@ export const getTasks = async (): Promise<Task[]> => {
 
 // Get task by ID
 export const getTaskById = async (id: string): Promise<Task | null> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    return null;
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
@@ -67,6 +77,11 @@ export const getTaskById = async (id: string): Promise<Task | null> => {
 
 // Create a new task
 export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>): Promise<Task> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const id = uuidv4();
   const { data, error } = await supabase
     .from('tasks')
@@ -88,6 +103,11 @@ export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>): Promise<
 
 // Update a task
 export const updateTask = async (task: Task): Promise<Task> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .update({
@@ -114,6 +134,13 @@ export const updateTask = async (task: Task): Promise<Task> => {
 
 // Update task status
 export const updateTaskStatus = async (taskId: string, status: string): Promise<Task> => {
+  console.log(`🔄 [TaskService] Starting updateTaskStatus: ${taskId} -> ${status}`);
+  
+  if (!supabase) {
+    console.error(`❌ [TaskService] Supabase not configured`);
+    throw new Error('Supabase not configured');
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .update({ status })
@@ -122,15 +149,26 @@ export const updateTaskStatus = async (taskId: string, status: string): Promise<
     .single();
   
   if (error) {
-    console.error(`Error updating status for task ${taskId}:`, error);
+    console.error(`❌ [TaskService] Error updating status for task ${taskId}:`, error);
     throw error;
   }
   
-  return mapFromDbTask(data);
+  console.log(`✅ [TaskService] Successfully updated task ${taskId} to status ${status}`);
+  console.log(`📄 [TaskService] Updated task data:`, data);
+  
+  const mappedTask = mapFromDbTask(data);
+  console.log(`🔄 [TaskService] Mapped task object:`, mappedTask);
+  
+  return mappedTask;
 };
 
 // Delete a task
 export const deleteTask = async (taskId: string): Promise<void> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const { error } = await supabase
     .from('tasks')
     .delete()
@@ -144,6 +182,11 @@ export const deleteTask = async (taskId: string): Promise<void> => {
 
 // Get tasks by team
 export const getTasksByTeam = async (teamId: TeamType): Promise<Task[]> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
@@ -159,6 +202,11 @@ export const getTasksByTeam = async (teamId: TeamType): Promise<Task[]> => {
 
 // Get tasks by user
 export const getTasksByUser = async (userId: string): Promise<Task[]> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   const { data, error } = await supabase
     .from('tasks')
     .select('*')
@@ -184,6 +232,11 @@ export interface TaskSearchFilters {
 
 // Advanced search with database-level filtering, searching, and sorting
 export const searchTasks = async (filters: TaskSearchFilters): Promise<Task[]> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
   let query = supabase
     .from('tasks')
     .select(`
@@ -221,6 +274,11 @@ export const searchTasks = async (filters: TaskSearchFilters): Promise<Task[]> =
     const searchTerm = filters.searchQuery.trim();
     
     // First, search for clients matching the search term
+    if (!supabase) {
+      console.error('Supabase not configured for client search');
+      throw new Error('Supabase not configured');
+    }
+    
     const { data: matchingClients } = await supabase
       .from('clients')
       .select('id')

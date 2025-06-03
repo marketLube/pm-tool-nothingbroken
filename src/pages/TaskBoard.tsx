@@ -1,29 +1,18 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import {
-  DragDropContext,
-  Droppable,
-  Draggable,
-  DropResult,
-  DragStart,
-  DragUpdate,
-} from '@hello-pangea/dnd';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import TaskCard from '../components/tasks/TaskCard';
-import Button from '../components/ui/Button';
-import ButtonGroup from '../components/ui/ButtonGroup';
 import NewTaskModal from '../components/tasks/NewTaskModal';
-import NewClientModal from '../components/clients/NewClientModal';
-import LiveIndicator from '../components/ui/LiveIndicator';
-import { useData } from '../contexts/DataContext';
-import { useStatus } from '../contexts/StatusContext';
+import Button from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
+import { useStatus } from '../contexts/StatusContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { Task, Status, TeamType, StatusCode } from '../types';
-import { Plus, Search, Filter, Users, Briefcase, ChevronLeft, ChevronRight, ChevronDown, Palette, Code } from 'lucide-react';
-import Avatar from '../components/ui/Avatar';
-import { useDebounce } from '../hooks/useDebounce';
+import { useSimpleRealtime, useTaskRefresh } from '../contexts/SimpleRealtimeContext';
+import { Task, StatusCode, TeamType } from '../types';
+import { Plus, Wifi, WifiOff, ChevronLeft, ChevronRight, Search, Users, Building2, X, ChevronDown } from 'lucide-react';
+import * as taskService from '../services/taskService';
+import { useData } from '../contexts/DataContext';
 
-// Column type to help with type safety
 interface Column {
   id: string;
   status: StatusCode;
@@ -33,231 +22,88 @@ interface Column {
   tasks: Task[];
 }
 
-// 🔥 PERFORMANCE OPTIMIZATION: Memoized components to prevent unnecessary re-renders
-const MemoizedTaskCard = React.memo(TaskCard);
-
-// 🔥 HELLO-PANGEA: Draggable Task with minimal re-renders
-interface DraggableTaskProps {
-  task: Task;
-  index: number;
-  onClick: (task: Task) => void;
-  onDelete: (taskId: string) => void;
-}
-
-const DraggableTask = React.memo<DraggableTaskProps>(({ 
-  task, 
-  index,
-  onClick, 
-  onDelete 
-}) => {
-  const handleClick = useCallback(() => onClick(task), [onClick, task]);
-  const handleDelete = useCallback(() => onDelete(task.id), [onDelete, task.id]);
-
-  return (
-    <Draggable draggableId={task.id} index={index}>
-      {(provided, snapshot) => (
-        <div
-          ref={provided.innerRef}
-          {...provided.draggableProps}
-          {...provided.dragHandleProps}
-          className={`mb-3 transform select-none transition-all duration-200 ${
-            snapshot.isDragging 
-              ? 'z-50 shadow-xl opacity-95 scale-[1.02] rotate-1' 
-              : 'hover:shadow-md'
-          }`}
-          style={{
-            ...provided.draggableProps.style,
-            // 🔥 OPTIMIZATION: Better performance with CSS transforms
-            willChange: snapshot.isDragging ? 'transform' : 'auto',
-          }}
-        >
-          <MemoizedTaskCard
-            task={task}
-            isDragging={snapshot.isDragging}
-            onClick={handleClick}
-            onDelete={handleDelete}
-          />
-        </div>
-      )}
-    </Draggable>
-  );
-});
-
-DraggableTask.displayName = 'DraggableTask';
-
-// 🔥 HELLO-PANGEA: Droppable Column with virtualization support
-interface DroppableColumnProps {
-  column: Column;
-  onNewTask: (statusId: StatusCode) => void;
-  onTaskClick: (task: Task) => void;
-  onTaskDelete: (taskId: string) => void;
-}
-
-const DroppableColumn = React.memo<DroppableColumnProps>(({
-  column,
-  onNewTask,
-  onTaskClick,
-  onTaskDelete,
-}) => {
-  const { currentUser, isAdmin } = useAuth();
-
-  // 🔥 MEMOIZED: Permission check
-  const canCreateTaskInStatus = useMemo(() => 
-    isAdmin || (currentUser?.allowedStatuses?.includes(column.status) || false),
-    [isAdmin, currentUser?.allowedStatuses, column.status]
-  );
-
-  const handleNewTask = useCallback(() => onNewTask(column.status), [onNewTask, column.status]);
-
-  // 🔥 VIRTUALIZATION: Only render visible tasks if more than 20
-  const shouldVirtualize = column.tasks.length > 20;
-  const tasksToRender = shouldVirtualize ? column.tasks.slice(0, 20) : column.tasks;
-
-  return (
-    <div className="h-full flex flex-col min-h-0">
-      <Card className="flex-1 h-full flex flex-col min-h-0" hover>
-        <CardHeader className="pb-2 border-b border-gray-100 flex-shrink-0">
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div
-                className="w-3 h-3 rounded-full mr-2"
-                style={{ backgroundColor: column.color }}
-              />
-              <span>{column.name}</span>
-            </div>
-            <span className="bg-gray-100 text-secondary-700 text-xs font-medium rounded-full px-2.5 py-1">
-              {column.tasks.length}
-            </span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
-          <Droppable droppableId={column.id} type="TASK">
-            {(provided, snapshot) => (
-              <div
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                className={`flex-1 flex flex-col min-h-[200px] transition-colors duration-150 ${
-                  snapshot.isDraggingOver ? 'bg-blue-50/50 rounded-md' : ''
-                }`}
-              >
-                {column.tasks.length === 0 ? (
-                  <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
-                    <p className="text-sm text-gray-500">No tasks</p>
-                  </div>
-                ) : (
-                  <div className="flex-1 space-y-2 min-h-0">
-                    {tasksToRender.map((task, index) => (
-                      <DraggableTask
-                        key={task.id}
-                        task={task}
-                        index={index}
-                        onClick={onTaskClick}
-                        onDelete={onTaskDelete}
-                      />
-                    ))}
-                    {shouldVirtualize && column.tasks.length > 20 && (
-                      <div className="text-xs text-gray-500 text-center py-2">
-                        +{column.tasks.length - 20} more tasks
-                      </div>
-                    )}
-                  </div>
-                )}
-                {provided.placeholder}
-                
-                {canCreateTaskInStatus && (
-                  <div className="mt-4 flex justify-center flex-shrink-0">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={Plus}
-                      onClick={handleNewTask}
-                      className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-200"
-                    >
-                      <span className="text-xs font-medium">New Task</span>
-                    </Button>
-                  </div>
-                )}
-                
-                {!canCreateTaskInStatus && (
-                  <div className="mt-4 flex justify-center flex-shrink-0">
-                    <div className="text-xs text-gray-400 text-center py-2">
-                      No permission to create tasks in this status
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Droppable>
-        </CardContent>
-      </Card>
-    </div>
-  );
-});
-
-DroppableColumn.displayName = 'DroppableColumn';
-
 const TaskBoard: React.FC = () => {
-  // ---------------------------------------------------
-  // Context and state hooks
-  // ---------------------------------------------------
-  const { tasks: allTasks, updateTaskStatus, searchTasks, setDragOperationActive, clients, users } = useData();
-  const { getStatusesByTeam } = useStatus();
   const { currentUser, isAdmin } = useAuth();
+  const { getStatusesByTeam } = useStatus();
   const { showError, showSuccess } = useNotification();
+  const { refreshTasks, isConnected } = useSimpleRealtime();
+  const { tasks, isLoading } = useTaskRefresh();
   
-  // UI state
+  // Get DataContext for user/client lookups
+  const { getUserById, getClientById } = useData();
+
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
-  const [newClientModalOpen, setNewClientModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [initialStatus, setInitialStatus] = useState<StatusCode | null>(null);
-  
-  // Filtering state - default to creative team
-  const [viewMode, setViewMode] = useState<'all' | 'my-tasks'>('all');
   const [teamFilter, setTeamFilter] = useState<TeamType>('creative');
-  const [clientFilter, setClientFilter] = useState<string>('all');
-  const [employeeFilter, setEmployeeFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'createdDate' | 'dueDate' | 'title' | 'none'>('none');
-  
-  // Database search state
-  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  
-  // Debounce search query to avoid too many database calls
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
-  // Scrolling state
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  
-  // 🔥 HELLO-PANGEA: Drag operation state
   const [isDragging, setIsDragging] = useState(false);
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('');
+  const [selectedClient, setSelectedClient] = useState<string>('');
   
-  // ---------------------------------------------------
-  // 🔥 MEMOIZED: Derived state and computations
-  // ---------------------------------------------------
-  
-  // Team-specific users and clients
-  const activeUsers = useMemo(() => 
-    users.filter(user => user.isActive), 
-    [users]
-  );
-  
-  const filteredUsers = useMemo(() => 
-    activeUsers.filter(user => user.team === teamFilter || user.role === 'admin'),
-    [activeUsers, teamFilter]
-  );
-  
-  const filteredClients = useMemo(() => 
-    clients.filter(client => client.team === teamFilter),
-    [clients, teamFilter]
-  );
-  
-  // Current team status columns - heavily memoized
+  // Custom dropdown states
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+
+  // Ref for horizontal scrolling
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const employeeDropdownRef = useRef<HTMLDivElement>(null);
+  const clientDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (employeeDropdownRef.current && !employeeDropdownRef.current.contains(event.target as Node)) {
+        setIsEmployeeDropdownOpen(false);
+      }
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
+        setIsClientDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Get unique employees and clients for filter dropdowns
+  const { employees, clients } = useMemo(() => {
+    const employeeSet = new Set<string>();
+    const clientSet = new Set<string>();
+    
+    // Filter tasks by current team first, then extract unique employees/clients
+    tasks.filter(task => task.team === teamFilter).forEach(task => {
+      if (task.assigneeId) {
+        const assignee = getUserById(task.assigneeId);
+        if (assignee?.name) employeeSet.add(assignee.name);
+      }
+      if (task.clientId) {
+        const client = getClientById(task.clientId);
+        if (client?.name) clientSet.add(client.name);
+      }
+    });
+    
+    // Additionally, always include admin users in the employee list for both teams
+    tasks.forEach(task => {
+      if (task.assigneeId) {
+        const assignee = getUserById(task.assigneeId);
+        if (assignee?.name && assignee.role === 'admin') {
+          employeeSet.add(assignee.name);
+        }
+      }
+    });
+    
+    return {
+      employees: Array.from(employeeSet).sort(),
+      clients: Array.from(clientSet).sort()
+    };
+  }, [tasks, getUserById, getClientById, teamFilter]);
+
+  // Get status columns for current team
   const statusColumns = useMemo(() => {
     const allColumns = getStatusesByTeam(teamFilter);
     
-    // Filter columns based on user permissions (non-admin users only see allowed statuses)
     if (!isAdmin && currentUser?.allowedStatuses) {
       return allColumns.filter(column => 
         currentUser.allowedStatuses?.includes(column.id) || false
@@ -266,66 +112,44 @@ const TaskBoard: React.FC = () => {
     
     return allColumns;
   }, [getStatusesByTeam, teamFilter, isAdmin, currentUser?.allowedStatuses]);
-  
-  // 🔥 OPTIMIZED: Database search effect with better caching
-  useEffect(() => {
-    let isCancelled = false;
-    
-    const performSearch = async () => {
-      if (isDragging) return; // Skip during drag operations
-      
-      setIsSearching(true);
-      
-      try {
-        const filters = {
-          team: teamFilter,
-          searchQuery: debouncedSearchQuery,
-          clientId: clientFilter !== 'all' ? clientFilter : undefined,
-          assigneeId: employeeFilter !== 'all' ? employeeFilter : undefined,
-          sortBy,
-          ...(viewMode === 'my-tasks' && currentUser ? { userId: currentUser.id } : {})
-        };
 
-        const searchResults = await searchTasks(filters);
-        
-        if (!isCancelled) {
-          setFilteredTasks(searchResults);
-        }
-      } catch (error) {
-        console.error('Error performing database search:', error);
-        if (!isCancelled) {
-          setFilteredTasks([]);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsSearching(false);
-        }
-      }
-    };
-
-    performSearch();
-    
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    teamFilter,
-    clientFilter,
-    employeeFilter,
-    debouncedSearchQuery,
-    sortBy,
-    viewMode,
-    currentUser?.id,
-    isDragging
-  ]);
-  
-  // 🔥 HIGHLY OPTIMIZED: Organized columns with tasks
+  // Filter and organize tasks into columns
   const columns = useMemo(() => {
-    if (statusColumns.length === 0) {
-      return [];
+    if (statusColumns.length === 0) return [];
+    
+    // First filter tasks by team
+    let filteredTasks = tasks.filter(task => task.team === teamFilter);
+    
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase();
+      filteredTasks = filteredTasks.filter(task => {
+        const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
+        const client = task.clientId ? getClientById(task.clientId) : null;
+        
+        return task.title.toLowerCase().includes(search) ||
+          task.description?.toLowerCase().includes(search) ||
+          assignee?.name.toLowerCase().includes(search) ||
+          client?.name.toLowerCase().includes(search);
+      });
     }
     
-    // Create column map
+    // Apply employee filter
+    if (selectedEmployee) {
+      filteredTasks = filteredTasks.filter(task => {
+        const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
+        return assignee?.name === selectedEmployee;
+      });
+    }
+    
+    // Apply client filter  
+    if (selectedClient) {
+      filteredTasks = filteredTasks.filter(task => {
+        const client = task.clientId ? getClientById(task.clientId) : null;
+        return client?.name === selectedClient;
+      });
+    }
+
     const columnMap: Column[] = statusColumns.map(column => ({
       id: `${column.team}_${column.id}`,
       status: column.id,
@@ -335,9 +159,8 @@ const TaskBoard: React.FC = () => {
       tasks: []
     }));
     
-    // Distribute tasks to columns
+    // Distribute filtered tasks to columns
     filteredTasks.forEach(task => {
-      // Permission check for non-admin users
       if (!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(task.status)) {
         return;
       }
@@ -352,427 +175,355 @@ const TaskBoard: React.FC = () => {
     });
     
     return columnMap;
-  }, [statusColumns, filteredTasks, isAdmin, currentUser?.allowedStatuses]);
-  
-  // ---------------------------------------------------
-  // 🔥 OPTIMIZED: Event handlers
-  // ---------------------------------------------------
-  
-  const handleTaskClick = useCallback((task: Task) => {
-    setSelectedTask(task);
-    setInitialStatus(null);
-    setNewTaskModalOpen(true);
+  }, [statusColumns, tasks, teamFilter, isAdmin, currentUser?.allowedStatuses, searchTerm, selectedEmployee, selectedClient, getUserById, getClientById]);
+
+  // Clear all filters
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    setSelectedEmployee('');
+    setSelectedClient('');
+  }, []);
+
+  // Check if any filters are active
+  const hasActiveFilters = searchTerm || selectedEmployee || selectedClient;
+
+  // Custom dropdown handlers
+  const handleEmployeeSelect = useCallback((employee: string) => {
+    setSelectedEmployee(employee);
+    setIsEmployeeDropdownOpen(false);
+  }, []);
+
+  const handleClientSelect = useCallback((client: string) => {
+    setSelectedClient(client);
+    setIsClientDropdownOpen(false);
   }, []);
   
-  const handleCloseTaskModal = useCallback(() => {
-    setNewTaskModalOpen(false);
-    setSelectedTask(null);
-    setInitialStatus(null);
+  // Scroll handlers
+  const scrollLeft = useCallback(() => {
+    scrollContainerRef.current?.scrollBy({ left: -350, behavior: 'smooth' });
   }, []);
   
-  const handleNewTaskInStatus = useCallback((statusId: StatusCode) => {
-    setSelectedTask(null);
-    setInitialStatus(statusId);
-    setNewTaskModalOpen(true);
+  const scrollRight = useCallback(() => {
+    scrollContainerRef.current?.scrollBy({ left: 350, behavior: 'smooth' });
   }, []);
   
-  const handleTaskDelete = useCallback((taskId: string) => {
-    // Optimistic update
-    setFilteredTasks(prev => prev.filter(task => task.id !== taskId));
-  }, []);
-  
-  // ---------------------------------------------------
-  // 🔥 HELLO-PANGEA: Ultra-Fast Drag and Drop handlers
-  // ---------------------------------------------------
-  
-  const handleDragStart = useCallback((start: DragStart) => {
+  // Drag handlers
+  const handleDragStart = useCallback(() => {
     setIsDragging(true);
-    setDraggedTaskId(start.draggableId);
-    setDragOperationActive(true);
-    
-    // Visual feedback
-    document.body.style.cursor = 'grabbing';
-    document.body.classList.add('dragging');
-  }, [setDragOperationActive]);
+  }, []);
   
   const handleDragEnd = useCallback(async (result: DropResult) => {
     const { destination, source, draggableId } = result;
     
-    // Cleanup
     setIsDragging(false);
-    setDraggedTaskId(null);
-    setDragOperationActive(false);
     
-    document.body.style.cursor = '';
-    document.body.classList.remove('dragging');
-    
-    // No destination
-    if (!destination) {
-      return;
-    }
-    
-    // Same position
-    if (
+    if (!destination || (
       destination.droppableId === source.droppableId &&
       destination.index === source.index
-    ) {
+    )) {
       return;
     }
     
-    const activeTask = filteredTasks.find(task => task.id === draggableId);
-    if (!activeTask) {
+    const task = tasks.find(t => t.id === draggableId);
+    if (!task) {
       showError('Task not found');
       return;
     }
     
-    // Find target column
     const targetColumn = columns.find(col => col.id === destination.droppableId);
     if (!targetColumn) {
       showError('Invalid drop target');
       return;
     }
     
-    // Validation checks
-    if (activeTask.team !== targetColumn.team) {
-      showError('Cannot move tasks between different teams.');
+    if (task.team !== targetColumn.team) {
+      showError('Cannot move tasks between different teams');
       return;
     }
     
     if (!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(targetColumn.status)) {
-      showError(`You don't have permission to move tasks to "${targetColumn.name}" status.`);
+      showError(`You don't have permission to move tasks to "${targetColumn.name}" status`);
       return;
     }
     
-    // Update if status changed
-    if (activeTask.status !== targetColumn.status) {
-      try {
-        // Optimistic update - preserve ALL task data, only change status
-        setFilteredTasks(prev => 
-          prev.map(task => 
-            task.id === activeTask.id 
-              ? { ...task, status: targetColumn.status }
-              : task
-          )
-        );
-        
-        // Database update and get the updated task with all preserved data
-        const updatedTask = await updateTaskStatus(activeTask.id, targetColumn.status);
-        
-        // 🔥 IMPORTANT: Use the actual updated task from database to ensure complete data integrity
-        setFilteredTasks(prev => 
-          prev.map(task => 
-            task.id === activeTask.id 
-              ? updatedTask
-              : task
-          )
-        );
-        
-        showSuccess(`Task moved to ${targetColumn.name}`);
-      } catch (error) {
-        console.error('Failed to update task status:', error);
-        showError('Failed to update task status. Please try again.');
-        
-        // Revert optimistic update - restore original status
-        setFilteredTasks(prev => 
-          prev.map(task => 
-            task.id === activeTask.id 
-              ? { ...task, status: activeTask.status }
-              : task
-          )
-        );
-      }
+    if (task.status === targetColumn.status) return;
+    
+    try {
+      console.log(`🔄 [TaskBoard] Moving task ${task.id} to ${targetColumn.status}`);
+      
+      await taskService.updateTaskStatus(task.id, targetColumn.status);
+      
+      console.log(`✅ [TaskBoard] Task moved successfully`);
+      showSuccess(`Task moved to ${targetColumn.name}`);
+      
+      // Trigger refresh
+      refreshTasks();
+      
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+      showError('Failed to update task status. Please try again.');
     }
-  }, [columns, filteredTasks, updateTaskStatus, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, setDragOperationActive]);
-  
-  // Scroll handlers
-  const scrollLeft = useCallback(() => {
-    scrollContainerRef.current?.scrollBy({ left: -300, behavior: 'smooth' });
+  }, [tasks, columns, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, refreshTasks]);
+
+  const handleTaskClick = useCallback((task: Task) => {
+    setSelectedTask(task);
+    setInitialStatus(null);
+    setNewTaskModalOpen(true);
   }, []);
-  
-  const scrollRight = useCallback(() => {
-    scrollContainerRef.current?.scrollBy({ left: 300, behavior: 'smooth' });
+
+  const handleTaskDelete = useCallback(async (taskId: string) => {
+    try {
+      console.log(`🗑️ [TaskBoard] Deleting task: ${taskId}`);
+      await taskService.deleteTask(taskId);
+      showSuccess('Task deleted successfully');
+      refreshTasks();
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      showError('Failed to delete task');
+    }
+  }, [showSuccess, showError, refreshTasks]);
+
+  const handleNewTaskInStatus = useCallback((statusId: StatusCode) => {
+    setSelectedTask(null);
+    setInitialStatus(statusId);
+    setNewTaskModalOpen(true);
   }, []);
-  
-  // Clear filters
-  const handleClearFilters = useCallback(() => {
-    setEmployeeFilter('all');
-    setClientFilter('all');
-    setSearchQuery('');
-    setSortBy('none');
-  }, []);
-  
-  // ---------------------------------------------------
-  // Main render
-  // ---------------------------------------------------
-  
-  if (isSearching && filteredTasks.length === 0) {
+
+  const handleCloseTaskModal = useCallback(() => {
+    setNewTaskModalOpen(false);
+    setSelectedTask(null);
+    setInitialStatus(null);
+    refreshTasks(); // Refresh after modal closes
+  }, [refreshTasks]);
+
+  if (isLoading && tasks.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="inline-block w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin"></div>
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center">
+        <div className="inline-block w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin"></div>
           <p className="mt-2 text-gray-600">Loading tasks...</p>
         </div>
       </div>
     );
   }
 
+  const filteredTaskCount = columns.reduce((sum, col) => sum + col.tasks.length, 0);
+  const totalTaskCount = tasks.filter(t => t.team === teamFilter).length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div className="flex items-center space-x-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">
-              {teamFilter === 'creative' ? 'Creative Team' : 'Web Team'} Tasks
-            </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              {filteredTasks.length} tasks • {columns.length} columns • Hello Pangea DnD ⚡
-            </p>
-          </div>
-          <LiveIndicator className="flex-shrink-0" />
-        </div>
-        
-        <div className="flex space-x-3">
-          <Button
-            variant="primary"
-            size="sm"
-            icon={Briefcase}
-            onClick={() => setNewClientModalOpen(true)}
-            className="shadow-md hover:shadow-lg bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 transition-all duration-200"
-          >
-            <span className="text-sm font-semibold text-white">New Client</span>
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            icon={Plus}
-            onClick={() => setNewTaskModalOpen(true)}
-            className="shadow-md hover:shadow-lg bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 transition-all duration-200"
-          >
-            <span className="text-sm font-semibold text-white">New Task</span>
-          </Button>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Task Board</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            {hasActiveFilters ? `${filteredTaskCount} of ${totalTaskCount}` : totalTaskCount} tasks • {columns.length} columns
+            {isConnected ? (
+              <span className="text-green-600 ml-2 inline-flex">
+                <Wifi className="w-4 h-4" />
+              </span>
+            ) : (
+              <span className="text-red-600 ml-2 inline-flex">
+                <WifiOff className="w-4 h-4" />
+              </span>
+            )}
+          </p>
         </div>
       </div>
       
-      {/* Filters and Search */}
-      <Card className="mb-6">
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-            <div className="md:col-span-2 h-10">
-              <ButtonGroup
-                fullWidth
-                options={[
-                  { value: 'all', label: 'All Tasks' },
-                  { value: 'my-tasks', label: 'My Tasks' }
-                ]}
-                value={viewMode}
-                onChange={(value) => setViewMode(value as 'all' | 'my-tasks')}
-                className="h-full"
-              />
+      {/* Minimal Modern Filter Bar */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+        <div className="p-5">
+          <div className="flex items-center justify-between gap-8">
+            {/* Team Toggle - Minimal Design */}
+            <div className="flex items-center gap-8">
+              <div className="relative">
+                <div className="flex bg-gray-50 rounded-xl p-1">
+                  <button
+                    onClick={() => setTeamFilter('creative')}
+                    className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
+                      teamFilter === 'creative'
+                        ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    Creative
+                  </button>
+                  <button
+                    onClick={() => setTeamFilter('web')}
+                    className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
+                      teamFilter === 'web'
+                        ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    Web
+                  </button>
             </div>
-            
-            <div className="md:col-span-2 h-10">
-              <ButtonGroup
-                fullWidth
-                options={[
-                  { value: 'creative', label: 'Creative', icon: Palette },
-                  { value: 'web', label: 'Web', icon: Code }
-                ]}
-                value={teamFilter}
-                onChange={(value) => setTeamFilter(value as TeamType)}
-                customStyles={{
-                  creative: 'bg-purple-600 text-white hover:bg-purple-700',
-                  web: 'bg-blue-600 text-white hover:bg-blue-700'
-                }}
-                className="h-full"
-              />
               </div>
             
-            <div className="md:col-span-2 h-10">
-              <div className="relative h-full">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  {teamFilter === 'creative' ? (
-                    <Palette className="h-4 w-4 text-purple-400" />
-                  ) : (
-                    <Code className="h-4 w-4 text-blue-400" />
+              {/* Minimal Divider */}
+              <div className="h-5 w-px bg-gray-200"></div>
+
+              {/* Filter Controls - Minimal Design */}
+              <div className="flex items-center gap-3">
+                {/* Search Bar - Minimal */}
+                <div className="relative group">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 transition-colors duration-200 group-focus-within:text-gray-600" />
+                  <input
+                    type="text"
+                    placeholder="Search..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-72 pl-10 pr-8 py-2.5 text-sm bg-gray-50 border-0 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:shadow-sm placeholder-gray-400 transition-all duration-200"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-2.5 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 rounded-md transition-colors duration-200"
+                    >
+                      <X className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
                   )}
                 </div>
-                <select
-                  className="block w-full h-full pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-md bg-white appearance-none transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 focus:shadow-sm text-ellipsis"
-                  value={clientFilter}
-                  onChange={(e) => setClientFilter(e.target.value)}
-                >
-                  <option value="all">
-                    {teamFilter === 'creative' ? 'All Creative Clients' : 'All Web Clients'} 
-                    ({filteredClients.length})
-                  </option>
-                  {/* Use system clients (including 'Unassigned') */}
-                  {filteredClients.map(client => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
+
+                {/* Employee Dropdown - Minimal */}
+                <div className="relative" ref={employeeDropdownRef}>
+                  <button
+                    onClick={() => {
+                      setIsEmployeeDropdownOpen(!isEmployeeDropdownOpen);
+                      setIsClientDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all duration-200 min-w-[140px] ${
+                      selectedEmployee 
+                        ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span className="truncate">
+                      {selectedEmployee || `${teamFilter === 'creative' ? 'Creative' : 'Web'} Staff`}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isEmployeeDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isEmployeeDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      <div className="p-1">
+                        <button
+                          onClick={() => handleEmployeeSelect('')}
+                          className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                            !selectedEmployee 
+                              ? 'bg-blue-50 text-blue-700' 
+                              : 'hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          All {teamFilter === 'creative' ? 'Creative' : 'Web'} Staff
+                        </button>
+                        {employees.map(employee => (
+                          <button
+                            key={employee}
+                            onClick={() => handleEmployeeSelect(employee)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                              selectedEmployee === employee 
+                                ? 'bg-blue-50 text-blue-700' 
+                                : 'hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {employee}
+                          </button>
+                        ))}
                 </div>
               </div>
-            </div>
-            
-            <div className="md:col-span-2 h-10">
-              <div className="relative h-full">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Users className="h-4 w-4 text-gray-400" />
-                </div>
-                <select
-                  className="block w-full h-full pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-md bg-white appearance-none transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 focus:shadow-sm text-ellipsis"
-                  value={employeeFilter}
-                  onChange={(e) => setEmployeeFilter(e.target.value)}
-                >
-                  <option value="all">
-                    {teamFilter === 'creative' ? 'All Creative Team' : 'All Web Team'} 
-                    ({filteredUsers.filter(u => u.team === teamFilter).length})
-                  </option>
-                  <option value="unassigned">
-                    Unassigned Tasks
-                  </option>
-                  {filteredUsers.map(user => (
-                    <option key={user.id} value={user.id}>
-                      {user.name} {user.role === 'admin' ? '(Admin)' : user.role === 'manager' ? '(Manager)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
-                </div>
-              </div>
-            </div>
-            
-            <div className="md:col-span-2 h-10">
-              <div className="relative h-full">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Filter className="h-4 w-4 text-gray-400" />
-                </div>
-                <select
-                  className="block w-full h-full pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-md bg-white appearance-none transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 focus:shadow-sm text-ellipsis"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as 'createdDate' | 'dueDate' | 'title' | 'none')}
-                >
-                  <option value="none">No Sorting</option>
-                  <option value="createdDate">Sort by Created Date</option>
-                  <option value="dueDate">Sort by Due Date</option>
-                  <option value="title">Sort by Title</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
-                </div>
-              </div>
-            </div>
-            
-            <div className="md:col-span-2 h-10">
-              <div className="relative h-full">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  {isSearching ? (
-                    <div className="w-4 h-4 border-2 border-gray-400 border-t-blue-500 rounded-full animate-spin"></div>
-                  ) : (
-                    <Search className="h-4 w-4 text-gray-400" />
                   )}
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search tasks..."
-                  className="block w-full h-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md bg-white transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500 focus:shadow-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+
+                {/* Client Dropdown - Team Oriented & Minimal */}
+                <div className="relative" ref={clientDropdownRef}>
+                  <button
+                    onClick={() => {
+                      setIsClientDropdownOpen(!isClientDropdownOpen);
+                      setIsEmployeeDropdownOpen(false);
+                    }}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all duration-200 min-w-[140px] ${
+                      selectedClient 
+                        ? 'bg-orange-50 border-orange-200 text-orange-700' 
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <Building2 className="w-4 h-4" />
+                    <span className="truncate">
+                      {selectedClient || `${teamFilter === 'creative' ? 'Creative' : 'Web'} Clients`}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isClientDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      <div className="p-1">
+                        <button
+                          onClick={() => handleClientSelect('')}
+                          className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                            !selectedClient 
+                              ? 'bg-orange-50 text-orange-700' 
+                              : 'hover:bg-gray-50 text-gray-700'
+                          }`}
+                        >
+                          All {teamFilter === 'creative' ? 'Creative' : 'Web'} Clients
+                        </button>
+                        {clients.map(client => (
+                          <button
+                            key={client}
+                            onClick={() => handleClientSelect(client)}
+                            className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                              selectedClient === client 
+                                ? 'bg-orange-50 text-orange-700' 
+                                : 'hover:bg-gray-50 text-gray-700'
+                            }`}
+                          >
+                            {client}
+                          </button>
+                        ))}
               </div>
             </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right side - Action Buttons */}
+            <div className="flex items-center gap-3">
+              {/* Clear Filter Indicator */}
+              {hasActiveFilters && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-medium rounded-full">
+                    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                    {[searchTerm && 'Search', selectedEmployee && 'Staff', selectedClient && 'Client'].filter(Boolean).length} active
           </div>
-          
-          {/* Clear All Filters Button */}
-          {(employeeFilter !== 'all' || clientFilter !== 'all' || searchQuery.trim() !== '' || sortBy !== 'none') && (
-            <div className="mt-3 flex justify-end">
               <button 
-                className="text-sm text-primary-600 hover:text-primary-800 font-medium flex items-center hover:underline animate-tap"
-                onClick={handleClearFilters}
+                    onClick={clearFilters}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
               >
-                <span>Clear All Filters</span>
+                    <X className="w-3 h-3" />
+                    Clear
               </button>
             </div>
           )}
-        </CardContent>
-      </Card>
-      
-      {/* Applied Filters Tags */}
-      {(employeeFilter !== 'all' || clientFilter !== 'all' || teamFilter === 'web' || sortBy !== 'none') && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {employeeFilter !== 'all' && (
-            <div className="inline-flex items-center bg-primary-50 text-primary-700 px-3 py-1 rounded-full text-sm">
-              <span className="mr-1">{teamFilter === 'creative' ? 'Creative Team Member:' : 'Web Team Member:'}</span>
-              <span className="font-medium">
-                {employeeFilter === 'unassigned' 
-                  ? 'Unassigned Tasks' 
-                  : filteredUsers.find(u => u.id === employeeFilter)?.name
-                }
-              </span>
+              
+              {/* Action Buttons */}
               <button 
-                className="ml-2 text-primary-500 hover:text-primary-700 transition-colors"
-                onClick={() => setEmployeeFilter('all')}
+                onClick={() => setNewTaskModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
               >
-                &times;
+                <Plus className="w-4 h-4" />
+                Add Task
               </button>
             </div>
-          )}
-          {clientFilter !== 'all' && (
-            <div className="inline-flex items-center bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm">
-              <span className="mr-1">{teamFilter === 'creative' ? 'Creative Client:' : 'Web Client:'}</span>
-              <span className="font-medium">
-                {clients.find(c => c.id === clientFilter)?.name}
-              </span>
-              <button 
-                className="ml-2 text-purple-500 hover:text-purple-700 transition-colors"
-                onClick={() => setClientFilter('all')}
-              >
-                &times;
-              </button>
             </div>
-          )}
-          {teamFilter === 'web' && (
-            <div className="inline-flex items-center bg-success-50 text-success-700 px-3 py-1 rounded-full text-sm">
-              <span className="mr-1">Team:</span>
-              <span className="font-medium flex items-center">
-                <Code className="h-3.5 w-3.5 mr-1" />
-                Web Team
-              </span>
-              <button 
-                className="ml-2 text-success-500 hover:text-success-700 transition-colors"
-                onClick={() => setTeamFilter('creative')}
-              >
-                &times;
-              </button>
-            </div>
-          )}
-          {sortBy !== 'none' && (
-            <div className="inline-flex items-center bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm">
-              <span className="mr-1">Sorted by:</span>
-              <span className="font-medium flex items-center">
-                <Filter className="h-3.5 w-3.5 mr-1" />
-                {sortBy === 'createdDate' ? 'Created Date' : 
-                 sortBy === 'dueDate' ? 'Due Date' : 
-                 sortBy === 'title' ? 'Title' : 'None'}
-              </span>
-              <button 
-                className="ml-2 text-amber-500 hover:text-amber-700 transition-colors"
-                onClick={() => setSortBy('none')}
-              >
-                &times;
-              </button>
-            </div>
-          )}
         </div>
-      )}
+      </div>
       
-      {/* Task Board with Ultra-Fast Drag & Drop */}
+      {/* Task Board with Horizontal Scrolling */}
       <div className="relative">
         {/* Scroll buttons */}
         {columns.length > 3 && (
@@ -782,62 +533,147 @@ const TaskBoard: React.FC = () => {
               className="absolute left-0 top-1/2 transform -translate-y-1/2 z-10 bg-white rounded-full p-1.5 shadow-md border border-gray-200 hover:bg-gray-50 transition-colors"
               aria-label="Scroll left"
             >
-              <ChevronLeft className="h-5 w-5 text-secondary-600" />
+              <ChevronLeft className="h-5 w-5 text-gray-600" />
             </button>
             <button 
               onClick={scrollRight} 
               className="absolute right-0 top-1/2 transform -translate-y-1/2 z-10 bg-white rounded-full p-1.5 shadow-md border border-gray-200 hover:bg-gray-50 transition-colors"
               aria-label="Scroll right"
             >
-              <ChevronRight className="h-5 w-5 text-secondary-600" />
+              <ChevronRight className="h-5 w-5 text-gray-600" />
             </button>
           </>
         )}
         
-        {/* 🔥 ULTRA-FAST DndContext */}
         <DragDropContext onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
           {columns.length > 0 ? (
             <div className="overflow-x-auto">
-              <div 
-                ref={scrollContainerRef} 
+          <div 
+            ref={scrollContainerRef} 
                 className="flex gap-5 pb-4"
-                style={{ 
+            style={{ 
                   minWidth: `${columns.length * 350}px`,
                   width: 'max-content'
-                }}
-              >
-                {columns.map(column => (
+            }}
+          >
+              {columns.map(column => (
                   <div key={column.id} className="w-[330px] flex-shrink-0">
-                    <DroppableColumn
-                      column={column}
-                      onNewTask={handleNewTaskInStatus}
-                      onTaskClick={handleTaskClick}
-                      onTaskDelete={handleTaskDelete}
-                    />
+                    <Card className="h-full flex flex-col">
+                      <CardHeader className="pb-2 border-b border-gray-100 flex-shrink-0">
+                        <CardTitle className="flex items-center justify-between">
+                          <div className="flex items-center min-w-0 flex-1">
+                            <div
+                              className="w-3 h-3 rounded-full mr-2 flex-shrink-0"
+                              style={{ backgroundColor: column.color }}
+                            />
+                            <span className="truncate text-sm font-medium">{column.name}</span>
+                          </div>
+                          <span className="bg-gray-100 text-gray-700 text-xs font-medium rounded-full px-2.5 py-1 ml-2 flex-shrink-0">
+                            {column.tasks.length}
+                          </span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 flex-1 flex flex-col min-h-0">
+                        <Droppable droppableId={column.id} type="TASK">
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className={`flex-1 flex flex-col min-h-[200px] transition-colors duration-150 ${
+                                snapshot.isDraggingOver ? 'bg-blue-50/50 rounded-md' : ''
+                              }`}
+                            >
+                              {column.tasks.length === 0 ? (
+                                <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
+                                  <p className="text-sm text-gray-500">
+                                    {hasActiveFilters ? 'No matching tasks' : 'No tasks'}
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="flex-1 space-y-2 min-h-0">
+                                  {column.tasks.map((task, index) => (
+                                    <Draggable key={task.id} draggableId={task.id} index={index}>
+                                      {(provided, snapshot) => (
+                                        <div
+                                          ref={provided.innerRef}
+                                          {...provided.draggableProps}
+                                          {...provided.dragHandleProps}
+                                          className={`mb-3 transform select-none transition-all duration-200 ${
+                                            snapshot.isDragging 
+                                              ? 'z-50 shadow-xl opacity-95 scale-[1.02] rotate-1' 
+                                              : 'hover:shadow-md'
+                                          }`}
+                                          style={{
+                                            ...provided.draggableProps.style,
+                                            willChange: snapshot.isDragging ? 'transform' : 'auto',
+                                          }}
+                                        >
+                                          <TaskCard
+                                            task={task}
+                                            isDragging={snapshot.isDragging}
+                                            onClick={() => handleTaskClick(task)}
+                                            onDelete={handleTaskDelete}
+                                          />
+                                        </div>
+                                      )}
+                                    </Draggable>
+                                  ))}
+                                </div>
+                              )}
+                              {provided.placeholder}
+                              
+                              {/* Add New Task Button */}
+                              {(isAdmin || (currentUser?.allowedStatuses?.includes(column.status))) && (
+                                <div className="mt-4 flex justify-center flex-shrink-0">
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    icon={Plus}
+                                    onClick={() => handleNewTaskInStatus(column.status)}
+                                    className="w-full bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 hover:text-gray-800 transition-all duration-200"
+                                  >
+                                    <span className="text-xs font-medium">New Task</span>
+                                  </Button>
+                                </div>
+                              )}
+                              
+                              {!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(column.status) && (
+                                <div className="mt-4 flex justify-center flex-shrink-0">
+                                  <div className="text-xs text-gray-400 text-center py-2">
+                                    No permission to create tasks in this status
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </Droppable>
+                      </CardContent>
+                    </Card>
                   </div>
                 ))}
               </div>
-            </div>
+                    </div>
           ) : (
             <div className="flex justify-center items-center py-10 border-2 border-dashed border-gray-200 rounded-lg">
-              <p className="text-gray-500">No columns found for {teamFilter} team</p>
-            </div>
-          )}
+              <p className="text-gray-500">
+                {hasActiveFilters 
+                  ? `No tasks found for ${teamFilter} team matching your filters` 
+                  : `No columns found for ${teamFilter} team`
+                }
+              </p>
+                      </div>
+                    )}
         </DragDropContext>
       </div>
       
-      {/* Modals */}
+      {/* New Task Modal */}
+      {newTaskModalOpen && (
       <NewTaskModal
         isOpen={newTaskModalOpen}
         onClose={handleCloseTaskModal}
         initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
       />
-      
-      <NewClientModal
-        isOpen={newClientModalOpen}
-        onClose={() => setNewClientModalOpen(false)}
-        team={teamFilter}
-      />
+      )}
     </div>
   );
 };

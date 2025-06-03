@@ -42,6 +42,9 @@ interface DataContextType {
     };
   };
   isLoading: boolean;
+  
+  // 🔥 NEW: Force re-render trigger
+  forceUpdate: () => void;
 
   // User actions
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
@@ -99,19 +102,11 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-export const useData = () => {
-  const context = useContext(DataContext);
-  if (!context) {
-    throw new Error('useData must be used within a DataProvider');
-  }
-  return context;
-};
-
 interface DataProviderProps {
   children: ReactNode;
 }
 
-export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
+export function DataProvider({ children }: DataProviderProps) {
   const { isLoggedIn, currentUser } = useAuth();
   const realtimeHook = useRealtime();
 
@@ -122,6 +117,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  // 🔥 NEW: Force update counter for triggering re-renders
+  const [updateCounter, setUpdateCounter] = useState(0);
+  const forceUpdate = useCallback(() => {
+    setUpdateCounter(prev => prev + 1);
+    console.log('🔄 [DataContext] Force update triggered');
+  }, []);
   
   // 🔥 CRITICAL FIX: Use refs to avoid stale closures
   const isInitialLoadRef = useRef(true);
@@ -193,51 +195,106 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // 🔥 CRITICAL FIX: Handle realtime events with refs - never changes
   const handleRealtimeTaskEvent = useCallback((event: TaskRealtimeEvent) => {
+    console.log(`🔄 [DataContext] Received real-time event:`, event);
+    
     // Use refs to avoid stale closures
     if (isInitialLoadRef.current) {
+      console.log(`⏸️ [DataContext] Skipping event - initial load in progress`);
       return;
     }
 
-    // Skip updates during drag operations
-    if (isDragOperationActiveRef.current) {
-      return;
-    }
-
+    // 🔥 FIX: Don't skip updates during drag - instead debounce them
+    const shouldProcessEvent = !isDragOperationActiveRef.current;
+    console.log(`🎯 [DataContext] Should process event: ${shouldProcessEvent} (drag active: ${isDragOperationActiveRef.current})`);
+    
     switch (event.eventType) {
       case 'INSERT':
+        console.log(`➕ [DataContext] Processing INSERT event for task: ${event.new?.id}`);
         if (event.new) {
           setTasks(prevTasks => {
             // Check if task already exists (avoid duplicates)
             const exists = prevTasks.some(task => task.id === event.new!.id);
+            console.log(`🔍 [DataContext] Task ${event.new!.id} already exists: ${exists}`);
             if (!exists) {
-              return [...prevTasks, event.new!];
+              const updatedTasks = [...prevTasks, event.new!];
+              console.log(`✅ [DataContext] Added new task, total tasks: ${updatedTasks.length}`);
+              // 🔥 FIX: Recalculate analytics immediately
+              if (shouldProcessEvent) {
+                console.log(`📊 [DataContext] Recalculating analytics after INSERT`);
+                updateTaskAnalytics(updatedTasks);
+              }
+              // 🔥 NEW: Multiple force update mechanisms
+              setTimeout(() => {
+                forceUpdate();
+                // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
+                window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
+                  detail: { type: 'INSERT', task: event.new } 
+                }));
+              }, 50);
+              return updatedTasks;
             }
+            console.log(`⏭️ [DataContext] Skipping duplicate task ${event.new!.id}`);
             return prevTasks;
           });
         }
         break;
         
       case 'UPDATE':
+        console.log(`🔄 [DataContext] Processing UPDATE event for task: ${event.new?.id}`);
         if (event.new) {
           setTasks(prevTasks => {
+            const taskIndex = prevTasks.findIndex(task => task.id === event.new!.id);
+            console.log(`🔍 [DataContext] Found task at index: ${taskIndex}`);
             const updated = prevTasks.map(task => 
               task.id === event.new!.id ? event.new! : task
             );
+            console.log(`✅ [DataContext] Updated task ${event.new!.id}, total tasks: ${updated.length}`);
+            // 🔥 FIX: Recalculate analytics immediately
+            if (shouldProcessEvent) {
+              console.log(`📊 [DataContext] Recalculating analytics after UPDATE`);
+              updateTaskAnalytics(updated);
+            }
+            // 🔥 NEW: Multiple force update mechanisms
+            setTimeout(() => {
+              forceUpdate();
+              // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
+              window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
+                detail: { type: 'UPDATE', task: event.new } 
+              }));
+            }, 50);
             return updated;
           });
         }
         break;
         
       case 'DELETE':
+        console.log(`🗑️ [DataContext] Processing DELETE event for task: ${event.old?.id}`);
         if (event.old) {
           setTasks(prevTasks => {
             const filtered = prevTasks.filter(task => task.id !== event.old!.id);
+            console.log(`✅ [DataContext] Deleted task ${event.old!.id}, remaining tasks: ${filtered.length}`);
+            // 🔥 FIX: Recalculate analytics immediately
+            if (shouldProcessEvent) {
+              console.log(`📊 [DataContext] Recalculating analytics after DELETE`);
+              updateTaskAnalytics(filtered);
+            }
+            // 🔥 NEW: Multiple force update mechanisms
+            setTimeout(() => {
+              forceUpdate();
+              // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
+              window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
+                detail: { type: 'DELETE', task: event.old } 
+              }));
+            }, 50);
             return filtered;
           });
         }
         break;
+        
+      default:
+        console.warn(`⚠️ [DataContext] Unknown event type: ${event.eventType}`);
     }
-  }, []); // 🔥 EMPTY DEPENDENCIES - truly stable now
+  }, [forceUpdate, updateTaskAnalytics]); // 🔥 Add necessary dependencies
 
   // Subscribe to realtime events - only runs when needed
   useEffect(() => {
@@ -245,7 +302,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const unsubscribe = realtimeHook.onTaskEvent(handleRealtimeTaskEvent);
       return unsubscribe;
     }
-  }, [realtimeHook, isLoggedIn]); // 🔥 REMOVED isInitialLoad - using ref instead
+  }, [realtimeHook, isLoggedIn, handleRealtimeTaskEvent]); // 🔥 REMOVED isInitialLoad - using ref instead
 
   // Load data when user is authenticated - only runs when login changes
   useEffect(() => {
@@ -795,6 +852,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // 🔥 NEW: Drag operation management
   const setDragOperationActive = (active: boolean) => {
     isDragOperationActiveRef.current = active;
+    
+    // 🔥 FIX: Recalculate analytics when drag operation ends
+    if (!active) {
+      // Delay slightly to ensure task state is updated
+      setTimeout(() => {
+        updateTaskAnalytics(tasks);
+      }, 100);
+    }
   };
 
   const isDragOperationActive = () => {
@@ -841,7 +906,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     searchClients,
     searchReports,
     setDragOperationActive,
-    isDragOperationActive
+    isDragOperationActive,
+    forceUpdate
   }), [
     // 🔥 ONLY include primitive state values - never functions
     users,
@@ -850,7 +916,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     tasks,
     reports,
     analytics,
-    isLoading
+    isLoading,
+    forceUpdate
     // 🔥 CRITICAL: Exclude all functions - they're memoized separately
   ]);
 
@@ -859,4 +926,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       {children}
     </DataContext.Provider>
   );
-};
+}
+
+export function useData() {
+  const context = useContext(DataContext);
+  if (!context) {
+    throw new Error('useData must be used within a DataProvider');
+  }
+  return context;
+}
