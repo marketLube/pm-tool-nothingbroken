@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { format, parseISO, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek } from 'date-fns';
 import { supabase } from '../utils/supabase';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
-import { Calendar as CalendarIcon, Building, Clock, ExternalLink } from 'lucide-react';
+import { Calendar as CalendarIcon, Building, Clock, ExternalLink, X } from 'lucide-react';
 
 interface ExportedTask {
   id: string;
@@ -27,12 +27,37 @@ interface CalendarExportData {
   expires_at: string;
 }
 
+// Mobile detection utility
+const isMobileDevice = () => {
+  return window.innerWidth <= 768 || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+};
+
 const CalendarExport: React.FC = () => {
   const { token } = useParams<{ token: string }>();
   const [exportData, setExportData] = useState<CalendarExportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  // Day popup state for mobile touch/click
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [isDayPopupOpen, setIsDayPopupOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // View toggle state (calendar vs list) - only for mobile
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(isMobileDevice());
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -46,6 +71,11 @@ const CalendarExport: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+
+      if (!supabase) {
+        setError('Database connection not available.');
+        return;
+      }
 
       const { data, error } = await supabase
         .from('calendar_exports')
@@ -107,6 +137,23 @@ const CalendarExport: React.FC = () => {
     }
   };
 
+  // Handle day click/touch for popup (only on mobile)
+  const handleDayClick = (day: Date) => {
+    if (!isMobile) return; // Only allow on mobile devices
+    
+    const dayTasks = getTasksForDate(day);
+    if (dayTasks.length > 0) {
+      setSelectedDay(day);
+      setIsDayPopupOpen(true);
+    }
+  };
+
+  // Close day popup
+  const closeDayPopup = () => {
+    setIsDayPopupOpen(false);
+    setSelectedDay(null);
+  };
+
   // Generate calendar days
   const calendarDays = React.useMemo(() => {
     const monthStart = startOfMonth(currentDate);
@@ -147,62 +194,260 @@ const CalendarExport: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <CalendarIcon className="h-8 w-8 text-blue-600" />
-            <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {exportData.client_name} Calendar
-              </h1>
-                <div className="flex items-center space-x-4 mt-1">
-                  <div className="flex items-center space-x-1">
-                    <Building className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">{exportData.client_name}</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <div className={`w-3 h-3 rounded-full ${getTeamColor(exportData.team)}`}></div>
-                    <span className="text-sm text-gray-600">{getTeamLabel(exportData.team)}</span>
-                  </div>
-                  <div className="flex items-center space-x-1">
-                    <Clock className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                      Expires {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
-                </span>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50">
+      {/* Enhanced Mobile Header */}
+      {isMobile ? (
+        <div className="relative overflow-hidden">
+          {/* Background gradients and patterns */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-800"></div>
+          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/20"></div>
+          <div className="absolute -top-24 -right-24 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
+          <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-purple-300/20 rounded-full blur-2xl"></div>
+          
+          <div className="relative px-4 py-6 pb-4">
+            {/* Top section with calendar icon and title */}
+            <div className="flex items-start space-x-3 mb-4">
+              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-2 shadow-lg">
+                <CalendarIcon className="h-6 w-6 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-lg font-bold text-white mb-1 leading-tight">
+                  {exportData.client_name}
+                </h1>
+                <p className="text-blue-100 text-xs font-medium">
+                  Shared Calendar View
+                </p>
               </div>
             </div>
+
+            {/* Enhanced metadata cards */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="bg-white/15 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+                <div className="flex items-center space-x-1.5 mb-1">
+                  <div className={`w-2 h-2 rounded-full ${getTeamColor(exportData.team)} shadow-sm`}></div>
+                  <span className="text-xs font-medium text-blue-100 uppercase tracking-wide">Team</span>
+                </div>
+                <p className="text-white font-semibold text-xs">{getTeamLabel(exportData.team)}</p>
+              </div>
+              
+              <div className="bg-white/15 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+                <div className="flex items-center space-x-1.5 mb-1">
+                  <Clock className="h-2.5 w-2.5 text-blue-100" />
+                  <span className="text-xs font-medium text-blue-100 uppercase tracking-wide">Expires</span>
+                </div>
+                <p className="text-white font-semibold text-xs">
+                  {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
+                </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-500">Shared Calendar</p>
-              <p className="text-xs text-gray-400">
-                Generated {format(parseISO(exportData.created_at), 'MMM d, yyyy')}
-              </p>
+
+            {/* View toggle buttons */}
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-1 border border-white/20">
+              <div className="grid grid-cols-2 gap-0.5">
+                <button
+                  onClick={() => setViewMode('calendar')}
+                  className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg transition-all duration-300 ${
+                    viewMode === 'calendar'
+                      ? 'bg-white text-blue-600 shadow-lg'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <CalendarIcon className="h-3.5 w-3.5" />
+                  <span className="font-medium text-xs">Calendar</span>
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-lg transition-all duration-300 ${
+                    viewMode === 'list'
+                      ? 'bg-white text-blue-600 shadow-lg'
+                      : 'text-white/80 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                  </svg>
+                  <span className="font-medium text-xs">List</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Desktop Header - Keep existing design */
+        <div className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6">
+            <div className="flex flex-col space-y-3 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center space-x-2 sm:space-x-3">
+                <CalendarIcon className="h-5 w-5 sm:h-8 sm:w-8 text-blue-600 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-base sm:text-2xl font-bold text-gray-900 truncate leading-tight">
+                    {exportData.client_name}
+                  </h1>
+                  <div className="hidden sm:flex sm:flex-col lg:flex-row lg:items-center lg:space-x-4 mt-1 space-y-1 lg:space-y-0">
+                    <div className="flex items-center space-x-1">
+                      <Building className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm text-gray-600 truncate">{exportData.client_name}</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${getTeamColor(exportData.team)}`}></div>
+                      <span className="text-xs sm:text-sm text-gray-600">{getTeamLabel(exportData.team)}</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 flex-shrink-0" />
+                      <span className="text-xs sm:text-sm text-gray-600">
+                        Expires {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="hidden sm:block text-right">
+                <p className="text-xs sm:text-sm text-gray-500">Shared Calendar</p>
+                <p className="text-xs text-gray-400">
+                  Generated {format(parseISO(exportData.created_at), 'MMM d, yyyy')}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Calendar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Card className="shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
-            <div className="flex items-center justify-center">
-              <h2 className="text-2xl font-bold">
-                {format(currentDate, 'MMMM yyyy')}
-              </h2>
+        {isMobile && viewMode === 'list' ? (
+          /* Mobile List View */
+          <div className="space-y-3">
+            {/* Monthly summary card */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+              <div className="text-center">
+                <h2 className="text-lg font-bold text-gray-900 mb-2">
+                  {format(currentDate, 'MMMM yyyy')}
+                </h2>
+                <div className="flex items-center justify-center space-x-4">
+                  <div className="text-center">
+                    <div className="text-xl font-bold text-blue-600">{exportData.tasks.length}</div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide">Total Tasks</div>
+                  </div>
+                  <div className="w-px h-6 bg-gray-200"></div>
+                  <div className="text-center">
+                    <div className="text-xl font-bold text-purple-600">
+                      {new Set(exportData.tasks.map(task => task.date)).size}
+                    </div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide">Active Days</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </CardHeader>
+
+            {/* Task list grouped by date */}
+            <div className="space-y-2">
+              {Object.entries(
+                exportData.tasks
+                  .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                  .reduce((acc, task) => {
+                    const date = task.date;
+                    if (!acc[date]) acc[date] = [];
+                    acc[date].push(task);
+                    return acc;
+                  }, {} as Record<string, ExportedTask[]>)
+              ).map(([date, tasks]) => (
+                <div key={date} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                  {/* Date header */}
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 px-4 py-3 border-b border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-sm">
+                          {format(parseISO(date), 'EEEE')}
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          {format(parseISO(date), 'MMMM d, yyyy')}
+                        </p>
+                      </div>
+                      <div className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">
+                        <span className="font-semibold text-xs">
+                          {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tasks for this date */}
+                  <div className="divide-y divide-gray-50">
+                    {tasks.map((task, index) => (
+                      <div key={task.id} className="p-4">
+                        <div className="flex items-start space-x-3">
+                          {/* Task indicator */}
+                          <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getTeamColor(task.team)} shadow-sm`}></div>
+                          
+                          {/* Task content */}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-1.5">
+                              {task.title}
+                            </h4>
+                            
+                            {/* Task meta */}
+                            <div className="flex items-center space-x-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                task.team === 'creative'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {task.team === 'creative' ? 'Creative' : 'Web'} Team
+                              </span>
+                              
+                              {task.client_name && (
+                                <div className="flex items-center space-x-1 text-gray-500">
+                                  <Building className="h-2.5 w-2.5" />
+                                  <span className="text-xs font-medium">{task.client_name}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              
+              {exportData.tasks.length === 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+                  <div className="text-gray-400 mb-3">
+                    <CalendarIcon className="h-8 w-8 mx-auto" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-1">No tasks scheduled</h3>
+                  <p className="text-xs text-gray-500">There are no tasks in this calendar.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Calendar View - Enhanced for mobile */
+          <Card className={`shadow-lg ${isMobile ? 'rounded-2xl border-0 shadow-xl' : ''}`}>
+            <CardHeader className={`${isMobile ? 'bg-gradient-to-r from-blue-600 to-purple-600' : 'bg-gradient-to-r from-blue-600 to-purple-600'} text-white ${isMobile ? 'rounded-t-xl' : 'rounded-t-lg'}`}>
+              <div className="flex items-center justify-center">
+                <h2 className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold`}>
+                  {format(currentDate, 'MMMM yyyy')}
+                </h2>
+              </div>
+            </CardHeader>
             
-          <CardContent className="p-0">
+            <CardContent className="p-0">
               {/* Week Days Header */}
-              <div className="grid grid-cols-7 bg-gray-50 border-b">
+              <div className="hidden sm:grid grid-cols-7 bg-gray-50 border-b">
                 {weekDays.map(day => (
                   <div key={day} className="p-4 text-center font-semibold text-gray-700 border-r last:border-r-0">
                     {day}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Mobile Week Days Header */}
+              <div className="grid grid-cols-7 sm:hidden bg-gray-50 border-b">
+                {weekDays.map(day => (
+                  <div key={day} className="p-2 text-center font-semibold text-gray-700 text-xs border-r last:border-r-0">
+                    {day.slice(0, 3)}
                   </div>
                 ))}
               </div>
@@ -213,89 +458,301 @@ const CalendarExport: React.FC = () => {
                   const dayTasks = getTasksForDate(day);
                   const isCurrentMonth = isSameMonth(day, currentDate);
                   const isCurrentDay = isToday(day);
+                  const hasNoTasks = dayTasks.length === 0;
                   
                   return (
                     <div
                       key={index}
-                    className={`min-h-[120px] p-2 border-r border-b last:border-r-0 relative ${
+                      className={`${isMobile ? 'min-h-[100px]' : 'min-h-[80px] sm:min-h-[120px]'} p-1 sm:p-2 border-r border-b last:border-r-0 relative transition-all duration-300 ${
                         isCurrentMonth ? 'bg-white' : 'bg-gray-50'
-                      } ${isCurrentDay ? 'bg-blue-50 ring-2 ring-blue-200' : ''}`}
+                      } ${isCurrentDay ? (isMobile ? 'bg-gradient-to-br from-blue-50 to-purple-50 ring-2 ring-blue-300' : 'bg-blue-50 ring-2 ring-blue-200') : ''} ${
+                        isMobile && !hasNoTasks ? 'cursor-pointer active:bg-gray-100 touch-manipulation hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50' : ''
+                      } ${!isMobile ? 'hover:bg-gray-50' : ''}`}
+                      onClick={() => handleDayClick(day)}
+                      style={isMobile && !hasNoTasks ? { minHeight: '100px' } : {}}
                     >
                       {/* Date Header */}
-                    <div className="flex items-center justify-between mb-2">
-                        <span className={`text-sm font-medium ${
+                      <div className="flex items-center justify-between mb-1 sm:mb-2">
+                        <span className={`${isMobile ? 'text-sm font-bold' : 'text-xs sm:text-sm font-medium'} ${
                           isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
-                        } ${isCurrentDay ? 'text-blue-600 font-bold' : ''}`}>
+                        } ${isCurrentDay ? (isMobile ? 'text-blue-700' : 'text-blue-600 font-bold') : ''}`}>
                           {format(day, 'd')}
                         </span>
+                        
+                        {/* Enhanced task count indicator on mobile */}
+                        {isMobile && dayTasks.length > 0 && (
+                          <div className="relative">
+                            <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none min-w-[20px] text-center font-bold shadow-sm">
+                              {dayTasks.length}
+                            </div>
+                            <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse"></div>
+                          </div>
+                        )}
+                        
+                        {/* Desktop task count indicator */}
+                        {!isMobile && dayTasks.length > 0 && (
+                          <span className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none min-w-[18px] text-center font-medium">
+                            {dayTasks.length}
+                          </span>
+                        )}
                       </div>
                       
-                      {/* Tasks */}
-                      <div className="space-y-1">
-                      {dayTasks.slice(0, 4).map(task => (
-                          <div
-                            key={task.id}
-                          className={`text-xs p-1.5 rounded text-white truncate ${getTeamColor(task.team)}`}
-                          title={task.title}
-                          >
-                          {task.title}
-                          </div>
-                        ))}
-                      
-                      {/* Show more indicator */}
-                      {dayTasks.length > 4 && (
-                        <div className="text-xs text-gray-500 font-medium pl-1.5">
-                          +{dayTasks.length - 4} more
+                      {/* Tasks - Enhanced Mobile Display */}
+                      {isMobile ? (
+                        <div className="space-y-1">
+                          {dayTasks.length > 0 && (
+                            <>
+                              <div className={`text-xs p-1.5 rounded-lg text-white font-medium shadow-sm ${getTeamColor(dayTasks[0].team)}`}>
+                                <div className="truncate">
+                                  {dayTasks[0].title.length > 10 ? dayTasks[0].title.substring(0, 10) + '...' : dayTasks[0].title}
+                                </div>
+                              </div>
+                              {dayTasks.length > 1 && (
+                                <div className="text-xs text-gray-600 font-medium bg-gradient-to-r from-gray-100 to-gray-200 px-1.5 py-0.5 rounded-lg text-center border">
+                                  +{dayTasks.length - 1} more
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        /* Desktop Tasks Display */
+                        <div className="hidden sm:block space-y-1">
+                          {dayTasks.slice(0, 4).map(task => (
+                            <div
+                              key={task.id}
+                              className={`text-xs p-1.5 rounded text-white truncate ${getTeamColor(task.team)}`}
+                              title={task.title}
+                            >
+                              {task.title}
+                            </div>
+                          ))}
+                          
+                          {dayTasks.length > 4 && (
+                            <div className="text-xs text-gray-500 font-medium pl-1.5">
+                              +{dayTasks.length - 4} more
+                            </div>
+                          )}
                         </div>
                       )}
-                      </div>
+
+                      {/* Enhanced Mobile touch indicator */}
+                      {isMobile && dayTasks.length > 0 && (
+                        <div className="absolute bottom-2 right-2">
+                          <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-pulse shadow-sm"></div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Statistics */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{exportData.tasks.length}</div>
-                <div className="text-sm text-gray-600">Total Tasks</div>
-          </div>
-            </CardContent>
-          </Card>
-            
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{getTeamLabel(exportData.team)}</div>
-                <div className="text-sm text-gray-600">Team</div>
-                        </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {format(parseISO(exportData.expires_at), 'MMM d')}
+        <div className={`mt-4 sm:mt-6 ${isMobile ? 'px-4' : ''}`}>
+          {isMobile ? (
+            /* Mobile Enhanced Statistics */
+            <div className="bg-white rounded-xl shadow-xl border border-gray-100 p-4 relative overflow-hidden">
+              {/* Background decoration */}
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full -translate-y-12 translate-x-12 opacity-50"></div>
+              
+              <div className="relative">
+                <h3 className="text-sm font-bold text-gray-900 mb-4 text-center">Calendar Overview</h3>
+                <div className="grid grid-cols-3 gap-1">
+                  <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
+                    <div className="text-lg font-bold text-blue-600 mb-0.5">{exportData.tasks.length}</div>
+                    <div className="text-xs text-blue-700 font-medium uppercase tracking-wide">Tasks</div>
+                  </div>
+                  
+                  <div className="text-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
+                    <div className="text-lg font-bold text-purple-600 mb-0.5 truncate">{getTeamLabel(exportData.team).split(' ')[0]}</div>
+                    <div className="text-xs text-purple-700 font-medium uppercase tracking-wide">Team</div>
+                  </div>
+                  
+                  <div className="text-center p-3 bg-gradient-to-br from-green-50 to-green-100 rounded-lg">
+                    <div className="text-lg font-bold text-green-600 mb-0.5">
+                      {format(parseISO(exportData.expires_at), 'MMM d')}
+                    </div>
+                    <div className="text-xs text-green-700 font-medium uppercase tracking-wide">Expires</div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600">Expires</div>
+              </div>
             </div>
-            </CardContent>
-          </Card>
-          </div>
+          ) : (
+            /* Desktop Statistics */
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+              <Card>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="text-center">
+                    <div className="text-lg sm:text-2xl font-bold text-blue-600">{exportData.tasks.length}</div>
+                    <div className="text-xs sm:text-sm text-gray-600">Total Tasks</div>
+                  </div>
+                </CardContent>
+              </Card>
+                
+              <Card>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="text-center">
+                    <div className="text-sm sm:text-2xl font-bold text-purple-600 truncate">{getTeamLabel(exportData.team)}</div>
+                    <div className="text-xs sm:text-sm text-gray-600">Team</div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="text-center">
+                    <div className="text-lg sm:text-2xl font-bold text-green-600">
+                      {format(parseISO(exportData.expires_at), 'MMM d')}
+                    </div>
+                    <div className="text-xs sm:text-sm text-gray-600">Expires</div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-500">
-          <p>This is a shared calendar view from Marketlube PM Tool</p>
-          <p className="mt-1">
-            Generated on {format(parseISO(exportData.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
-          </p>
+        <div className={`mt-6 text-center ${isMobile ? 'px-4 pb-6' : ''}`}>
+          {isMobile ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 relative overflow-hidden">
+              {/* Background decoration */}
+              <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-blue-50 to-purple-50 rounded-full -translate-y-8 translate-x-8 opacity-60"></div>
+              
+              <div className="relative">
+                <div className="text-gray-400 mb-3">
+                  <CalendarIcon className="h-7 w-7 mx-auto" />
+                </div>
+                <p className="text-sm font-medium text-gray-700 mb-2">
+                  Shared from{' '}
+                  <a 
+                    href="https://marketlube.in" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="relative inline-block text-blue-600 font-semibold hover:text-blue-800 transition-colors duration-300 group"
+                  >
+                    Marketlube
+                    <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out group-hover:w-full"></span>
+                  </a>
+                  {' '}PM Tool
+                </p>
+                <div className="flex items-center justify-center space-x-2 text-xs text-gray-500">
+                  <div className="w-1 h-1 bg-gray-300 rounded-full"></div>
+                  <span>Generated on {format(parseISO(exportData.created_at), 'MMM d, yyyy')}</span>
+                  <div className="w-1 h-1 bg-gray-300 rounded-full"></div>
+                </div>
+                
+                {/* Powered by section */}
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-2 h-2 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-pulse"></div>
+                    <span className="text-xs text-gray-400 font-medium">Powered by Innovation</span>
+                    <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full animate-pulse" style={{animationDelay: '0.5s'}}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">
+              <p>This is a shared calendar view from Marketlube PM Tool</p>
+              <p className="mt-1">
+                Generated on {format(parseISO(exportData.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
+              </p>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Day Tasks Popup Modal */}
+      {isDayPopupOpen && selectedDay && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full max-h-[85vh] overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3">
+              <div className="flex items-center justify-between text-white">
+                <div>
+                  <h4 className="font-bold text-sm">
+                    {format(selectedDay, 'MMM d')}
+                  </h4>
+                  <p className="text-blue-100 text-xs">
+                    {format(selectedDay, 'EEEE, yyyy')}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs bg-white/20 px-2 py-1 rounded-full font-medium">
+                    {getTasksForDate(selectedDay).length} {getTasksForDate(selectedDay).length === 1 ? 'task' : 'tasks'}
+                  </span>
+                  <button
+                    onClick={closeDayPopup}
+                    className="p-1.5 hover:bg-white/20 rounded-full transition-colors touch-manipulation"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Task list */}
+            <div className="max-h-80 overflow-y-auto">
+              <div className="p-4 space-y-3">
+                {getTasksForDate(selectedDay).map((task, index) => (
+                  <div
+                    key={task.id}
+                    className={`relative rounded-lg border-l-4 p-3 shadow-sm ${
+                      task.team === 'creative' 
+                        ? 'border-purple-400 bg-purple-50/50' 
+                        : 'border-blue-400 bg-blue-50/50'
+                    }`}
+                  >
+                    {/* Task title */}
+                    <h6 className="font-semibold text-sm text-gray-900 mb-2 leading-relaxed">
+                      {task.title}
+                    </h6>
+                    
+                    {/* Task meta info */}
+                    <div className="flex flex-col space-y-1.5">
+                      <div className="flex items-center space-x-1.5">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          task.team === 'creative'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                            task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                          }`}></div>
+                          {task.team === 'creative' ? 'Creative Team' : 'Web Team'}
+                        </span>
+                      </div>
+                      
+                      {task.client_name && (
+                        <div className="flex items-center space-x-1.5">
+                          <Building className="h-3 w-3 text-gray-500" />
+                          <span className="text-xs text-gray-700 font-medium">
+                            {task.client_name}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="bg-gray-50 border-t border-gray-200 px-4 py-3">
+              <button
+                onClick={closeDayPopup}
+                className="w-full flex items-center justify-center bg-gray-700 text-white py-2.5 px-4 rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium touch-manipulation"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

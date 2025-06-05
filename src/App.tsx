@@ -164,8 +164,8 @@ function App() {
                       <Route path="attendance" element={<Attendance />} />
                       <Route path="attendance/calendar" element={<AttendanceCalendar />} />
                       
-                      {/* Social Calendar - Accessible to all authenticated users */}
-                      <Route path="social-calendar" element={<SocialCalendar />} />
+                      {/* Calendar - Accessible to all authenticated users */}
+                      <Route path="calendar" element={<SocialCalendar />} />
                       
                       {/* Settings - Admin only */}
                       <Route 

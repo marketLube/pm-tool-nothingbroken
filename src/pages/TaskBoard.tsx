@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import TaskCard from '../components/tasks/TaskCard';
@@ -26,7 +26,7 @@ const TaskBoard: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { getStatusesByTeam } = useStatus();
   const { showError, showSuccess } = useNotification();
-  const { refreshTasks, isConnected } = useSimpleRealtime();
+  const { refreshTasks, isConnected, pausePolling, resumePolling } = useSimpleRealtime();
   const { tasks, isLoading } = useTaskRefresh();
   
   // Get DataContext for user/client lookups
@@ -51,6 +51,16 @@ const TaskBoard: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const employeeDropdownRef = useRef<HTMLDivElement>(null);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Add scroll position preservation
+  const scrollPositionRef = useRef<number>(0);
+
+  // Store scroll position when scrolling
+  const handleScroll = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollPositionRef.current = scrollContainerRef.current.scrollLeft;
+    }
+  }, []);
 
   // Close dropdowns when clicking outside
   React.useEffect(() => {
@@ -120,6 +130,11 @@ const TaskBoard: React.FC = () => {
     // First filter tasks by team
     let filteredTasks = tasks.filter(task => task.team === teamFilter);
     
+    // For normal users, only show tasks assigned to them
+    if (!isAdmin && currentUser?.id) {
+      filteredTasks = filteredTasks.filter(task => task.assigneeId === currentUser.id);
+    }
+    
     // Apply search filter
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase();
@@ -134,8 +149,8 @@ const TaskBoard: React.FC = () => {
       });
     }
     
-    // Apply employee filter
-    if (selectedEmployee) {
+    // Apply employee filter (only for admins since normal users see only their tasks)
+    if (isAdmin && selectedEmployee) {
       filteredTasks = filteredTasks.filter(task => {
         const assignee = task.assigneeId ? getUserById(task.assigneeId) : null;
         return assignee?.name === selectedEmployee;
@@ -175,17 +190,26 @@ const TaskBoard: React.FC = () => {
     });
     
     return columnMap;
-  }, [statusColumns, tasks, teamFilter, isAdmin, currentUser?.allowedStatuses, searchTerm, selectedEmployee, selectedClient, getUserById, getClientById]);
+  }, [statusColumns, tasks, teamFilter, isAdmin, currentUser?.allowedStatuses, currentUser?.id, searchTerm, selectedEmployee, selectedClient, getUserById, getClientById]);
+
+  // Restore scroll position after re-renders (moved here after columns is defined)
+  useEffect(() => {
+    if (scrollContainerRef.current && scrollPositionRef.current > 0) {
+      scrollContainerRef.current.scrollLeft = scrollPositionRef.current;
+    }
+  }, [columns, tasks]); // Restore when data changes
 
   // Clear all filters
   const clearFilters = useCallback(() => {
     setSearchTerm('');
-    setSelectedEmployee('');
+    if (isAdmin) {
+      setSelectedEmployee('');
+    }
     setSelectedClient('');
-  }, []);
+  }, [isAdmin]);
 
   // Check if any filters are active
-  const hasActiveFilters = searchTerm || selectedEmployee || selectedClient;
+  const hasActiveFilters = searchTerm || selectedClient || (isAdmin && selectedEmployee);
 
   // Custom dropdown handlers
   const handleEmployeeSelect = useCallback((employee: string) => {
@@ -241,9 +265,21 @@ const TaskBoard: React.FC = () => {
       return;
     }
     
+    // Check if current user has permission to move tasks to this status
     if (!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(targetColumn.status)) {
       showError(`You don't have permission to move tasks to "${targetColumn.name}" status`);
       return;
+    }
+    
+    // Check if the assigned user has permission to access the target status
+    if (task.assigneeId) {
+      const assignee = getUserById(task.assigneeId);
+      if (assignee && assignee.role !== 'admin') {
+        if (!assignee.allowedStatuses?.includes(targetColumn.status)) {
+          showError(`${assignee.name} doesn't have permission to access "${targetColumn.name}" status. Please reassign the task or contact an administrator.`);
+          return;
+        }
+      }
     }
     
     if (task.status === targetColumn.status) return;
@@ -263,7 +299,7 @@ const TaskBoard: React.FC = () => {
       console.error('Failed to update task status:', error);
       showError('Failed to update task status. Please try again.');
     }
-  }, [tasks, columns, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, refreshTasks]);
+  }, [tasks, columns, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, refreshTasks, getUserById]);
 
   const handleTaskClick = useCallback((task: Task) => {
     setSelectedTask(task);
@@ -293,8 +329,26 @@ const TaskBoard: React.FC = () => {
     setNewTaskModalOpen(false);
     setSelectedTask(null);
     setInitialStatus(null);
-    refreshTasks(); // Refresh after modal closes
-  }, [refreshTasks]);
+  }, []);
+
+  // Prevent modal state from being affected by frequent re-renders
+  useEffect(() => {
+    if (newTaskModalOpen) {
+      console.log('🎯 [TaskBoard] New Task Modal opened - preserving state');
+      // Pause polling to prevent interference with modal state
+      pausePolling('new-task-modal');
+    } else {
+      // Resume polling when modal closes
+      resumePolling('new-task-modal');
+    }
+    
+    // Cleanup: ensure polling is resumed if component unmounts while modal is open
+    return () => {
+      if (newTaskModalOpen) {
+        resumePolling('new-task-modal');
+      }
+    };
+  }, [newTaskModalOpen, pausePolling, resumePolling]);
 
   if (isLoading && tasks.length === 0) {
     return (
@@ -315,17 +369,36 @@ const TaskBoard: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Task Board</h1>
+          <h1 className="text-2xl font-bold text-gray-800">
+            {isAdmin ? 'Task Board' : 'My Tasks'}
+          </h1>
           <p className="text-sm text-gray-600 mt-1">
-            {hasActiveFilters ? `${filteredTaskCount} of ${totalTaskCount}` : totalTaskCount} tasks • {columns.length} columns
-            {isConnected ? (
-              <span className="text-green-600 ml-2 inline-flex">
-                <Wifi className="w-4 h-4" />
-              </span>
+            {isAdmin ? (
+              <>
+                {hasActiveFilters ? `${filteredTaskCount} of ${totalTaskCount}` : totalTaskCount} tasks • {columns.length} columns
+                {isConnected ? (
+                  <span className="text-green-600 ml-2 inline-flex">
+                    <Wifi className="w-4 h-4" />
+                  </span>
+                ) : (
+                  <span className="text-red-600 ml-2 inline-flex">
+                    <WifiOff className="w-4 h-4" />
+                  </span>
+                )}
+              </>
             ) : (
-              <span className="text-red-600 ml-2 inline-flex">
-                <WifiOff className="w-4 h-4" />
-              </span>
+              <>
+                {hasActiveFilters ? `${filteredTaskCount} of ${totalTaskCount}` : totalTaskCount} personal tasks • {columns.length} columns
+                {isConnected ? (
+                  <span className="text-green-600 ml-2 inline-flex">
+                    <Wifi className="w-4 h-4" />
+                  </span>
+                ) : (
+                  <span className="text-red-600 ml-2 inline-flex">
+                    <WifiOff className="w-4 h-4" />
+                  </span>
+                )}
+              </>
             )}
           </p>
         </div>
@@ -387,56 +460,58 @@ const TaskBoard: React.FC = () => {
                   )}
                 </div>
 
-                {/* Employee Dropdown - Minimal */}
-                <div className="relative" ref={employeeDropdownRef}>
-                  <button
-                    onClick={() => {
-                      setIsEmployeeDropdownOpen(!isEmployeeDropdownOpen);
-                      setIsClientDropdownOpen(false);
-                    }}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all duration-200 min-w-[140px] ${
-                      selectedEmployee 
-                        ? 'bg-blue-50 border-blue-200 text-blue-700' 
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Users className="w-4 h-4" />
-                    <span className="truncate">
-                      {selectedEmployee || `${teamFilter === 'creative' ? 'Creative' : 'Web'} Staff`}
-                    </span>
-                    <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isEmployeeDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {isEmployeeDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
-                      <div className="p-1">
-                        <button
-                          onClick={() => handleEmployeeSelect('')}
-                          className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
-                            !selectedEmployee 
-                              ? 'bg-blue-50 text-blue-700' 
-                              : 'hover:bg-gray-50 text-gray-700'
-                          }`}
-                        >
-                          All {teamFilter === 'creative' ? 'Creative' : 'Web'} Staff
-                        </button>
-                        {employees.map(employee => (
+                {/* Employee Dropdown - Only for Admins */}
+                {isAdmin && (
+                  <div className="relative" ref={employeeDropdownRef}>
+                    <button
+                      onClick={() => {
+                        setIsEmployeeDropdownOpen(!isEmployeeDropdownOpen);
+                        setIsClientDropdownOpen(false);
+                      }}
+                      className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all duration-200 min-w-[140px] ${
+                        selectedEmployee 
+                          ? 'bg-blue-50 border-blue-200 text-blue-700' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <Users className="w-4 h-4" />
+                      <span className="truncate">
+                        {selectedEmployee || `${teamFilter === 'creative' ? 'Creative' : 'Web'} Staff`}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isEmployeeDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    
+                    {isEmployeeDropdownOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                        <div className="p-1">
                           <button
-                            key={employee}
-                            onClick={() => handleEmployeeSelect(employee)}
+                            onClick={() => handleEmployeeSelect('')}
                             className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
-                              selectedEmployee === employee 
+                              !selectedEmployee 
                                 ? 'bg-blue-50 text-blue-700' 
                                 : 'hover:bg-gray-50 text-gray-700'
                             }`}
                           >
-                            {employee}
+                            All {teamFilter === 'creative' ? 'Creative' : 'Web'} Staff
                           </button>
-                        ))}
-                </div>
-              </div>
-                  )}
-                </div>
+                          {employees.map(employee => (
+                            <button
+                              key={employee}
+                              onClick={() => handleEmployeeSelect(employee)}
+                              className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                                selectedEmployee === employee 
+                                  ? 'bg-blue-50 text-blue-700' 
+                                  : 'hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              {employee}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Client Dropdown - Team Oriented & Minimal */}
                 <div className="relative" ref={clientDropdownRef}>
@@ -484,8 +559,8 @@ const TaskBoard: React.FC = () => {
                             {client}
                           </button>
                         ))}
-              </div>
-            </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -498,26 +573,28 @@ const TaskBoard: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-medium rounded-full">
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-                    {[searchTerm && 'Search', selectedEmployee && 'Staff', selectedClient && 'Client'].filter(Boolean).length} active
-          </div>
-              <button 
+                    {[searchTerm && 'Search', (isAdmin && selectedEmployee) && 'Staff', selectedClient && 'Client'].filter(Boolean).length} active
+                  </div>
+                  <button 
                     onClick={clearFilters}
                     className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-              >
+                  >
                     <X className="w-3 h-3" />
                     Clear
-              </button>
-            </div>
-          )}
+                  </button>
+                </div>
+              )}
               
-              {/* Action Buttons */}
-              <button 
-                onClick={() => setNewTaskModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
-              >
-                <Plus className="w-4 h-4" />
-                Add Task
-              </button>
+              {/* Action Buttons - Only for Admins */}
+              {isAdmin && (
+                <button 
+                  onClick={() => setNewTaskModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Task
+                </button>
+              )}
             </div>
             </div>
         </div>
@@ -550,10 +627,11 @@ const TaskBoard: React.FC = () => {
             <div className="overflow-x-auto">
           <div 
             ref={scrollContainerRef} 
-                className="flex gap-5 pb-4"
+            className="flex gap-5 pb-4"
+            onScroll={handleScroll}
             style={{ 
-                  minWidth: `${columns.length * 350}px`,
-                  width: 'max-content'
+              minWidth: `${columns.length * 350}px`,
+              width: 'max-content'
             }}
           >
               {columns.map(column => (
@@ -586,7 +664,12 @@ const TaskBoard: React.FC = () => {
                               {column.tasks.length === 0 ? (
                                 <div className="flex items-center justify-center h-20 border-2 border-dashed border-gray-200 rounded-md mt-2">
                                   <p className="text-sm text-gray-500">
-                                    {hasActiveFilters ? 'No matching tasks' : 'No tasks'}
+                                    {hasActiveFilters 
+                                      ? 'No matching tasks' 
+                                      : isAdmin 
+                                        ? 'No tasks' 
+                                        : 'No personal tasks'
+                                    }
                                   </p>
                                 </div>
                               ) : (
@@ -611,8 +694,8 @@ const TaskBoard: React.FC = () => {
                                           <TaskCard
                                             task={task}
                                             isDragging={snapshot.isDragging}
-                                            onClick={() => handleTaskClick(task)}
-                                            onDelete={handleTaskDelete}
+                                            onClick={isAdmin ? () => handleTaskClick(task) : undefined}
+                                            onDelete={isAdmin ? handleTaskDelete : undefined}
                                           />
                                         </div>
                                       )}
@@ -622,8 +705,8 @@ const TaskBoard: React.FC = () => {
                               )}
                               {provided.placeholder}
                               
-                              {/* Add New Task Button */}
-                              {(isAdmin || (currentUser?.allowedStatuses?.includes(column.status))) && (
+                              {/* Add New Task Button - Only for Admins */}
+                              {isAdmin ? (
                                 <div className="mt-4 flex justify-center flex-shrink-0">
                                   <Button
                                     variant="secondary"
@@ -635,12 +718,10 @@ const TaskBoard: React.FC = () => {
                                     <span className="text-xs font-medium">New Task</span>
                                   </Button>
                                 </div>
-                              )}
-                              
-                              {!isAdmin && currentUser?.allowedStatuses && !currentUser.allowedStatuses.includes(column.status) && (
+                              ) : (
                                 <div className="mt-4 flex justify-center flex-shrink-0">
                                   <div className="text-xs text-gray-400 text-center py-2">
-                                    No permission to create tasks in this status
+                                    Only admins can create tasks
                                   </div>
                                 </div>
                               )}
@@ -658,21 +739,23 @@ const TaskBoard: React.FC = () => {
               <p className="text-gray-500">
                 {hasActiveFilters 
                   ? `No tasks found for ${teamFilter} team matching your filters` 
-                  : `No columns found for ${teamFilter} team`
+                  : isAdmin
+                    ? `No columns found for ${teamFilter} team`
+                    : `No personal tasks found for ${teamFilter} team`
                 }
               </p>
-                      </div>
-                    )}
+            </div>
+          )}
         </DragDropContext>
       </div>
       
-      {/* New Task Modal */}
-      {newTaskModalOpen && (
-      <NewTaskModal
-        isOpen={newTaskModalOpen}
-        onClose={handleCloseTaskModal}
-        initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
-      />
+      {/* New Task Modal - Only for Admins */}
+      {isAdmin && newTaskModalOpen && (
+        <NewTaskModal
+          isOpen={newTaskModalOpen}
+          onClose={handleCloseTaskModal}
+          initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
+        />
       )}
     </div>
   );

@@ -90,8 +90,8 @@ const Sidebar: React.FC = () => {
       show: true
     },
     {
-      name: 'Social Calendar',
-      path: '/social-calendar',
+      name: 'Calendar',
+      path: '/calendar',
       icon: Calendar,
       show: true
     },

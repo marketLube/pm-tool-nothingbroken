@@ -8,11 +8,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useStatus } from '../../contexts/StatusContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Task, Priority, TeamType, Status, StatusCode } from '../../types';
-import { Plus, ChevronDown, ArrowRight, Trash2, User, Building2 } from 'lucide-react';
+import { Plus, ChevronDown, ArrowRight, Trash2, User, Building2, AlertTriangle } from 'lucide-react';
 import NewClientModal from '../clients/NewClientModal';
 import { format, startOfDay, parseISO } from 'date-fns';
 import { getIndiaDate, getIndiaTodayForValidation, getIndiaDateTime } from '../../utils/timezone';
 import DeleteConfirmationModal from '../ui/DeleteConfirmationModal';
+import { validateTaskAssignment, getUsersWithStatusAccess, canUserAccessStatus } from '../../utils/statusPermissions';
 
 interface NewTaskModalProps {
   isOpen: boolean;
@@ -26,7 +27,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   initialData
 }) => {
   const { clients, users, addTask, updateTask, deleteTask } = useData();
-  const { currentUser } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const { getStatusesByTeam, statuses } = useStatus();
   const { showError, showSuccess } = useNotification();
   
@@ -78,9 +79,14 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   // Date validation - minimum date is today in India timezone
   const today = getIndiaTodayForValidation();
   
-  // If this is an existing task and its dueDate < today, lock it
-  const isPastDue = !!initialData?.dueDate &&
+  // Check if task is past due
+  const isTaskPastDue = !!initialData?.dueDate &&
     parseISO(initialData.dueDate) < startOfDay(parseISO(today));
+  
+  // For admins: allow editing overdue tasks but protect due date
+  // For normal users: lock entire task if past due
+  const canEditTask = isAdmin || !isTaskPastDue;
+  const isDueDateLocked = isTaskPastDue; // Lock due date for ALL users (including admins) if task is past due
   
   // Get team-specific statuses
   const teamStatuses = getStatusesByTeam(formData.team as TeamType || 'creative');
@@ -107,6 +113,22 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
       }
     }
   }, [formData.team, formData.clientId, clients]);
+  
+  // Clear assignee if they don't have access to the selected status
+  useEffect(() => {
+    if (formData.assigneeId && formData.status) {
+      const assignee = users.find(user => user.id === formData.assigneeId);
+      if (assignee && !canUserAccessStatus(assignee, formData.status)) {
+        setFormData(prev => ({
+          ...prev,
+          assigneeId: ''
+        }));
+        
+        // Show notification about why the assignee was cleared
+        showError(`${assignee.name} doesn't have access to the selected status. Please choose a different assignee.`);
+      }
+    }
+  }, [formData.status, formData.assigneeId, users, showError]);
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -137,10 +159,12 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     if (!formData.dueDate) {
       newErrors.dueDate = 'Due date is required';
     } else {
-      // If task is past due, prevent any changes
-      if (isPastDue) {
-        newErrors.dueDate = 'Due date is locked (task is past due)';
-      } else {
+      // If task is past due and user is admin, only lock due date changes
+      if (isDueDateLocked && formData.dueDate !== initialData?.dueDate) {
+        newErrors.dueDate = isAdmin 
+          ? 'Due date cannot be changed for overdue tasks (admin restriction)'
+          : 'Due date is locked (task is past due)';
+      } else if (!isDueDateLocked) {
         // For new tasks or non-past-due tasks, prevent setting past dates
         const isNewTask = !initialData?.id;
         const dueDateChanged = formData.dueDate !== initialData?.dueDate;
@@ -148,6 +172,19 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
         if ((isNewTask || dueDateChanged) && formData.dueDate < today) {
           newErrors.dueDate = 'Due date cannot be in the past';
         }
+      }
+    }
+    
+    // Validate task assignment permissions
+    if (formData.assigneeId && formData.status) {
+      const assignmentValidation = validateTaskAssignment(
+        formData.assigneeId,
+        formData.status,
+        users
+      );
+      
+      if (!assignmentValidation.isValid) {
+        newErrors.assigneeId = assignmentValidation.error || 'Invalid assignment';
       }
     }
     
@@ -161,25 +198,29 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     if (!validate()) return;
     
     // Additional validation for past dates (defense against bypasses)
-    // If task is past due, prevent any changes
-    if (isPastDue) {
+    // If task is past due and user is admin, only prevent due date changes
+    if (isDueDateLocked && formData.dueDate !== initialData?.dueDate) {
       setErrors(prev => ({
         ...prev,
-        dueDate: 'Due date is locked (task is past due)'
+        dueDate: isAdmin 
+          ? 'Due date cannot be changed for overdue tasks (admin restriction)'
+          : 'Due date is locked (task is past due)'
       }));
       return;
     }
     
     // For new tasks or non-past-due tasks, prevent setting past dates
-    const isNewTask = !initialData?.id;
-    const dueDateChanged = formData.dueDate !== initialData?.dueDate;
-    
-    if ((isNewTask || dueDateChanged) && formData.dueDate && formData.dueDate < today) {
-      setErrors(prev => ({
-        ...prev,
-        dueDate: 'Due date cannot be in the past'
-      }));
-      return;
+    if (!isDueDateLocked) {
+      const isNewTask = !initialData?.id;
+      const dueDateChanged = formData.dueDate !== initialData?.dueDate;
+      
+      if ((isNewTask || dueDateChanged) && formData.dueDate && formData.dueDate < today) {
+        setErrors(prev => ({
+          ...prev,
+          dueDate: 'Due date cannot be in the past'
+        }));
+        return;
+      }
     }
     
     if (initialData?.id) {
@@ -209,20 +250,24 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
     setNewClientModalOpen(false);
   };
 
-  const handleDeleteClick = () => {
+  const handleDeleteButtonClick = () => {
+    console.log('🗑️ Delete button clicked for task:', initialData?.id);
+    console.log('🔧 Setting deleteConfirmationOpen to true');
     setDeleteConfirmationOpen(true);
   };
 
   const handleConfirmDelete = async () => {
     if (!initialData?.id) return;
     
+    console.log('🗑️ Confirming delete for task:', initialData.id);
     setIsDeleting(true);
     try {
       await deleteTask(initialData.id);
       showSuccess('Task deleted successfully');
+      console.log('✅ Task deleted successfully:', initialData.id);
       onClose();
     } catch (error) {
-      console.error('Error deleting task:', error);
+      console.error('❌ Error deleting task:', error);
       showError(`Failed to delete task: ${error instanceof Error ? error.message : 'Unknown error occurred'}. Please try again.`);
     } finally {
       setIsDeleting(false);
@@ -238,6 +283,11 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   const teamUsers = users.filter(user => 
     user.team === formData.team || user.role === 'admin'
   );
+  
+  // Filter users who have access to the selected status
+  const usersWithStatusAccess = formData.status 
+    ? getUsersWithStatusAccess(formData.status, teamUsers)
+    : teamUsers; // If no status selected, show all team users
   
   // Generate status options from team statuses
   const statusOptions = teamStatuses.map(status => ({
@@ -271,7 +321,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
   
   const userOptions = [
     { value: '', label: 'Unassigned' },
-    ...teamUsers.map(user => ({
+    ...usersWithStatusAccess.map(user => ({
       value: user.id,
       label: user.name
     }))
@@ -292,6 +342,19 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
       }));
     }
   };
+
+  // Add this useEffect to debug the deleteConfirmationOpen state
+  useEffect(() => {
+    console.log('🔍 deleteConfirmationOpen state changed:', deleteConfirmationOpen);
+    console.log('🔍 Rendering DeleteConfirmationModal - isOpen:', deleteConfirmationOpen);
+  }, [deleteConfirmationOpen]);
+
+  // Add debugging for admin status and task ID
+  useEffect(() => {
+    console.log('🔧 Debug - initialData?.id:', initialData?.id);
+    console.log('🔧 Debug - isAdmin:', isAdmin);
+    console.log('🔧 Debug - Should show delete button:', Boolean(initialData?.id && isAdmin));
+  }, [initialData?.id, isAdmin]);
 
   return (
     <>
@@ -373,9 +436,16 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                 Assignee
               </label>
               <Select
-                options={userOptions}
+                name="assigneeId"
+                options={[
+                  { value: '', label: 'Unassigned' },
+                  ...usersWithStatusAccess.map((user: any) => ({
+                    value: user.id,
+                    label: user.name,
+                  }))
+                ]}
                 value={formData.assigneeId || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, assigneeId: e.target.value }))}
+                onChange={handleChange}
                 error={errors.assigneeId}
                 selectClassName="text-sm"
               />
@@ -401,9 +471,9 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                 value={formData.dueDate || ''}
                 onChange={handleChange}
                 min={today}
-                disabled={isPastDue}
+                disabled={isDueDateLocked}
                 className={`block w-full border rounded-md py-2.5 px-3 transition-all duration-200 focus:outline-none focus:ring-2 focus:shadow-sm text-sm ${
-                  isPastDue
+                  isDueDateLocked
                     ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200'
                     : errors.dueDate 
                       ? 'bg-white border-red-300 focus:ring-red-400 focus:border-red-500' 
@@ -411,15 +481,29 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
                 }`}
                 required
               />
-              {isPastDue && (
-                <p className="mt-1.5 text-sm text-gray-500">
-                  Due date locked (task is past due).
-                </p>
+              {/* Enhanced warning messages for overdue tasks */}
+              {isDueDateLocked && (
+                <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <div className="flex items-start space-x-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium text-amber-800">Due Date Locked</p>
+                      <p className="text-amber-700">
+                        {isAdmin 
+                          ? 'Admin restriction: Due dates cannot be changed for overdue tasks to maintain timeline accuracy.'
+                          : 'This task is past due. Due date modifications are not allowed.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
               {errors.dueDate && (
-                <p className="mt-1.5 text-sm text-red-600">
-                  {errors.dueDate}
-                </p>
+                <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-start space-x-2">
+                    <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-red-700 font-medium">{errors.dueDate}</p>
+                  </div>
+                </div>
               )}
             </div>
             
@@ -517,12 +601,13 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
           
           <div className="flex items-center justify-between pt-6 border-t border-gray-200">
             <div>
-              {initialData?.id && (
+              {initialData?.id && isAdmin && (
                 <Button
                   variant="danger"
                   size="sm"
                   icon={Trash2}
-                  onClick={handleDeleteClick}
+                  onClick={handleDeleteButtonClick}
+                  type="button"
                   disabled={isDeleting}
                 >
                   {isDeleting ? 'Deleting...' : 'Delete Task'}
@@ -533,6 +618,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
               <Button
                 variant="secondary"
                 onClick={onClose}
+                type="button"
                 disabled={isDeleting}
               >
                 Cancel

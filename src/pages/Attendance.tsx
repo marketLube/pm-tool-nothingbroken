@@ -348,7 +348,7 @@ const Attendance: React.FC = () => {
   const isLate = (checkInTime?: string) => {
     if (!checkInTime) return false;
     const [hour, minute] = checkInTime.split(':').map(Number);
-    return hour > 9 || (hour === 9 && minute > 30);
+    return hour >= 10;
   };
 
   const handleCheckIn = async () => {
@@ -578,12 +578,12 @@ const Attendance: React.FC = () => {
               ? calculateAverageTime(checkOutTimes) 
               : 'N/A';
             
-            // Count late check-ins (after 9:30 AM) and late check-outs (before 5:30 PM)
+            // Count late check-ins (after 10:00 AM) and late check-outs (before 5:30 PM)
             const lateCheckIns = checkInTimes.filter(time => {
               if (!time) return false;
               try {
                 const [hour, minute] = time.split(':').map(Number);
-                return hour > 9 || (hour === 9 && minute > 30);
+                return hour >= 10;
               } catch (err) {
                 console.warn(`⚠️ Invalid time format for user ${user.name}: ${time}`);
                 return false;
@@ -879,190 +879,200 @@ const Attendance: React.FC = () => {
           <span className="text-sm font-medium text-blue-800">
             {isAdmin 
               ? `Admin View - Viewing all ${filteredUsers.length} employees`
-              : `Team Member View - Viewing ${currentUser?.team} team (${filteredUsers.length} members)`
+              : `Personal View - Your attendance data only`
             }
           </span>
         </div>
         <div className="text-xs text-blue-600">
           IST Timezone | Real-time updates {autoRefresh ? 'ON' : 'OFF'}
+          {!isAdmin && (
+            <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+              🔒 Personal Dashboard
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-3">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-700">Filter by Team</label>
-              <select
-                value={selectedTeam}
-                onChange={(e) => setSelectedTeam(e.target.value)}
-                className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Teams</option>
-                <option value="creative">Creative Team</option>
-                <option value="web">Web Team</option>
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-3">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-700">Filter by Employee</label>
-              <select
-                value={selectedEmployee}
-                onChange={(e) => setSelectedEmployee(e.target.value)}
-                className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">All Employees</option>
-                {filteredUsersByRole.map(user => (
-                  <option key={user.id} value={user.id}>
-                    {user.name} {user.role === 'admin' ? '(Admin)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-3">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-gray-700">Current Time (IST)</label>
-              <div className="text-xl font-mono text-blue-600 transition-all duration-1000 font-bold">
-                {format(currentTime, 'h:mm:ss a')}
-              </div>
-              <div className="text-xs text-gray-500">
-                {format(currentTime, 'EEEE, MMM d, yyyy')}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Export Attendance Card */}
-        {isAdmin && (
-          <Card className="group relative cursor-pointer overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-105 bg-gradient-to-br from-green-50 via-white to-emerald-50 border-green-200 hover:border-green-300" onClick={handleExportAttendance}>
-            <CardContent className="p-3 relative">
-              {/* Background Pattern */}
-              <div className="absolute inset-0 opacity-5 group-hover:opacity-10 transition-opacity duration-300">
-                <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
-                  <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-                    <path d="M 10 0 L 0 0 0 10" fill="none" stroke="currentColor" strokeWidth="0.5"/>
-                  </pattern>
-                  <rect width="100%" height="100%" fill="url(#grid)" className="text-green-600" />
-                </svg>
-              </div>
-              
-              {/* Content */}
-              <div className="relative z-10 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-green-700 uppercase tracking-wide">Export Reports</label>
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+      {/* For normal users, show simplified info card instead of filters */}
+      {!isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-blue-600" />
+                  <label className="text-sm font-medium text-gray-700">Your Personal Dashboard</label>
                 </div>
-                
-                <div className="flex items-center justify-center py-1">
-                  <div className="text-center transform group-hover:scale-110 transition-transform duration-300">
-                    {/* Animated Icon Container */}
-                    <div className="relative w-8 h-8 mx-auto mb-1">
-                      <div className="absolute inset-0 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-md group-hover:shadow-lg transition-shadow duration-300 transform rotate-3 group-hover:rotate-6"></div>
-                      <div className="relative w-full h-full bg-white rounded-lg flex items-center justify-center group-hover:bg-green-50 transition-colors duration-300">
-                        <svg className="w-4 h-4 text-green-600 group-hover:text-green-700 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-                      
-                      {/* Floating Download Arrow */}
-                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-1 group-hover:translate-y-0 transition-all duration-300">
-                        <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L11 6.414V13a1 1 0 11-2 0V6.414L7.707 7.707a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                    </div>
-                    
-                    {/* Text with gradient effect */}
-                    <div className="text-xs font-medium bg-gradient-to-r from-green-700 to-emerald-700 bg-clip-text text-transparent group-hover:from-green-800 group-hover:to-emerald-800 transition-all duration-300">
-                      Generate PDF Report
-                    </div>
-                    <div className="text-xs text-green-600 opacity-75 group-hover:opacity-100 transition-opacity duration-300">
-                      Click to export
-                    </div>
+                <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <div className="text-sm text-blue-800">
+                    <div className="font-medium">{currentUser?.name}</div>
+                    <div className="text-xs text-blue-600 capitalize">{currentUser?.team} Team</div>
+                    <div className="text-xs text-blue-600 mt-1">Personal attendance view only</div>
                   </div>
-                </div>
-                
-                {/* Progress bar animation on hover - reduced height */}
-                <div className="h-0.5 bg-green-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-1000 ease-out"></div>
                 </div>
               </div>
             </CardContent>
           </Card>
-        )}
-      </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Employees</p>
-                <p className="text-2xl font-bold text-gray-900">{attendanceOverview.totalEmployees}</p>
+          <Card>
+            <CardContent className="p-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Current Time (IST)</label>
+                <div className="text-xl font-mono text-blue-600 transition-all duration-1000 font-bold">
+                  {format(currentTime, 'h:mm:ss a')}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {format(currentTime, 'EEEE, MMM d, yyyy')}
+                </div>
               </div>
-              <Users className="w-8 h-8 text-gray-600" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-600">Present Today</p>
-                <p className="text-2xl font-bold text-green-700">{attendanceOverview.present}</p>
-              </div>
-              <UserCheck className="w-8 h-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Personal Monthly Overview - Only for Normal Users */}
+      {!isAdmin && monthlyStats && currentUser && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-blue-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Your Monthly Report</h2>
+            <span className="text-xs text-gray-500">
+              ({format(getIndiaDateTime(), 'MMMM yyyy')})
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-blue-600 font-medium">Working Days</p>
+                    <p className="text-lg font-bold text-blue-700">{monthlyStats.totalWorkingDays}</p>
+                  </div>
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-red-600">Absent Today</p>
-                <p className="text-2xl font-bold text-red-700">{attendanceOverview.absent}</p>
-              </div>
-              <UserX className="w-8 h-8 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
+            <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-green-600 font-medium">Present Days</p>
+                    <p className="text-lg font-bold text-green-700">{monthlyStats.totalPresentDays}</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      {monthlyStats.totalWorkingDays > 0 ? 
+                        `${((monthlyStats.totalPresentDays / monthlyStats.totalWorkingDays) * 100).toFixed(0)}%` : 
+                        '0%'
+                      }
+                    </p>
+                  </div>
+                  <UserCheck className="w-5 h-5 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-orange-600">Late Check-ins</p>
-                <p className="text-2xl font-bold text-orange-700">{attendanceOverview.late}</p>
-              </div>
-              <Clock className="w-8 h-8 text-orange-600" />
-            </div>
-          </CardContent>
-        </Card>
+            <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-red-600 font-medium">Absent Days</p>
+                    <p className="text-lg font-bold text-red-700">{monthlyStats.totalAbsentDays}</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      {monthlyStats.totalWorkingDays > 0 ? 
+                        `${((monthlyStats.totalAbsentDays / monthlyStats.totalWorkingDays) * 100).toFixed(0)}%` : 
+                        '0%'
+                      }
+                    </p>
+                  </div>
+                  <UserX className="w-5 h-5 text-red-600" />
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-blue-600">Checked Out</p>
-                <p className="text-2xl font-bold text-blue-700">{attendanceOverview.checkedOut}</p>
-              </div>
-              <CheckCircle2 className="w-8 h-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-orange-600 font-medium">Late Check-ins</p>
+                    <p className="text-lg font-bold text-orange-700">
+                      {monthlyStats.employeeStats[0]?.lateCheckins || 0}
+                    </p>
+                    <p className="text-xs text-orange-600 mt-0.5">After 10:00 AM</p>
+                  </div>
+                  <Clock className="w-5 h-5 text-orange-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-purple-600 font-medium">Avg Hours</p>
+                    <p className="text-lg font-bold text-purple-700">{monthlyStats.averageHours}h</p>
+                    <p className="text-xs text-purple-600 mt-0.5">Per day</p>
+                  </div>
+                  <Timer className="w-5 h-5 text-purple-600" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Second row for additional metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-teal-600 font-medium">Check-out Days</p>
+                    <p className="text-lg font-bold text-teal-700">
+                      {monthlyStats.employeeStats[0]?.checkedOutDays || 0}
+                    </p>
+                    <p className="text-xs text-teal-600 mt-0.5">Completed</p>
+                  </div>
+                  <CheckCircle2 className="w-5 h-5 text-teal-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-indigo-600 font-medium">Total Hours</p>
+                    <p className="text-lg font-bold text-indigo-700">
+                      {monthlyStats.employeeStats[0]?.totalHours?.toFixed(0) || '0'}h
+                    </p>
+                    <p className="text-xs text-indigo-600 mt-0.5">This month</p>
+                  </div>
+                  <Clock className="w-5 h-5 text-indigo-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-pink-50 to-pink-100 border-pink-200">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-pink-600 font-medium">Attendance</p>
+                    <p className="text-lg font-bold text-pink-700">
+                      {monthlyStats.totalWorkingDays > 0 ? 
+                        `${((monthlyStats.totalPresentDays / monthlyStats.totalWorkingDays) * 100).toFixed(0)}%` : 
+                        '0%'
+                      }
+                    </p>
+                    <p className="text-xs text-pink-600 mt-0.5">
+                      {monthlyStats.totalPresentDays}/{monthlyStats.totalWorkingDays} days
+                    </p>
+                  </div>
+                  <TrendingUp className="w-5 h-5 text-pink-600" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1103,7 +1113,10 @@ const Attendance: React.FC = () => {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-gray-600" />
-              Today's Attendance Details ({format(getIndiaDateTime(), 'MMM dd, yyyy')})
+              {isAdmin 
+                ? `Today's Attendance Details (${format(getIndiaDateTime(), 'MMM dd, yyyy')})`
+                : `Your Attendance Today (${format(getIndiaDateTime(), 'MMM dd, yyyy')})`
+              }
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -1166,8 +1179,17 @@ const Attendance: React.FC = () => {
               {employeeAttendanceList.length === 0 && !isLoading && (
                 <div className="text-center py-8 text-gray-500">
                   <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                  <p>No attendance data available for selected filters</p>
-                  <p className="text-sm mt-1">Users need to manually check-in to appear here</p>
+                  {isAdmin ? (
+                    <>
+                      <p>No attendance data available for selected filters</p>
+                      <p className="text-sm mt-1">Users need to manually check-in to appear here</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>No attendance data found for today</p>
+                      <p className="text-sm mt-1">Use the check-in button above to record your attendance</p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1223,7 +1245,7 @@ const Attendance: React.FC = () => {
                   {/* Success badge */}
                   <div className="absolute -top-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
                     <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 1.414L11 6.414V13a1 1 0 11-2 0V6.414L7.707 7.707a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                   </div>
                 </div>
@@ -1412,6 +1434,184 @@ const Attendance: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Filters - Only show for admins */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-3">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-700">Filter by Team</label>
+                <select
+                  value={selectedTeam}
+                  onChange={(e) => setSelectedTeam(e.target.value)}
+                  className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Teams</option>
+                  <option value="creative">Creative Team</option>
+                  <option value="web">Web Team</option>
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-3">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-700">Filter by Employee</label>
+                <select
+                  value={selectedEmployee}
+                  onChange={(e) => setSelectedEmployee(e.target.value)}
+                  className="w-full p-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Employees</option>
+                  {filteredUsersByRole.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} {user.role === 'admin' ? '(Admin)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-3">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-700">Current Time (IST)</label>
+                <div className="text-xl font-mono text-blue-600 transition-all duration-1000 font-bold">
+                  {format(currentTime, 'h:mm:ss a')}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {format(currentTime, 'EEEE, MMM d, yyyy')}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Export Attendance Card - Admin Only */}
+          <Card className="group relative cursor-pointer overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-105 bg-gradient-to-br from-green-50 via-white to-emerald-50 border-green-200 hover:border-green-300" onClick={handleExportAttendance}>
+            <CardContent className="p-3 relative">
+              {/* Background Pattern */}
+              <div className="absolute inset-0 opacity-5 group-hover:opacity-10 transition-opacity duration-300">
+                <svg className="w-full h-full" viewBox="0 0 100 100" fill="none">
+                  <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                    <path d="M 10 0 L 0 0 0 10" fill="none" stroke="currentColor" strokeWidth="0.5"/>
+                  </pattern>
+                  <rect width="100%" height="100%" fill="url(#grid)" className="text-green-600" />
+                </svg>
+              </div>
+              
+              {/* Content */}
+              <div className="relative z-10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-green-700 uppercase tracking-wide">Export Reports</label>
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                </div>
+                
+                <div className="flex items-center justify-center py-1">
+                  <div className="text-center transform group-hover:scale-110 transition-transform duration-300">
+                    {/* Animated Icon Container */}
+                    <div className="relative w-8 h-8 mx-auto mb-1">
+                      <div className="absolute inset-0 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg shadow-md group-hover:shadow-lg transition-shadow duration-300 transform rotate-3 group-hover:rotate-6"></div>
+                      <div className="relative w-full h-full bg-white rounded-lg flex items-center justify-center group-hover:bg-green-50 transition-colors duration-300">
+                        <svg className="w-4 h-4 text-green-600 group-hover:text-green-700 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      
+                      {/* Floating Download Arrow */}
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-1 group-hover:translate-y-0 transition-all duration-300">
+                        <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L11 6.414V13a1 1 0 11-2 0V6.414L7.707 7.707a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </div>
+                    
+                    {/* Text with gradient effect */}
+                    <div className="text-xs font-medium bg-gradient-to-r from-green-700 to-emerald-700 bg-clip-text text-transparent group-hover:from-green-800 group-hover:to-emerald-800 transition-all duration-300">
+                      Generate PDF Report
+                    </div>
+                    <div className="text-xs text-green-600 opacity-75 group-hover:opacity-100 transition-opacity duration-300">
+                      Click to export
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Progress bar animation on hover - reduced height */}
+                <div className="h-0.5 bg-green-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transform -translate-x-full group-hover:translate-x-0 transition-transform duration-1000 ease-out"></div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Overview Cards - Only show for admins */}
+      {isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Employees</p>
+                  <p className="text-2xl font-bold text-gray-900">{attendanceOverview.totalEmployees}</p>
+                </div>
+                <Users className="w-8 h-8 text-gray-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Present Today</p>
+                  <p className="text-2xl font-bold text-green-600">{attendanceOverview.present}</p>
+                </div>
+                <UserCheck className="w-8 h-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Absent Today</p>
+                  <p className="text-2xl font-bold text-red-600">{attendanceOverview.absent}</p>
+                </div>
+                <UserX className="w-8 h-8 text-red-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Late Check-ins</p>
+                  <p className="text-2xl font-bold text-orange-600">{attendanceOverview.late}</p>
+                </div>
+                <AlertTriangle className="w-8 h-8 text-orange-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Checked Out</p>
+                  <p className="text-2xl font-bold text-blue-600">{attendanceOverview.checkedOut}</p>
+                </div>
+                <CheckCircle2 className="w-8 h-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 

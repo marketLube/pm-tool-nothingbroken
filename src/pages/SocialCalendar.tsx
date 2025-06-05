@@ -12,13 +12,15 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Plus, 
-  Building, 
+  Building2, 
   Edit,
   Trash2,
   Clock,
   RefreshCw,
   Share,
-  Download
+  Download,
+  ChevronDown,
+  X
 } from 'lucide-react';
 import { TeamType } from '../types';
 import SimpleSocialTaskModal from '../components/socialcalendar/SimpleSocialTaskModal';
@@ -48,6 +50,7 @@ const SocialCalendar: React.FC = () => {
   
   // Client selection state
   const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   
   // Team filter state
   const [selectedTeam, setSelectedTeam] = useState<TeamType | 'all'>('all');
@@ -56,6 +59,11 @@ const SocialCalendar: React.FC = () => {
   // Modal state
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<SocialCalendarTask | null>(null);
+
+  // Day popup state for mobile touch/click
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [isDayPopupOpen, setIsDayPopupOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   // Export state
   const [isExporting, setIsExporting] = useState(false);
@@ -69,11 +77,29 @@ const SocialCalendar: React.FC = () => {
   const [isDayHovered, setIsDayHovered] = useState(false);
   const [isTooltipHovered, setIsTooltipHovered] = useState(false);
 
-  // Refs for cleanup
+  // Refs for cleanup and dropdowns
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const clientDropdownRef = useRef<HTMLDivElement>(null);
 
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Mobile detection utility
+  const isMobileDevice = () => {
+    return window.innerWidth <= 768 || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  };
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(isMobileDevice());
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Refresh client list when component mounts and periodically
   useEffect(() => {
@@ -96,10 +122,35 @@ const SocialCalendar: React.FC = () => {
     };
   }, []);
 
+  // Handle clicks outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
+        setIsClientDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Get current client object (moved before useEffects that use it)
+  const currentClient = clients.find(c => c.id === selectedClientId);
+
+  // Get filtered clients based on team selection
+  const filteredClients = useMemo(() => {
+    if (selectedTeam === 'all') {
+      return clients;
+    } else {
+      return clients.filter(c => c.team === selectedTeam);
+    }
+  }, [clients, selectedTeam]);
+
   // Set default client (first client of user's team, or first creative client for admin)
   useEffect(() => {
-    if (clients.length > 0 && !selectedClientId) {
-      let defaultClient;
+    if (clients.length > 0) {
       let defaultTeam = selectedTeam; // Keep current team selection
       
       if (isAdmin && !isTeamManuallySet) {
@@ -114,17 +165,35 @@ const SocialCalendar: React.FC = () => {
       }
       
       // Find appropriate client based on current team selection
+      let defaultClient;
       if (defaultTeam === 'all') {
         defaultClient = clients[0]; // First available client
       } else {
-        defaultClient = clients.find(c => c.team === defaultTeam) || clients[0];
+        // Only select client from the same team, don't fall back to other teams
+        defaultClient = clients.find(c => c.team === defaultTeam);
       }
       
-      if (defaultClient) {
+      // Only set the client if we found one for the current team, or if no client is currently selected
+      if (defaultClient && (!selectedClientId || !clients.find(c => c.id === selectedClientId && (defaultTeam === 'all' || c.team === defaultTeam)))) {
         setSelectedClientId(defaultClient.id);
+      } else if (!defaultClient && selectedClientId) {
+        // Clear selected client if no clients available for current team
+        setSelectedClientId('');
+      }
+    } else {
+      // No clients at all, clear selection
+      setSelectedClientId('');
+    }
+  }, [clients, currentUser, isAdmin, isTeamManuallySet, selectedTeam]);
+
+  // Clear client selection when team changes if selected client is not in the new team
+  useEffect(() => {
+    if (selectedClientId && currentClient) {
+      if (selectedTeam !== 'all' && currentClient.team !== selectedTeam) {
+        setSelectedClientId('');
       }
     }
-  }, [clients, currentUser, isAdmin, selectedClientId, isTeamManuallySet, selectedTeam]);
+  }, [selectedTeam, selectedClientId, currentClient]);
 
   // Load tasks from database for specific client and team
   const loadTasks = async () => {
@@ -132,6 +201,11 @@ const SocialCalendar: React.FC = () => {
     
     try {
       setLoading(true);
+      
+      if (!supabase) {
+        console.error('Supabase client not initialized');
+        return;
+      }
       
       let query = supabase
         .from('social_calendar_tasks')
@@ -246,35 +320,16 @@ const SocialCalendar: React.FC = () => {
     return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
   }, [currentDate]);
 
-  // Get current client
-  const currentClient = clients.find(c => c.id === selectedClientId);
-  
-  // Filter clients for the dropdown
-  const availableClients = useMemo(() => {
-    if (isAdmin) {
-      // Admin sees clients based on team filter
-      if (selectedTeam === 'all') {
-        return clients; // Show all clients
-      } else {
-        return clients.filter(c => c.team === selectedTeam);
-      }
-    } else {
-      const userTeam = currentUser?.team || 'creative';
-      return clients.filter(c => c.team === userTeam);
-    }
-  }, [clients, currentUser, isAdmin, selectedTeam]);
-
-  // Create client options for dropdown
+  // Get client options for dropdown
   const clientOptions = useMemo(() => {
-    if (availableClients.length === 0) {
-      return [{ value: '', label: 'No clients available' }];
-    }
-    
-    return availableClients.map(client => ({
-      value: client.id,
-      label: `${client.name} (${client.team === 'creative' ? 'Creative' : 'Web'})`
-    }));
-  }, [availableClients]);
+    return [
+      { value: '', label: 'Select a client...' },
+      ...filteredClients.map(client => ({
+        value: client.id,
+        label: client.name
+      }))
+    ];
+  }, [filteredClients]);
 
   // Team options for admin dropdown
   const teamOptions = [
@@ -595,12 +650,35 @@ const SocialCalendar: React.FC = () => {
     }
   };
 
+  // Handle client selection
+  const handleClientSelect = (clientId: string) => {
+    setSelectedClientId(clientId);
+    setIsClientDropdownOpen(false);
+  };
+
+  // Handle day click/touch for popup (only on mobile devices)
+  const handleDayClick = (day: Date) => {
+    if (!isMobile) return; // Only allow on mobile devices
+    
+    const dayTasks = getTasksForDate(day);
+    if (dayTasks.length > 0) {
+      setSelectedDay(day);
+      setIsDayPopupOpen(true);
+    }
+  };
+
+  // Close day popup
+  const closeDayPopup = () => {
+    setIsDayPopupOpen(false);
+    setSelectedDay(null);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Social Calendar</h1>
+          <h1 className="text-2xl font-bold text-gray-800">Calendar</h1>
           <p className="text-sm text-gray-600 mt-1">
             {currentClient ? `${currentClient.name} • ${format(currentDate, 'MMMM yyyy')}` : `${format(currentDate, 'MMMM yyyy')}`}
           </p>
@@ -680,16 +758,59 @@ const SocialCalendar: React.FC = () => {
                 </>
               )}
 
-              {/* Client Selection - Minimal Design */}
+              {/* Client Selection - TaskBoard Style Dropdown */}
               <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <Select
-                    value={selectedClientId}
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                    options={clientOptions}
-                    className="pl-10 pr-8 py-2.5 text-sm bg-gray-50 border-0 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:shadow-sm min-w-[200px] transition-all duration-200"
-                  />
+                <div className="relative" ref={clientDropdownRef}>
+                  <button
+                    onClick={() => setIsClientDropdownOpen(!isClientDropdownOpen)}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-all duration-200 min-w-[200px] ${
+                      selectedClientId && currentClient
+                        ? 'bg-orange-50 border-orange-200 text-orange-700' 
+                        : filteredClients.length === 0
+                        ? 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                    disabled={filteredClients.length === 0}
+                  >
+                    <Building2 className="w-4 h-4" />
+                    <span className="truncate">
+                      {selectedClientId && currentClient 
+                        ? currentClient.name 
+                        : filteredClients.length === 0 
+                        ? 'No clients available' 
+                        : 'Select Client'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {isClientDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
+                      <div className="p-1">
+                        {filteredClients.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-gray-500">
+                            No clients available
+                          </div>
+                        ) : (
+                          filteredClients.map(client => (
+                            <button
+                              key={client.id}
+                              onClick={() => handleClientSelect(client.id)}
+                              className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
+                                selectedClientId === client.id 
+                                  ? 'bg-orange-50 text-orange-700' 
+                                  : 'hover:bg-gray-50 text-gray-700'
+                              }`}
+                            >
+                              {client.name}
+                              <span className="text-xs text-gray-500 ml-2">
+                                ({client.team === 'creative' ? 'Creative' : 'Web'})
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 <button
@@ -708,8 +829,9 @@ const SocialCalendar: React.FC = () => {
               {/* Action Buttons */}
               <button
                 onClick={() => handleAddTask()}
-                disabled={!selectedClientId}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!selectedClientId || filteredClients.length === 0}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500"
+                title={!selectedClientId || filteredClients.length === 0 ? 'Select a client to add tasks' : 'Add new task'}
               >
                 <Plus className="w-4 h-4" />
                 Add Task
@@ -797,9 +919,11 @@ const SocialCalendar: React.FC = () => {
                   return (
                     <div
                       key={index}
-                      className={`group min-h-[120px] p-2 border-r border-b last:border-r-0 relative ${
+                      className={`group min-h-[120px] p-2 border-r border-b last:border-r-0 relative ${ 
                         isCurrentMonth ? 'bg-white' : 'bg-gray-50'
-                      } ${isCurrentDay ? 'bg-blue-50 ring-2 ring-blue-200' : ''} hover:bg-gray-50 transition-colors duration-200`}
+                      } ${isCurrentDay ? 'bg-blue-50 ring-2 ring-blue-200' : ''} transition-colors duration-200 ${
+                        !isMobile ? 'hover:bg-gray-50' : ''
+                      } ${isMobile && dayTasks.length > 0 ? 'cursor-pointer touch-manipulation' : ''}`}
                       onMouseEnter={(e) => {
                         // Reset states when entering a new day
                         if (hoveredDay && hoveredDay !== dateStr) {
@@ -814,6 +938,7 @@ const SocialCalendar: React.FC = () => {
                         handleDayMouseLeave();
                         setIsDayHovered(false);
                       }}
+                      onClick={() => handleDayClick(day)}
                     >
                       {/* Date Header */}
                       <div className="flex items-center justify-between mb-2">
@@ -1061,6 +1186,127 @@ const SocialCalendar: React.FC = () => {
               >
                 Close
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Day Tasks Popup Modal */}
+      {isDayPopupOpen && selectedDay && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3">
+              <div className="flex items-center justify-between text-white">
+                <h4 className="font-semibold text-base">
+                  {format(selectedDay, 'MMMM d, yyyy')}
+                </h4>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm bg-white/20 px-2 py-1 rounded-full">
+                    {getTasksForDate(selectedDay).length} tasks
+                  </span>
+                  <button
+                    onClick={closeDayPopup}
+                    className="p-1 hover:bg-white/20 rounded-full transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {/* Task list */}
+            <div className="max-h-96 overflow-y-auto">
+              <div className="p-4 space-y-3">
+                {getTasksForDate(selectedDay).map((task, index) => (
+                  <div
+                    key={task.id}
+                    className={`group relative rounded-lg border p-3 transition-all duration-200 hover:shadow-md cursor-pointer ${
+                      task.team === 'creative' 
+                        ? 'border-purple-200 bg-purple-50 hover:bg-purple-100' 
+                        : 'border-blue-200 bg-blue-50 hover:bg-blue-100'
+                    }`}
+                    onClick={() => handleEditTask(task)}
+                  >
+                    {/* Team indicator stripe */}
+                    <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-lg ${
+                      task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                    }`}></div>
+                    
+                    <div className="ml-1">
+                      {/* Task title */}
+                      <h6 className="font-medium text-sm text-gray-900 mb-2">
+                        {task.title}
+                      </h6>
+                      
+                      {/* Task meta info */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            task.team === 'creative'
+                              ? 'bg-purple-100 text-purple-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {task.team === 'creative' ? 'Creative' : 'Web'}
+                          </span>
+                          
+                          {task.client_name && (
+                            <span className="text-xs text-gray-600 truncate">
+                              {task.client_name}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Action buttons on hover */}
+                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditTask(task);
+                            }}
+                            className="p-1 rounded hover:bg-white/50 transition-colors"
+                            title="Edit task"
+                          >
+                            <Edit className="h-3 w-3 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTask(task.id);
+                            }}
+                            className="p-1 rounded hover:bg-red-100 transition-colors"
+                            title="Delete task"
+                          >
+                            <Trash2 className="h-3 w-3 text-red-600" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="bg-gray-50 border-t border-gray-200 px-4 py-3">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => {
+                    handleAddTask(selectedDay);
+                    closeDayPopup();
+                  }}
+                  className="flex-1 flex items-center justify-center bg-blue-600 text-white py-2 px-3 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Task
+                </button>
+                <button
+                  onClick={closeDayPopup}
+                  className="flex-1 flex items-center justify-center bg-gray-600 text-white py-2 px-3 rounded-md hover:bg-gray-700 transition-colors text-sm font-medium"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

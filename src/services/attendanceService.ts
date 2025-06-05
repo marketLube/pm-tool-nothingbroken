@@ -200,10 +200,16 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
     absentDays: number;
     totalHours: number;
     averageHours: number;
+    lateCheckins: number;
+    checkedOutDays: number;
   }>;
 }> => {
   try {
     console.log(`📈 Getting attendance stats for ${userIds.length} users from ${startDate} to ${endDate}`);
+    
+    if (!supabase) {
+      throw new Error('Supabase client not initialized');
+    }
     
     const { data: workEntries, error } = await supabase
       .from('daily_work_entries')
@@ -222,13 +228,21 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
       
       let presentDays = 0;
       let totalHours = 0;
+      let lateCheckins = 0;
+      let checkedOutDays = 0;
       
       userEntries.forEach(entry => {
         if (!entry.is_absent && entry.check_in_time) {
           presentDays++;
           
+          // Count late check-ins (after 10:00 AM)
+          const [checkInHour, checkInMinute] = entry.check_in_time.split(':').map(Number);
+          if (checkInHour >= 10) {
+            lateCheckins++;
+          }
+          
           if (entry.check_out_time) {
-            const [checkInHour, checkInMinute] = entry.check_in_time.split(':').map(Number);
+            checkedOutDays++;
             const [checkOutHour, checkOutMinute] = entry.check_out_time.split(':').map(Number);
             
             const checkInMinutes = checkInHour * 60 + checkInMinute;
@@ -248,7 +262,9 @@ export const getAttendanceStats = async (userIds: string[], startDate: string, e
         presentDays,
         absentDays: userEntries.length - presentDays,
         totalHours: Math.round(totalHours * 100) / 100,
-        averageHours: presentDays > 0 ? Math.round((totalHours / presentDays) * 100) / 100 : 0
+        averageHours: presentDays > 0 ? Math.round((totalHours / presentDays) * 100) / 100 : 0,
+        lateCheckins,
+        checkedOutDays
       };
     });
 
@@ -308,9 +324,9 @@ export const getTodayAttendanceOverview = async (
       } else if (data.checkInTime) {
         present++;
         
-        // Consider late if check-in is after 9:30 AM IST
+        // Consider late if check-in is after 10:00 AM IST
         const [hour, minute] = data.checkInTime.split(':').map(Number);
-        if (hour > 9 || (hour === 9 && minute > 30)) {
+        if (hour >= 10) {
           late++;
         }
         
@@ -364,6 +380,8 @@ export const clearTodayAttendanceForAllUsers = async (userIds: string[]): Promis
 
 /**
  * Gets filtered user list based on role and team permissions
+ * For normal users: Only their own data
+ * For admins: All users
  */
 export const getFilteredUsersForAttendance = (
   allUsers: any[],
@@ -373,13 +391,12 @@ export const getFilteredUsersForAttendance = (
 ): any[] => {
   if (currentUserRole === 'admin') {
     // Admins can see all users
+    console.log(`🔐 Admin access: Showing all ${allUsers.length} users`);
     return allUsers;
   } else {
-    // Regular users can only see their team members + themselves
-    return allUsers.filter(user => 
-      user.id === currentUserId || 
-      user.team === currentUserTeam ||
-      user.role === 'admin' // Always include admins in team views
-    );
+    // Normal users can ONLY see themselves
+    const userOnlyData = allUsers.filter(user => user.id === currentUserId);
+    console.log(`🔐 Normal user access: Restricted to own data only (${userOnlyData.length} user)`);
+    return userOnlyData;
   }
 }; 

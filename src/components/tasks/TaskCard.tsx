@@ -19,7 +19,6 @@ import { useStatus } from '../../contexts/StatusContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import DeleteConfirmationModal from '../ui/DeleteConfirmationModal';
-import { deleteTask } from '../../services/taskService';
 
 // Import BadgeVariant type
 type BadgeVariant = 
@@ -48,8 +47,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onClick,
   onDelete
 }) => {
-  const { getUserById, getClientById } = useData();
+  const { getUserById, getClientById, deleteTask } = useData();
   const { statuses } = useStatus();
+  const { isAdmin } = useAuth();
   const [showActions, setShowActions] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
@@ -233,129 +233,161 @@ const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   return (
-    <Card 
-      className={`group mb-3 ${isDragging ? 'opacity-60' : ''} ${isDeleting ? 'opacity-50' : ''} cursor-pointer animate-hover-rise animate-tap relative overflow-hidden border-l-[6px] h-full shadow-sm hover:shadow-md transition-all duration-200`}
-      style={{ borderLeftColor: getPriorityBorderColor() }}
-      onClick={handleCardClick}
-      hover
-    >
-      {/* Client Name Banner at top */}
-      <div className="absolute top-0 left-0 right-0 py-1.5 px-3 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-b border-indigo-100">
-        <div className="flex items-center">
-          <span className="text-xs font-bold tracking-wide uppercase text-indigo-800 truncate">{client?.name || 'Unassigned Client'}</span>
+    <>
+      <Card 
+        className={`group mb-3 ${isDragging ? 'opacity-60' : ''} ${isDeleting ? 'opacity-50' : ''} cursor-pointer animate-hover-rise animate-tap relative border-l-[6px] h-full shadow-sm hover:shadow-md transition-all duration-200 overflow-visible`}
+        style={{ borderLeftColor: getPriorityBorderColor() }}
+        onClick={handleCardClick}
+        hover
+      >
+        {/* Client Name Banner at top */}
+        <div className="absolute top-0 left-0 right-0 py-1.5 px-3 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-b border-indigo-100 z-10">
+          <div className="flex items-center">
+            <span className="text-xs font-bold tracking-wide uppercase text-indigo-800 truncate">{client?.name || 'Unassigned Client'}</span>
+          </div>
         </div>
-      </div>
-      
-      {/* Action menu - visible on hover */}
-      <div className="task-actions absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <div className="relative" ref={actionMenuRef}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 bg-white/90 hover:bg-white shadow-sm border border-gray-200"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowActions(!showActions);
-            }}
-          >
-            <MoreVertical className="h-3 w-3 text-gray-600" />
-          </Button>
-          
-          {showActions && (
-            <div className="absolute top-7 right-0 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50 min-w-[120px]">
-              <button
-                className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center"
+        
+        {/* Action menu - visible on hover - Only for Admins */}
+        {isAdmin && (
+          <div className="task-actions absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-30">
+            <div className="relative" ref={actionMenuRef}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 bg-white/95 hover:bg-white shadow-sm border border-gray-200 rounded-md"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowActions(false);
-                  if (onClick) onClick();
+                  setShowActions(!showActions);
                 }}
               >
-                <Edit className="h-3 w-3 mr-2" />
-                Edit Task
-              </button>
-              <button
-                className="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center"
-                onClick={handleDeleteClick}
-                disabled={isDeleting}
-              >
-                <Trash2 className="h-3 w-3 mr-2" />
-                {isDeleting ? 'Deleting...' : 'Delete Task'}
-              </button>
+                <MoreVertical className="h-3.5 w-3.5 text-gray-600" />
+              </Button>
+              
+              {showActions && (
+                <div className="absolute top-8 right-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-[1000] min-w-[130px] animate-in fade-in slide-in-from-top-2 duration-200">
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors duration-150"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowActions(false);
+                      if (onClick) onClick();
+                    }}
+                  >
+                    <Edit className="h-3.5 w-3.5 mr-2 text-gray-500" />
+                    Edit Task
+                  </button>
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center transition-colors duration-150"
+                    onClick={handleDeleteClick}
+                    disabled={isDeleting}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                    {isDeleting ? 'Deleting...' : 'Delete Task'}
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-      
-      <CardContent className="p-4 pt-8 flex flex-col h-full">
-        {/* Status and Priority Row */}
-        <div className="flex justify-between items-center mb-2.5">
-          <Badge variant={getStatusColor()} size="sm" className="py-0.5">
-            {getStatusDisplayName()}
-          </Badge>
-          <Badge variant={getPriorityColor()} size="sm" className="py-0.5">
-            {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-          </Badge>
-        </div>
+          </div>
+        )}
         
-        {/* Task Title */}
-        <h3 className="font-medium text-secondary-900 text-sm tracking-tight mb-2 line-clamp-2">{task.title}</h3>
-        
-        {/* Task Description */}
-        <p className="caption-text text-secondary-600 mb-3 line-clamp-2 flex-grow">{task.description}</p>
-        
-        {/* Footer with Assignee and Due Date */}
-        <div className="mt-auto pt-2 border-t border-gray-100 space-y-2">
-          {/* Assignee */}
-          {assignee ? (
-            <div className="flex items-center">
-              <Avatar 
-                src={assignee.avatar} 
-                name={assignee.name} 
-                size="xs" 
-              />
-              <span className="ml-1.5 text-xs font-medium text-secondary-700">{assignee.name}</span>
-            </div>
-          ) : task.assigneeId ? (
-            // Show assigneeId if user data is missing but ID exists
-            <div className="flex items-center">
-              <div className="w-6 h-6 rounded-full bg-orange-200 flex items-center justify-center">
-                <span className="text-xs text-orange-600">!</span>
+        <CardContent className="p-4 pt-8 flex flex-col h-full relative min-h-[200px]">
+          {/* Warning Messages - Fixed Positioning */}
+          <div className="absolute top-[-4px] left-2 right-12 space-y-1 z-20">
+            {/* Overdue warning - Higher priority */}
+            {isOverdue && (
+              <div className="bg-red-100 border border-red-200 rounded-md px-2 py-1 shadow-sm">
+                <div className="flex items-center space-x-1">
+                  <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                  <span className="text-xs text-red-700 font-medium">Overdue Task</span>
+                </div>
               </div>
-              <span className="ml-1.5 text-xs font-medium text-orange-600 italic">
-                Assignee ID: {task.assigneeId.slice(0, 8)}... (User not found)
-              </span>
-            </div>
-          ) : (
-            // Truly unassigned task
-            <div className="flex items-center">
-              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
-                <span className="text-xs text-gray-500">?</span>
+            )}
+            
+            {/* Missing assignee warning */}
+            {task.assigneeId && !assignee && (
+              <div className="bg-orange-100 border border-orange-200 rounded-md px-2 py-1 shadow-sm">
+                <div className="flex items-center space-x-1">
+                  <div className="w-3 h-3 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs text-white font-bold">!</span>
+                  </div>
+                  <span className="text-xs text-orange-700 font-medium">Assignee not found</span>
+                </div>
               </div>
-              <span className="ml-1.5 text-xs font-medium text-gray-500 italic">Unassigned</span>
-            </div>
-          )}
-          
-          {/* Due Date */}
-          <div className="flex items-center text-xs">
-            <Calendar className="h-3 w-3 mr-1 text-secondary-500" />
-            <span className={`${isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-500'} flex items-center`}>
-              {isOverdue && <AlertTriangle className="h-3 w-3 mr-1 text-danger-500" />}
-              {formattedDueDate}
-            </span>
+            )}
           </div>
           
-          {/* Created Date */}
-          <div className="flex items-center text-xs">
-            <Clock className="h-3 w-3 mr-1 text-secondary-400" />
-            <span className="text-secondary-400">
-              Created {task.createdAt ? format(parseISO(task.createdAt), 'MMM dd, yyyy') : 'Unknown'}
-            </span>
+          {/* Main content with proper top margin to avoid warning overlap */}
+          <div className={`flex flex-col h-full ${(isOverdue || (task.assigneeId && !assignee)) ? 'mt-8' : 'mt-2'}`}>
+            {/* Status and Priority Row */}
+            <div className="flex justify-between items-center mb-2.5">
+              <Badge variant={getStatusColor()} size="sm" className="py-0.5">
+                {getStatusDisplayName()}
+              </Badge>
+              <Badge variant={getPriorityColor()} size="sm" className="py-0.5">
+                {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+              </Badge>
+            </div>
+            
+            {/* Task Title */}
+            <h3 className="font-medium text-secondary-900 text-sm tracking-tight mb-2 line-clamp-2">{task.title}</h3>
+            
+            {/* Task Description */}
+            <p className="caption-text text-secondary-600 mb-3 line-clamp-2 flex-grow">{task.description}</p>
+            
+            {/* Footer with Assignee and Due Date */}
+            <div className="mt-auto pt-2 border-t border-gray-100 space-y-2">
+              {/* Assignee */}
+              {assignee ? (
+                <div className="flex items-center">
+                  <Avatar 
+                    src={assignee.avatar} 
+                    name={assignee.name} 
+                    size="xs" 
+                  />
+                  <span className="ml-1.5 text-xs font-medium text-secondary-700">{assignee.name}</span>
+                </div>
+              ) : task.assigneeId ? (
+                // Show assigneeId if user data is missing but ID exists
+                <div className="flex items-center">
+                  <div className="w-6 h-6 rounded-full bg-orange-200 flex items-center justify-center">
+                    <span className="text-xs text-orange-600">!</span>
+                  </div>
+                  <span className="ml-1.5 text-xs font-medium text-orange-600 italic">
+                    Missing User Data
+                  </span>
+                </div>
+              ) : (
+                // Truly unassigned task
+                <div className="flex items-center">
+                  <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
+                    <span className="text-xs text-gray-500">?</span>
+                  </div>
+                  <span className="ml-1.5 text-xs font-medium text-gray-500 italic">Unassigned</span>
+                </div>
+              )}
+              
+              {/* Due Date */}
+              <div className="flex items-center text-xs">
+                <Calendar className="h-3 w-3 mr-1 text-secondary-500" />
+                <span className={`${isOverdue ? 'text-danger-600 font-medium' : 'text-secondary-500'} flex items-center`}>
+                  {isOverdue && <AlertTriangle className="h-3 w-3 mr-1 text-danger-500" />}
+                  {formattedDueDate}
+                </span>
+              </div>
+              
+              {/* Created Date */}
+              <div className="flex items-center text-xs">
+                <Clock className="h-3 w-3 mr-1 text-secondary-400" />
+                <span className="text-secondary-400">
+                  Created {task.createdAt ? format(parseISO(task.createdAt), 'MMM dd, yyyy') : 'Unknown'}
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
-      </CardContent>
+        </CardContent>
+      </Card>
 
-      {/* Custom Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Rendered OUTSIDE the card at document root level */}
       <DeleteConfirmationModal
         isOpen={deleteConfirmationOpen}
         onClose={handleCancelDelete}
@@ -366,7 +398,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         cancelButtonText="Cancel"
         isLoading={isDeleting}
       />
-    </Card>
+    </>
   );
 };
 

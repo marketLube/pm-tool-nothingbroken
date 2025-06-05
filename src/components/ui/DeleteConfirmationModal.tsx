@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, X } from 'lucide-react';
 
 interface DeleteConfirmationModalProps {
@@ -16,13 +17,23 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
-  title,
-  message,
-  confirmButtonText = 'Delete',
-  cancelButtonText = 'Cancel',
+  title = "Confirm Delete",
+  message = "Are you sure you want to delete this item? This action cannot be undone.",
+  confirmButtonText = "Delete",
+  cancelButtonText = "Cancel",
   isLoading = false
 }) => {
-  if (!isOpen) return null;
+  // Add debugging
+  useEffect(() => {
+    console.log('🗑️ DeleteConfirmationModal received isOpen:', isOpen);
+  }, [isOpen]);
+
+  if (!isOpen) {
+    console.log('🗑️ DeleteConfirmationModal not rendering - isOpen is false');
+    return null;
+  }
+
+  console.log('🗑️ DeleteConfirmationModal rendering with isOpen:', isOpen);
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
@@ -36,14 +47,14 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
     }
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000] p-4"
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[10005] p-4"
       onClick={handleBackdropClick}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 ease-out scale-100">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 transform transition-all duration-300 ease-out scale-100 animate-in fade-in slide-in-from-bottom-4 relative z-[10006]">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <div className="flex items-center space-x-3">
@@ -101,7 +112,8 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

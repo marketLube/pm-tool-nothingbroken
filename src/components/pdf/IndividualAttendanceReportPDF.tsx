@@ -248,7 +248,7 @@ const IndividualAttendanceReportPDF: React.FC<IndividualAttendanceReportPDFProps
     const checkInTime = record.checkInTime.split(':');
     const hours = parseInt(checkInTime[0]);
     const minutes = parseInt(checkInTime[1]);
-    return hours > 10 || (hours === 10 && minutes > 0);
+    return hours >= 10;
   }).length;
 
   const monthName = format(new Date(year, month - 1), 'MMMM');
@@ -265,7 +265,7 @@ const IndividualAttendanceReportPDF: React.FC<IndividualAttendanceReportPDFProps
     const checkInTime = attendance.checkInTime.split(':');
     const hours = parseInt(checkInTime[0]);
     const minutes = parseInt(checkInTime[1]);
-    const isLate = hours > 10 || (hours === 10 && minutes > 0);
+    const isLate = hours >= 10;
     
     if (isLate) return 'Late';
     return 'Present';

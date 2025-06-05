@@ -14,6 +14,7 @@ import { useAuth } from './AuthContext';
 import { updateUserPassword } from '../services/authService';
 import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 import { useRealtime } from './RealtimeContext';
+import { useStatus } from './StatusContext';
 
 // Import TaskRealtimeEvent type
 interface TaskRealtimeEvent {
@@ -562,10 +563,10 @@ export function DataProvider({ children }: DataProviderProps) {
         return updatedTasks;
       });
       
-      console.log('[DataContext] Task deleted successfully');
+      console.log('[DataContext] Task deleted successfully:', taskId);
     } catch (error) {
-      console.error('Error deleting task:', error);
-      throw error; // Re-throw to allow UI to handle the error
+      console.error('[DataContext] Error deleting task:', error);
+      throw error; // Re-throw to let the UI handle it
     }
   };
 
