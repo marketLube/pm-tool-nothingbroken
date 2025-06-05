@@ -47,28 +47,28 @@ const Clients: React.FC = () => {
   
   // Debounced search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-
+  
   // Load clients
   const loadClients = useCallback(async () => {
     setIsLoading(true);
-    try {
-      const filters = {
+      try {
+        const filters = {
         team: teamFilter,
         searchQuery: debouncedSearchQuery || undefined,
         sortBy: 'name' as const
-      };
+        };
 
-      const searchResults = await searchClients(filters);
+        const searchResults = await searchClients(filters);
       // Filter out unassigned clients
       const filteredResults = searchResults.filter(client => client.name !== 'Unassigned');
       setClients(filteredResults);
-    } catch (error) {
+      } catch (error) {
       console.error('Error loading clients:', error);
       showError('Failed to load clients');
       setClients([]);
-    } finally {
+      } finally {
       setIsLoading(false);
-    }
+      }
   }, [teamFilter, debouncedSearchQuery, searchClients, showError]);
 
   // Load clients when filters change
@@ -89,7 +89,7 @@ const Clients: React.FC = () => {
     return {
       total: allClients.length,
       recent: recent.length
-    };
+  };
   }, [clients]);
 
   // Clear all filters
@@ -178,11 +178,11 @@ const Clients: React.FC = () => {
     return (
       <Card className="group relative overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-1 border-gray-200 bg-white hover:border-blue-300">
         {/* Gradient overlay */}
-        <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${
-          client.team === 'creative' 
-            ? 'from-purple-500 to-pink-500' 
-            : 'from-blue-500 to-cyan-500'
-        }`} />
+          <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${
+            client.team === 'creative' 
+              ? 'from-purple-500 to-pink-500' 
+              : 'from-blue-500 to-cyan-500'
+          }`} />
 
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
@@ -191,11 +191,11 @@ const Clients: React.FC = () => {
                 name={client.name}
                 size="md"
                 className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold flex-shrink-0"
-              />
+                    />
               <div className="min-w-0 flex-1">
                 <CardTitle className="text-lg text-gray-900 truncate">
-                  {client.name}
-                </CardTitle>
+                    {client.name}
+                  </CardTitle>
                 <div className="flex items-center space-x-2 mt-1">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getTeamBadgeColor(client.team)}`}>
                     {client.team === 'creative' ? 'Creative Team' : 'Web Team'}
@@ -204,44 +204,44 @@ const Clients: React.FC = () => {
               </div>
             </div>
 
-            <PermissionGuard resource="client" action="edit">
+              <PermissionGuard resource="client" action="edit">
               <div className="relative flex-shrink-0">
-                <button
+                  <button
                   onClick={() => setShowActions(!showActions)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 rounded-full hover:bg-gray-100"
-                >
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 rounded-full hover:bg-gray-100"
+                  >
                   <MoreHorizontal className="h-4 w-4 text-gray-500" />
-                </button>
+                  </button>
 
                 {showActions && (
                   <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
+                      <button
+                        onClick={() => {
                         handleEditClient(client);
                         setShowActions(false);
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      >
                       <Edit3 className="h-4 w-4 mr-2" />
-                      Edit Client
-                    </button>
-                    <PermissionGuard resource="client" action="delete">
-                      <button
+                        Edit Client
+                      </button>
+                      <PermissionGuard resource="client" action="delete">
+                        <button
                         onClick={() => {
                           handleDeleteClient(client);
                           setShowActions(false);
                         }}
-                        disabled={deletingClientId === client.id}
-                        className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {deletingClientId === client.id ? 'Deleting...' : 'Delete Client'}
-                      </button>
-                    </PermissionGuard>
-                  </div>
-                )}
-              </div>
-            </PermissionGuard>
+                          disabled={deletingClientId === client.id}
+                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          {deletingClientId === client.id ? 'Deleting...' : 'Delete Client'}
+                        </button>
+                      </PermissionGuard>
+                    </div>
+                  )}
+                </div>
+              </PermissionGuard>
           </div>
         </CardHeader>
 
@@ -338,29 +338,29 @@ const Clients: React.FC = () => {
             <div className="flex items-center gap-8">
               <div className="relative">
                 <div className="flex bg-gray-50 rounded-xl p-1">
-                  <button
+                <button
                     onClick={() => setTeamFilter('creative')}
                     className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
                       teamFilter === 'creative'
                         ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
                         : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                     }`}
-                  >
+                >
                     Creative
-                  </button>
-                  <button
+                </button>
+                <button
                     onClick={() => setTeamFilter('web')}
                     className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ease-out ${
                       teamFilter === 'web'
                         ? 'bg-blue-500 text-white shadow-md transform translate-y-[-1px]'
                         : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                     }`}
-                  >
+                >
                     Web
-                  </button>
+                </button>
                 </div>
               </div>
-            
+
               {/* Divider */}
               <div className="h-5 w-px bg-gray-200"></div>
 
@@ -383,10 +383,10 @@ const Clients: React.FC = () => {
                     >
                       <X className="w-3.5 h-3.5 text-gray-400" />
                     </button>
-                  )}
+              )}
                 </div>
-              </div>
             </div>
+          </div>
 
             {/* Right side - Actions */}
             <div className="flex items-center gap-3">
@@ -409,13 +409,13 @@ const Clients: React.FC = () => {
               
               {/* Add Client Button */}
               <PermissionGuard resource="client" action="create">
-                <button 
+                  <button 
                   onClick={() => setNewClientModalOpen(true)}
                   className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
-                >
+                  >
                   <Plus className="w-4 h-4" />
                   Add Client
-                </button>
+                  </button>
               </PermissionGuard>
             </div>
           </div>

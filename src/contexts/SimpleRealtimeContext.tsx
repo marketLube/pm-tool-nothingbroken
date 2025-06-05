@@ -111,54 +111,15 @@ export function SimpleRealtimeProvider({ children }: { children: React.ReactNode
   );
 }
 
-export function useSimpleRealtime() {
+export const useSimpleRealtime = () => {
   const context = useContext(SimpleRealtimeContext);
   if (!context) {
-    throw new Error('useSimpleRealtime must be used within SimpleRealtimeProvider');
+    throw new Error('useSimpleRealtime must be used within a SimpleRealtimeProvider');
   }
   return context;
-}
+};
 
-// Hook for components to subscribe to task updates
-export function useTaskRefresh() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const { isLoggedIn } = useAuth();
-
-  const refreshTasks = async () => {
-    if (!isLoggedIn) return;
-    
-    setIsLoading(true);
-    try {
-      console.log('🔄 [TaskRefresh] Fetching fresh tasks...');
-      const freshTasks = await taskService.getTasks();
-      setTasks(freshTasks);
-      console.log(`✅ [TaskRefresh] Updated to ${freshTasks.length} tasks`);
-    } catch (error) {
-      console.error('[TaskRefresh] Error fetching tasks:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Subscribe to global refresh events
-  useEffect(() => {
-    console.log('🔄 [TaskRefresh] Registering callback with global system');
-    
-    // Add this refresh function to the global set
-    globalCallbacks.add(refreshTasks);
-    
-    // Initial load
-    if (isLoggedIn) {
-      refreshTasks();
-    }
-
-    // Cleanup on unmount
-    return () => {
-      console.log('🔄 [TaskRefresh] Unregistering callback from global system');
-      globalCallbacks.delete(refreshTasks);
-    };
-  }, [isLoggedIn]);
-
-  return { tasks, isLoading, refreshTasks };
-} 
+export const useTaskRefresh = () => {
+  const context = useContext(SimpleRealtimeContext);
+  return context?.refreshTasks || (() => {});
+}; 

@@ -1,5 +1,5 @@
 import { supabase } from '../utils/supabase';
-import { Task, TeamType } from '../types';
+import { Task, TeamType, StatusCode } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { getIndiaDateTime } from '../utils/timezone';
 
@@ -163,7 +163,7 @@ export const updateTaskStatus = async (taskId: string, status: string): Promise<
 };
 
 // Delete a task
-export const deleteTask = async (taskId: string): Promise<void> => {
+export const deleteTask = async (id: string): Promise<void> => {
   if (!supabase) {
     console.error('Supabase not configured');
     throw new Error('Supabase not configured');
@@ -172,10 +172,10 @@ export const deleteTask = async (taskId: string): Promise<void> => {
   const { error } = await supabase
     .from('tasks')
     .delete()
-    .eq('id', taskId);
+    .eq('id', id);
   
   if (error) {
-    console.error(`Error deleting task ${taskId}:`, error);
+    console.error(`Error deleting task ${id}:`, error);
     throw error;
   }
 };
@@ -359,4 +359,31 @@ export const getFilteredTasksByUser = async (
     clientId,
     sortBy
   });
+};
+
+// Demo function to create a test overdue task
+export const createTestOverdueTask = async (userId: string, clientId: string): Promise<Task> => {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    throw new Error('Supabase not configured');
+  }
+  
+  // Create a task that's overdue by setting due date to 3 days ago
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const dueDateStr = threeDaysAgo.toISOString().split('T')[0];
+  
+  const overdueTaskData = {
+    title: 'TEST OVERDUE TASK - Demo Positioning Fix',
+    description: 'This is a test task created to demonstrate the overdue label positioning. Please delete this task after testing.',
+    status: 'not_started' as StatusCode,
+    priority: 'high' as const,
+    assigneeId: userId,
+    clientId: clientId,
+    team: 'creative' as const,
+    dueDate: dueDateStr,
+    createdBy: userId
+  };
+  
+  return await createTask(overdueTaskData);
 }; 

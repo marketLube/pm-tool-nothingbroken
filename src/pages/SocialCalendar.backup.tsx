@@ -44,14 +44,7 @@ interface SocialCalendarTask {
 
 // Category options with colors and icons
 const getCategoryConfig = (category: string) => {
-  const configs: { [key: string]: { 
-    label: string; 
-    icon: React.ComponentType<{ className?: string }>; 
-    color: string; 
-    lightColor: string; 
-    textColor: string; 
-    borderColor: string; 
-  } } = {
+  const configs = {
     social_media: {
       label: 'Social Media Posts',
       icon: Hash,
@@ -273,8 +266,6 @@ const SocialCalendar: React.FC = () => {
           await createTable();
         }
       } else {
-        // Update existing tasks without categories to have 'works' category
-        await ensureTasksHaveCategory();
         setSocialTasks(data || []);
       }
     } catch (err) {
@@ -284,45 +275,8 @@ const SocialCalendar: React.FC = () => {
     }
   };
 
-  // Update existing tasks without categories to have 'works' category 
-  const ensureTasksHaveCategory = async () => {
-    if (!supabase) {
-      console.error('Supabase client not initialized');
-      return;
-    }
-
-    try {
-      console.log('Updating tasks without categories to have "works" category...');
-      
-      // Update any tasks where category is null or empty to have 'works' category
-      const { data, error } = await supabase
-        .from('social_calendar_tasks')
-        .update({ category: 'works' })
-        .or('category.is.null,category.eq.')
-        .select('id');
-
-      if (error) {
-        console.error('Error updating task categories:', error);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        console.log(`Successfully updated ${data.length} tasks to have "works" category`);
-      } else {
-        console.log('No tasks needed category updates');
-      }
-    } catch (err) {
-      console.error('Failed to update task categories:', err);
-    }
-  };
-
   // Create the table if it doesn't exist
   const createTable = async () => {
-    if (!supabase) {
-      console.error('Supabase client not initialized');
-      return;
-    }
-
     try {
       console.log('Creating social_calendar_tasks table...');
       
@@ -396,15 +350,6 @@ const SocialCalendar: React.FC = () => {
       loadTasks();
     }
   }, [selectedClientId, selectedTeam]);
-
-  // Run category update once on component mount
-  useEffect(() => {
-    const initializeCategories = async () => {
-      await ensureTasksHaveCategory();
-    };
-    
-    initializeCategories();
-  }, []); // Run only once on mount
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -535,11 +480,6 @@ const SocialCalendar: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!supabase) {
-      console.error('Supabase client not initialized');
-      return;
-    }
-    
     if (!confirm('Are you sure you want to delete this task?')) return;
     
     try {
@@ -558,12 +498,7 @@ const SocialCalendar: React.FC = () => {
     }
   };
 
-  const handleSaveTask = async (title: string, date: string, category: string) => {
-    if (!supabase) {
-      console.error('Supabase client not initialized');
-      return;
-    }
-    
+  const handleSaveTask = async (title: string, date: string) => {
     if (!selectedClientId || !currentClient) {
       console.error('Missing required data:', { selectedClientId, currentClient });
       alert('Please select a client before saving the task.');
@@ -576,7 +511,7 @@ const SocialCalendar: React.FC = () => {
       client_id: selectedClientId,
       client_name: currentClient.name,
       team: currentClient.team,
-      category
+      category: currentClient.category
     };
 
     console.log('Saving task with data:', taskData);
@@ -590,7 +525,7 @@ const SocialCalendar: React.FC = () => {
           client_id: selectedClientId,
           client_name: currentClient.name,
           team: currentClient.team,
-          category
+          category: currentClient.category
         };
         
         console.log('Updating task with data:', updateData);
@@ -657,11 +592,6 @@ const SocialCalendar: React.FC = () => {
   };
 
   const handleExportCalendar = async () => {
-    if (!supabase) {
-      console.error('Supabase client not initialized');
-      return;
-    }
-    
     try {
       setIsExporting(true);
       
@@ -1078,41 +1008,35 @@ const SocialCalendar: React.FC = () => {
                       
                       {/* Tasks */}
                       <div className="space-y-1">
-                        {dayTasks.slice(0, 3).map(task => {
-                          const categoryConfig = getCategoryConfig(task.category || 'works');
-                          return (
-                            <div
-                              key={task.id}
-                              className="group relative"
+                        {dayTasks.slice(0, 3).map(task => (
+                          <div
+                            key={task.id}
+                            className="group relative"
+                          >
+                            <div className={`text-xs p-1.5 rounded cursor-pointer transition-all hover:shadow-md ${
+                              task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                            } text-white truncate`}
+                              onClick={() => handleEditTask(task)}
+                              title={task.title}
                             >
-                              <div className={`text-xs p-1.5 rounded cursor-pointer transition-all hover:shadow-md ${
-                                categoryConfig.color
-                              } text-white truncate`}
-                                onClick={() => handleEditTask(task)}
-                                title={`${categoryConfig.label}: ${task.title}`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center space-x-1 min-w-0">
-                                    <categoryConfig.icon className="h-3 w-3 flex-shrink-0" />
-                                    <span className="truncate">{task.title}</span>
-                                  </div>
-                                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Edit className="h-3 w-3" />
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteTask(task.id);
-                                      }}
-                                      className="text-white hover:text-red-200"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
-                                  </div>
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">{task.title}</span>
+                                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <Edit className="h-3 w-3" />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteTask(task.id);
+                                    }}
+                                    className="text-white hover:text-red-200"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
                                 </div>
                               </div>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                         
                         {/* Show more indicator */}
                         {dayTasks.length > 3 && (
@@ -1164,17 +1088,14 @@ const SocialCalendar: React.FC = () => {
                 <div className="max-h-80 overflow-y-auto">
                   <div className="p-3 space-y-2">
                     {/* Show first 3 tasks as summary */}
-                    {getTasksForDate(parseISO(hoveredDay)).slice(0, 3).map((task, index) => {
-                      const categoryConfig = getCategoryConfig(task.category || 'works');
-                      return (
-                        <div key={`summary-${task.id}`} className="flex items-center space-x-2 text-xs text-gray-600 border-b border-gray-100 pb-1">
-                          <div className={`w-2 h-2 rounded-full ${categoryConfig.color.replace('bg-', 'bg-')}`}></div>
-                          <categoryConfig.icon className="h-3 w-3 text-gray-500" />
-                          <span className="truncate">{task.title}</span>
-                          <span className="text-xs text-gray-500">({categoryConfig.label})</span>
-                        </div>
-                      );
-                    })}
+                    {getTasksForDate(parseISO(hoveredDay)).slice(0, 3).map((task, index) => (
+                      <div key={`summary-${task.id}`} className="flex items-center space-x-2 text-xs text-gray-600 border-b border-gray-100 pb-1">
+                        <div className={`w-2 h-2 rounded-full ${
+                          task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                        }`}></div>
+                        <span className="truncate">{task.title}</span>
+                      </div>
+                    ))}
                     
                     {getTasksForDate(parseISO(hoveredDay)).length > 3 && (
                       <div className="border-t border-gray-200 pt-2 mt-2">
@@ -1183,74 +1104,72 @@ const SocialCalendar: React.FC = () => {
                     )}
                     
                     {/* Show the overflow tasks with better styling */}
-                    {getTasksForDate(parseISO(hoveredDay)).slice(3).map((task, index) => {
-                      const categoryConfig = getCategoryConfig(task.category || 'works');
-                      return (
-                        <div
-                          key={task.id}
-                          className={`group relative rounded-md border p-3 transition-all duration-200 hover:shadow-md cursor-pointer ${
-                            categoryConfig.lightColor} ${categoryConfig.borderColor || 'border-gray-200'
-                          } hover:${categoryConfig.lightColor.replace('bg-', 'bg-').replace('-100', '-200')}`}
-                          onClick={() => handleEditTask(task)}
-                        >
-                          {/* Category indicator stripe */}
-                          <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${
-                            categoryConfig.color
-                          }`}></div>
+                    {getTasksForDate(parseISO(hoveredDay)).slice(3).map((task, index) => (
+                      <div
+                        key={task.id}
+                        className={`group relative rounded-md border p-3 transition-all duration-200 hover:shadow-md cursor-pointer ${
+                          task.team === 'creative' 
+                            ? 'border-purple-200 bg-purple-50 hover:bg-purple-100' 
+                            : 'border-blue-200 bg-blue-50 hover:bg-blue-100'
+                        }`}
+                        onClick={() => handleEditTask(task)}
+                      >
+                        {/* Team indicator stripe */}
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${
+                          task.team === 'creative' ? 'bg-purple-500' : 'bg-blue-500'
+                        }`}></div>
+                        
+                        <div className="ml-1">
+                          {/* Task title */}
+                          <h6 className="font-medium text-sm text-gray-900 mb-1 line-clamp-2">
+                            {task.title}
+                          </h6>
                           
-                          <div className="ml-1">
-                            {/* Task title */}
-                            <div className="flex items-center space-x-2 mb-1">
-                              <categoryConfig.icon className={`h-4 w-4 ${categoryConfig.textColor}`} />
-                              <h6 className="font-medium text-sm text-gray-900 line-clamp-2 flex-1">
-                                {task.title}
-                              </h6>
+                          {/* Task meta info */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                task.team === 'creative'
+                                  ? 'bg-purple-100 text-purple-700'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {task.team === 'creative' ? 'Creative' : 'Web'}
+                              </span>
+                              
+                              {task.client_name && (
+                                <span className="text-xs text-gray-600 truncate max-w-24">
+                                  {task.client_name}
+                                </span>
+                              )}
                             </div>
                             
-                            {/* Task meta info */}
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-2">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                  categoryConfig.lightColor} ${categoryConfig.textColor
-                                }`}>
-                                  {categoryConfig.label}
-                                </span>
-                                
-                                {task.client_name && (
-                                  <span className="text-xs text-gray-600 truncate max-w-24">
-                                    {task.client_name}
-                                  </span>
-                                )}
-                              </div>
-                              
-                              {/* Action buttons on hover */}
-                              <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEditTask(task);
-                                  }}
-                                  className="p-1 rounded hover:bg-white/50 transition-colors"
-                                  title="Edit task"
-                                >
-                                  <Edit className="h-3 w-3 text-gray-600" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteTask(task.id);
-                                  }}
-                                  className="p-1 rounded hover:bg-red-100 transition-colors"
-                                  title="Delete task"
-                                >
-                                  <Trash2 className="h-3 w-3 text-red-600" />
-                                </button>
-                              </div>
+                            {/* Action buttons on hover */}
+                            <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditTask(task);
+                                }}
+                                className="p-1 rounded hover:bg-white/50 transition-colors"
+                                title="Edit task"
+                              >
+                                <Edit className="h-3 w-3 text-gray-600" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteTask(task.id);
+                                }}
+                                className="p-1 rounded hover:bg-red-100 transition-colors"
+                                title="Delete task"
+                              >
+                                <Trash2 className="h-3 w-3 text-red-600" />
+                              </button>
                             </div>
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 </div>
                 

@@ -58,6 +58,7 @@ interface DataContextType {
   updateTask: (task: Task) => Promise<void>;
   updateTaskStatus: (taskId: string, status: StatusCode) => Promise<Task>;
   deleteTask: (taskId: string) => Promise<void>;
+  createTestOverdueTask: () => Promise<Task>;
   searchTasks: (filters: TaskSearchFilters) => Promise<Task[]>;
 
   // 🔥 NEW: Drag operation management
@@ -508,7 +509,7 @@ export function DataProvider({ children }: DataProviderProps) {
       // Update local state immediately
       setTasks(prevTasks => {
         const updatedTasks = prevTasks.map(task => 
-          task.id === updatedTask.id ? updated : task
+        task.id === updatedTask.id ? updated : task
         );
         // Calculate analytics with the updated tasks array
         updateTaskAnalytics(updatedTasks);
@@ -530,7 +531,7 @@ export function DataProvider({ children }: DataProviderProps) {
       // Update local state immediately
       setTasks(prevTasks => {
         const updatedTasks = prevTasks.map(task => 
-          task.id === taskId ? updated : task
+        task.id === taskId ? updated : task
         );
         // Calculate analytics with the updated tasks array
         updateTaskAnalytics(updatedTasks);
@@ -548,11 +549,6 @@ export function DataProvider({ children }: DataProviderProps) {
   const deleteTask = async (taskId: string) => {
     try {
       console.log('[DataContext] Deleting task:', taskId);
-      
-      // First remove the task from all daily reports
-      await dailyReportService.removeTaskFromAllDailyReports(taskId);
-      
-      // Then delete the task from the database
       await taskService.deleteTask(taskId);
       
       // Update local state immediately
@@ -565,8 +561,36 @@ export function DataProvider({ children }: DataProviderProps) {
       
       console.log('[DataContext] Task deleted successfully:', taskId);
     } catch (error) {
-      console.error('[DataContext] Error deleting task:', error);
-      throw error; // Re-throw to let the UI handle it
+      console.error('Error deleting task:', error);
+      throw error;
+    }
+  };
+
+  // Demo function to create test overdue task
+  const createTestOverdueTask = async () => {
+    try {
+      if (!currentUser || clients.length === 0) {
+        throw new Error('User not logged in or no clients available');
+      }
+      
+      // Use the first available client
+      const firstClient = clients[0];
+      console.log('[DataContext] Creating test overdue task for client:', firstClient.name);
+      
+      const newTask = await taskService.createTestOverdueTask(currentUser.id, firstClient.id);
+      
+      // Update local state immediately
+      setTasks(prevTasks => {
+        const updatedTasks = [...prevTasks, newTask];
+        updateTaskAnalytics(updatedTasks);
+        return updatedTasks;
+      });
+      
+      console.log('[DataContext] Test overdue task created successfully:', newTask.id);
+      return newTask;
+    } catch (error) {
+      console.error('Error creating test overdue task:', error);
+      throw error;
     }
   };
 
@@ -869,42 +893,43 @@ export function DataProvider({ children }: DataProviderProps) {
 
   // 🔥 CRITICAL FIX: Memoize the context value to prevent constant recreations
   const contextValue = useMemo(() => ({
-    users,
-    teams,
-    clients,
-    tasks,
-    reports,
-    analytics,
-    isLoading,
-    addUser,
-    updateUser,
-    toggleUserStatus,
-    addTask,
-    updateTask,
-    updateTaskStatus,
-    deleteTask,
-    addClient,
-    updateClient,
-    deleteClient,
-    refreshClients,
-    addReport,
-    updateReport,
-    approveReport,
-    submitReport,
-    updateTeam,
-    getTasksByUser,
-    getTasksByTeam,
-    getUsersByTeam,
-    getClientsByTeam,
-    getReportsByUser,
-    getReportsByDate,
-    getUserById,
-    getClientById,
-    getTeamById,
-    getTaskById,
-    searchTasks,
-    searchUsers,
-    searchClients,
+        users,
+        teams,
+        clients,
+        tasks,
+        reports,
+        analytics,
+        isLoading,
+        addUser,
+        updateUser,
+        toggleUserStatus,
+        addTask,
+        updateTask,
+        updateTaskStatus,
+        deleteTask,
+        createTestOverdueTask,
+        addClient,
+        updateClient,
+        deleteClient,
+        refreshClients,
+        addReport,
+        updateReport,
+        approveReport,
+        submitReport,
+        updateTeam,
+        getTasksByUser,
+        getTasksByTeam,
+        getUsersByTeam,
+        getClientsByTeam,
+        getReportsByUser,
+        getReportsByDate,
+        getUserById,
+        getClientById,
+        getTeamById,
+        getTaskById,
+        searchTasks,
+        searchUsers,
+        searchClients,
     searchReports,
     setDragOperationActive,
     isDragOperationActive,
@@ -929,10 +954,10 @@ export function DataProvider({ children }: DataProviderProps) {
   );
 }
 
-export function useData() {
+export const useData = () => {
   const context = useContext(DataContext);
   if (!context) {
     throw new Error('useData must be used within a DataProvider');
   }
   return context;
-}
+};

@@ -242,8 +242,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
       >
         {/* Client Name Banner at top */}
         <div className="absolute top-0 left-0 right-0 py-1.5 px-3 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border-b border-indigo-100 z-10">
-          <div className="flex items-center">
+          <div className="flex items-center justify-between">
             <span className="text-xs font-bold tracking-wide uppercase text-indigo-800 truncate">{client?.name || 'Unassigned Client'}</span>
+            {/* Overdue indicator in client banner */}
+            {isOverdue && (
+              <div className="flex items-center bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-medium ml-2 flex-shrink-0">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                <span>OVERDUE</span>
+              </div>
+            )}
           </div>
         </div>
         
@@ -291,33 +298,20 @@ const TaskCard: React.FC<TaskCardProps> = ({
         )}
         
         <CardContent className="p-4 pt-8 flex flex-col h-full relative min-h-[200px]">
-          {/* Warning Messages - Fixed Positioning */}
-          <div className="absolute top-[-4px] left-2 right-12 space-y-1 z-20">
-            {/* Overdue warning - Higher priority */}
-            {isOverdue && (
-              <div className="bg-red-100 border border-red-200 rounded-md px-2 py-1 shadow-sm">
-                <div className="flex items-center space-x-1">
-                  <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
-                  <span className="text-xs text-red-700 font-medium">Overdue Task</span>
+          {/* Missing assignee warning - positioned better */}
+          {task.assigneeId && !assignee && (
+            <div className="mb-3 bg-orange-100 border border-orange-200 rounded-md px-2 py-1 shadow-sm">
+              <div className="flex items-center space-x-1">
+                <div className="w-3 h-3 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs text-white font-bold">!</span>
                 </div>
+                <span className="text-xs text-orange-700 font-medium">Assignee not found</span>
               </div>
-            )}
-            
-            {/* Missing assignee warning */}
-            {task.assigneeId && !assignee && (
-              <div className="bg-orange-100 border border-orange-200 rounded-md px-2 py-1 shadow-sm">
-                <div className="flex items-center space-x-1">
-                  <div className="w-3 h-3 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs text-white font-bold">!</span>
-                  </div>
-                  <span className="text-xs text-orange-700 font-medium">Assignee not found</span>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
           
-          {/* Main content with proper top margin to avoid warning overlap */}
-          <div className={`flex flex-col h-full ${(isOverdue || (task.assigneeId && !assignee)) ? 'mt-8' : 'mt-2'}`}>
+          {/* Main content with proper spacing */}
+          <div className="flex flex-col h-full">
             {/* Status and Priority Row */}
             <div className="flex justify-between items-center mb-2.5">
               <Badge variant={getStatusColor()} size="sm" className="py-0.5">

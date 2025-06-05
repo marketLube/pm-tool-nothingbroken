@@ -8,25 +8,25 @@ const serviceRoleKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 // 🔥 IMPROVED: Graceful validation instead of throwing errors
 const validateEnvironment = () => {
-  if (!supabaseUrl) {
+if (!supabaseUrl) {
     console.error('❌ Missing VITE_SUPABASE_URL environment variable. Please check your .env file.');
     return false;
-  }
+}
 
-  // TEMPORARY FIX: Use service role key if anon key is not working
-  // In production, you should fix the anon key and RLS policies instead
-  const effectiveKey = serviceRoleKey || supabaseKey;
+// TEMPORARY FIX: Use service role key if anon key is not working
+// In production, you should fix the anon key and RLS policies instead
+const effectiveKey = serviceRoleKey || supabaseKey;
 
-  if (!effectiveKey) {
+if (!effectiveKey) {
     console.error('❌ Missing required Supabase API key. Please check your .env file.');
     return false;
-  }
+}
 
   console.log('✅ Supabase client initialized with:', {
-    url: supabaseUrl,
-    keyType: serviceRoleKey ? 'service_role (TEMP FIX)' : 'anon',
-    keyExists: !!effectiveKey
-  });
+  url: supabaseUrl,
+  keyType: serviceRoleKey ? 'service_role (TEMP FIX)' : 'anon',
+  keyExists: !!effectiveKey
+});
 
   return true;
 };

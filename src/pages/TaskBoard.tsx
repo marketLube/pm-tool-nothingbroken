@@ -7,7 +7,7 @@ import Button from '../components/ui/Button';
 import { useAuth } from '../contexts/AuthContext';
 import { useStatus } from '../contexts/StatusContext';
 import { useNotification } from '../contexts/NotificationContext';
-import { useSimpleRealtime, useTaskRefresh } from '../contexts/SimpleRealtimeContext';
+import { useSimpleRealtime } from '../contexts/SimpleRealtimeContext';
 import { Task, StatusCode, TeamType } from '../types';
 import { Plus, Wifi, WifiOff, ChevronLeft, ChevronRight, Search, Users, Building2, X, ChevronDown } from 'lucide-react';
 import * as taskService from '../services/taskService';
@@ -27,10 +27,9 @@ const TaskBoard: React.FC = () => {
   const { getStatusesByTeam } = useStatus();
   const { showError, showSuccess } = useNotification();
   const { refreshTasks, isConnected, pausePolling, resumePolling } = useSimpleRealtime();
-  const { tasks, isLoading } = useTaskRefresh();
   
-  // Get DataContext for user/client lookups
-  const { getUserById, getClientById } = useData();
+  // Get DataContext for user/client lookups and tasks
+  const { getUserById, getClientById, tasks } = useData();
 
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -350,14 +349,14 @@ const TaskBoard: React.FC = () => {
     };
   }, [newTaskModalOpen, pausePolling, resumePolling]);
 
-  if (isLoading && tasks.length === 0) {
+  if (tasks.length === 0) {
     return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
         <div className="inline-block w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin"></div>
           <p className="mt-2 text-gray-600">Loading tasks...</p>
-        </div>
       </div>
+    </div>
     );
   }
 
@@ -402,8 +401,8 @@ const TaskBoard: React.FC = () => {
             )}
           </p>
         </div>
-      </div>
-      
+        </div>
+        
       {/* Minimal Modern Filter Bar */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
         <div className="p-5">
@@ -432,9 +431,9 @@ const TaskBoard: React.FC = () => {
                   >
                     Web
                   </button>
-            </div>
-              </div>
-            
+        </div>
+      </div>
+      
               {/* Minimal Divider */}
               <div className="h-5 w-px bg-gray-200"></div>
 
@@ -507,15 +506,15 @@ const TaskBoard: React.FC = () => {
                               {employee}
                             </button>
                           ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                </div>
+              </div>
+                  )}
+                </div>
                 )}
 
                 {/* Client Dropdown - Team Oriented & Minimal */}
                 <div className="relative" ref={clientDropdownRef}>
-                  <button
+              <button 
                     onClick={() => {
                       setIsClientDropdownOpen(!isClientDropdownOpen);
                       setIsEmployeeDropdownOpen(false);
@@ -531,12 +530,12 @@ const TaskBoard: React.FC = () => {
                       {selectedClient || `${teamFilter === 'creative' ? 'Creative' : 'Web'} Clients`}
                     </span>
                     <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isClientDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
+              </button>
                   
                   {isClientDropdownOpen && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 z-[9999] max-h-48 overflow-y-auto animate-in slide-in-from-top-2 duration-200">
                       <div className="p-1">
-                        <button
+              <button 
                           onClick={() => handleClientSelect('')}
                           className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
                             !selectedClient 
@@ -545,9 +544,9 @@ const TaskBoard: React.FC = () => {
                           }`}
                         >
                           All {teamFilter === 'creative' ? 'Creative' : 'Web'} Clients
-                        </button>
+              </button>
                         {clients.map(client => (
-                          <button
+              <button 
                             key={client}
                             onClick={() => handleClientSelect(client)}
                             className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors duration-150 ${
@@ -557,11 +556,11 @@ const TaskBoard: React.FC = () => {
                             }`}
                           >
                             {client}
-                          </button>
+              </button>
                         ))}
                       </div>
-                    </div>
-                  )}
+            </div>
+          )}
                 </div>
               </div>
             </div>
@@ -575,27 +574,27 @@ const TaskBoard: React.FC = () => {
                     <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
                     {[searchTerm && 'Search', (isAdmin && selectedEmployee) && 'Staff', selectedClient && 'Client'].filter(Boolean).length} active
                   </div>
-                  <button 
+              <button 
                     onClick={clearFilters}
                     className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
-                  >
+              >
                     <X className="w-3 h-3" />
                     Clear
-                  </button>
-                </div>
-              )}
+              </button>
+            </div>
+          )}
               
               {/* Action Buttons - Only for Admins */}
               {isAdmin && (
-                <button 
+              <button 
                   onClick={() => setNewTaskModalOpen(true)}
                   className="flex items-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-all duration-200 hover:shadow-md"
-                >
+              >
                   <Plus className="w-4 h-4" />
                   Add Task
-                </button>
-              )}
-            </div>
+              </button>
+          )}
+        </div>
             </div>
         </div>
       </div>
@@ -648,7 +647,7 @@ const TaskBoard: React.FC = () => {
                           </div>
                           <span className="bg-gray-100 text-gray-700 text-xs font-medium rounded-full px-2.5 py-1 ml-2 flex-shrink-0">
                             {column.tasks.length}
-                          </span>
+              </span>
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 flex-1 flex flex-col min-h-0">
@@ -671,7 +670,7 @@ const TaskBoard: React.FC = () => {
                                         : 'No personal tasks'
                                     }
                                   </p>
-                                </div>
+            </div>
                               ) : (
                                 <div className="flex-1 space-y-2 min-h-0">
                                   {column.tasks.map((task, index) => (
@@ -686,7 +685,7 @@ const TaskBoard: React.FC = () => {
                                               ? 'z-50 shadow-xl opacity-95 scale-[1.02] rotate-1' 
                                               : 'hover:shadow-md'
                                           }`}
-                                          style={{
+            style={{ 
                                             ...provided.draggableProps.style,
                                             willChange: snapshot.isDragging ? 'transform' : 'auto',
                                           }}
@@ -700,8 +699,8 @@ const TaskBoard: React.FC = () => {
                                         </div>
                                       )}
                                     </Draggable>
-                                  ))}
-                                </div>
+              ))}
+                    </div>
                               )}
                               {provided.placeholder}
                               
@@ -723,9 +722,9 @@ const TaskBoard: React.FC = () => {
                                   <div className="text-xs text-gray-400 text-center py-2">
                                     Only admins can create tasks
                                   </div>
-                                </div>
-                              )}
-                            </div>
+                      </div>
+                    )}
+              </div>
                           )}
                         </Droppable>
                       </CardContent>
@@ -751,11 +750,11 @@ const TaskBoard: React.FC = () => {
       
       {/* New Task Modal - Only for Admins */}
       {isAdmin && newTaskModalOpen && (
-        <NewTaskModal
-          isOpen={newTaskModalOpen}
-          onClose={handleCloseTaskModal}
-          initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
-        />
+      <NewTaskModal
+        isOpen={newTaskModalOpen}
+        onClose={handleCloseTaskModal}
+        initialData={selectedTask ? selectedTask : initialStatus ? { status: initialStatus, team: teamFilter } : { team: teamFilter }}
+      />
       )}
     </div>
   );

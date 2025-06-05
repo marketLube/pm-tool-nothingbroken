@@ -10,17 +10,29 @@ CREATE TABLE IF NOT EXISTS social_calendar_tasks (
     date DATE NOT NULL,
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     team TEXT NOT NULL CHECK (team IN ('creative', 'web')),
+    category TEXT NOT NULL DEFAULT 'works' CHECK (category IN ('social_media', 'works', 'meetings')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Add category column to existing table if it doesn't exist
+ALTER TABLE social_calendar_tasks ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'works' CHECK (category IN ('social_media', 'works', 'meetings'));
+
+-- Update existing records that don't have a category
+UPDATE social_calendar_tasks SET category = 'works' WHERE category IS NULL;
+
+-- Make category NOT NULL after setting default values
+ALTER TABLE social_calendar_tasks ALTER COLUMN category SET NOT NULL;
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS social_calendar_tasks_date_idx ON social_calendar_tasks(date);
 CREATE INDEX IF NOT EXISTS social_calendar_tasks_client_id_idx ON social_calendar_tasks(client_id);
 CREATE INDEX IF NOT EXISTS social_calendar_tasks_team_idx ON social_calendar_tasks(team);
+CREATE INDEX IF NOT EXISTS social_calendar_tasks_category_idx ON social_calendar_tasks(category);
 
 -- Create a compound index for common queries
 CREATE INDEX IF NOT EXISTS social_calendar_tasks_client_date_idx ON social_calendar_tasks(client_id, date);
+CREATE INDEX IF NOT EXISTS social_calendar_tasks_client_category_idx ON social_calendar_tasks(client_id, category);
 
 -- Set up Row Level Security (RLS)
 ALTER TABLE social_calendar_tasks ENABLE ROW LEVEL SECURITY;

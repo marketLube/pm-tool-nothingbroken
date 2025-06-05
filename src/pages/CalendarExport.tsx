@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { format, parseISO, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek } from 'date-fns';
 import { supabase } from '../utils/supabase';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
-import { Calendar as CalendarIcon, Building, Clock, ExternalLink, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Building, Clock, ExternalLink, X, Filter, Hash, Camera, Users } from 'lucide-react';
 
 interface ExportedTask {
   id: string;
@@ -12,6 +12,7 @@ interface ExportedTask {
   client_id: string;
   client_name: string;
   team: string;
+  category?: string;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +28,44 @@ interface CalendarExportData {
   expires_at: string;
 }
 
+// Category configuration with colors and icons
+const getCategoryConfig = (category: string) => {
+  const configs: Record<string, {
+    label: string;
+    icon: any;
+    color: string;
+    lightColor: string;
+    textColor: string;
+    borderColor?: string;
+  }> = {
+    social_media: {
+      label: 'Social Media',
+      icon: Hash,
+      color: 'bg-pink-500',
+      lightColor: 'bg-pink-100',
+      textColor: 'text-pink-700',
+      borderColor: 'border-pink-400'
+    },
+    works: {
+      label: 'Works',
+      icon: Camera,
+      color: 'bg-blue-500',
+      lightColor: 'bg-blue-100',
+      textColor: 'text-blue-700',
+      borderColor: 'border-blue-400'
+    },
+    meetings: {
+      label: 'Meetings',
+      icon: Users,
+      color: 'bg-green-500',
+      lightColor: 'bg-green-100',
+      textColor: 'text-green-700',
+      borderColor: 'border-green-400'
+    }
+  };
+  return configs[category] || configs.works;
+};
+
 // Mobile detection utility
 const isMobileDevice = () => {
   return window.innerWidth <= 768 || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -39,6 +78,10 @@ const CalendarExport: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
 
+  // Category filtering state - DEFAULT TO SHOW FILTERS
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(['social_media', 'works', 'meetings']);
+  const [showCategoryFilter, setShowCategoryFilter] = useState(true); // Changed to true for default show
+
   // Day popup state for mobile touch/click
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [isDayPopupOpen, setIsDayPopupOpen] = useState(false);
@@ -46,6 +89,13 @@ const CalendarExport: React.FC = () => {
 
   // View toggle state (calendar vs list) - only for mobile
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
+
+  // Hover tooltip state for desktop
+  const [hoveredDay, setHoveredDay] = useState<string | null>(null);
+  const [isTooltipVisible, setIsTooltipVisible] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
+  const [isTooltipHovered, setIsTooltipHovered] = useState(false);
+  const [isDayHovered, setIsDayHovered] = useState(false);
 
   // Check if device is mobile
   useEffect(() => {
@@ -110,7 +160,26 @@ const CalendarExport: React.FC = () => {
   const getTasksForDate = (date: Date): ExportedTask[] => {
     if (!exportData) return [];
     const dateStr = format(date, 'yyyy-MM-dd');
-    return exportData.tasks.filter(task => task.date === dateStr);
+    return exportData.tasks
+      .filter(task => task.date === dateStr)
+      .filter(task => selectedCategories.includes(task.category || 'works'));
+  };
+
+  // Category filter functions
+  const toggleCategory = (category: string) => {
+    setSelectedCategories(prev => 
+      prev.includes(category) 
+        ? prev.filter(c => c !== category)
+        : [...prev, category]
+    );
+  };
+
+  const selectAllCategories = () => {
+    setSelectedCategories(['social_media', 'works', 'meetings']);
+  };
+
+  const clearAllCategories = () => {
+    setSelectedCategories([]);
   };
 
   const getTeamColor = (team: string) => {
@@ -152,6 +221,51 @@ const CalendarExport: React.FC = () => {
   const closeDayPopup = () => {
     setIsDayPopupOpen(false);
     setSelectedDay(null);
+  };
+
+  // Hover tooltip handlers for desktop
+  const handleDayMouseEnter = (day: Date, event: React.MouseEvent) => {
+    if (isMobile) return; // Only for desktop
+    
+    const dayTasks = getTasksForDate(day);
+    if (dayTasks.length <= 4) return; // Only show tooltip if more than 4 tasks
+    
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top;
+    
+    setTooltipPosition({ x, y });
+    setHoveredDay(format(day, 'yyyy-MM-dd'));
+    
+    // Add small delay to prevent immediate popup
+    setTimeout(() => {
+      if (isDayHovered) {
+        setIsTooltipVisible(true);
+      }
+    }, 300);
+  };
+
+  const handleDayMouseLeave = () => {
+    if (isMobile) return;
+    
+    setIsDayHovered(false);
+    // Add small delay before hiding to allow moving to tooltip
+    setTimeout(() => {
+      if (!isTooltipHovered) {
+        setIsTooltipVisible(false);
+        setHoveredDay(null);
+      }
+    }, 100);
+  };
+
+  const handleTooltipMouseEnter = () => {
+    setIsTooltipHovered(true);
+  };
+
+  const handleTooltipMouseLeave = () => {
+    setIsTooltipHovered(false);
+    setIsTooltipVisible(false);
+    setHoveredDay(null);
   };
 
   // Generate calendar days
@@ -242,7 +356,7 @@ const CalendarExport: React.FC = () => {
             </div>
 
             {/* View toggle buttons */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-1 border border-white/20">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-1 border border-white/20 mb-3">
               <div className="grid grid-cols-2 gap-0.5">
                 <button
                   onClick={() => setViewMode('calendar')}
@@ -270,11 +384,74 @@ const CalendarExport: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Category Filter */}
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/20">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-1.5">
+                  <Filter className="h-3.5 w-3.5 text-white/80" />
+                  <span className="text-xs font-medium text-white/80 uppercase tracking-wide">Filter by Category</span>
+                </div>
+                <button
+                  onClick={() => setShowCategoryFilter(!showCategoryFilter)}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <svg className={`h-4 w-4 transition-transform ${showCategoryFilter ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+              
+              {showCategoryFilter && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { value: 'social_media', ...getCategoryConfig('social_media') },
+                      { value: 'works', ...getCategoryConfig('works') },
+                      { value: 'meetings', ...getCategoryConfig('meetings') }
+                    ].map((category) => {
+                      const Icon = category.icon;
+                      const isSelected = selectedCategories.includes(category.value);
+                      
+                      return (
+                        <button
+                          key={category.value}
+                          onClick={() => toggleCategory(category.value)}
+                          className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'bg-white text-blue-600 shadow-sm'
+                              : 'bg-white/20 text-white/70 hover:bg-white/30'
+                          }`}
+                        >
+                          <Icon className="h-3 w-3" />
+                          <span>{category.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <div className="flex space-x-2 pt-1">
+                    <button
+                      onClick={selectAllCategories}
+                      className="flex-1 text-xs text-white/60 hover:text-white/80 transition-colors"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={clearAllCategories}
+                      className="flex-1 text-xs text-white/60 hover:text-white/80 transition-colors"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : (
         /* Desktop Header - Keep existing design */
-        <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="bg-white shadow-sm border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6">
             <div className="flex flex-col space-y-3 sm:space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center space-x-2 sm:space-x-3">
@@ -282,25 +459,25 @@ const CalendarExport: React.FC = () => {
                 <div className="min-w-0 flex-1">
                   <h1 className="text-base sm:text-2xl font-bold text-gray-900 truncate leading-tight">
                     {exportData.client_name}
-                  </h1>
+              </h1>
                   <div className="hidden sm:flex sm:flex-col lg:flex-row lg:items-center lg:space-x-4 mt-1 space-y-1 lg:space-y-0">
-                    <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-1">
                       <Building className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 flex-shrink-0" />
                       <span className="text-xs sm:text-sm text-gray-600 truncate">{exportData.client_name}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
+                  </div>
+                  <div className="flex items-center space-x-1">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${getTeamColor(exportData.team)}`}></div>
                       <span className="text-xs sm:text-sm text-gray-600">{getTeamLabel(exportData.team)}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
+                  </div>
+                  <div className="flex items-center space-x-1">
                       <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500 flex-shrink-0" />
                       <span className="text-xs sm:text-sm text-gray-600">
-                        Expires {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                      Expires {format(parseISO(exportData.expires_at), 'MMM d, yyyy')}
+                </span>
               </div>
+            </div>
+              </div>
+            </div>
               
               <div className="hidden sm:block text-right">
                 <p className="text-xs sm:text-sm text-gray-500">Shared Calendar</p>
@@ -309,6 +486,80 @@ const CalendarExport: React.FC = () => {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Category Filters */}
+      {!isMobile && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 border-b border-gray-100">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <Filter className="h-4 w-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700">Filter by Category</span>
+              </div>
+              <button
+                onClick={() => setShowCategoryFilter(!showCategoryFilter)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className={`h-4 w-4 transition-transform ${showCategoryFilter ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+            
+            {showCategoryFilter && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: 'social_media', ...getCategoryConfig('social_media') },
+                    { value: 'works', ...getCategoryConfig('works') },
+                    { value: 'meetings', ...getCategoryConfig('meetings') }
+                  ].map((category) => {
+                    const Icon = category.icon;
+                    const isSelected = selectedCategories.includes(category.value);
+                    
+                    return (
+                      <button
+                        key={category.value}
+                        onClick={() => toggleCategory(category.value)}
+                        className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          isSelected
+                            ? `${category.lightColor} ${category.textColor} border-2 ${category.borderColor || 'border-transparent'}`
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border-2 border-transparent'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span>{category.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <div className="flex items-center space-x-4 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={selectAllCategories}
+                    className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={clearAllCategories}
+                    className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Clear All
+                  </button>
+                  <div className="flex-1"></div>
+                  <span className="text-xs text-gray-500">
+                    {selectedCategories.length === 0 
+                      ? 'No categories selected' 
+                      : `${selectedCategories.length} of 3 categories selected`
+                    }
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -374,39 +625,50 @@ const CalendarExport: React.FC = () => {
 
                   {/* Tasks for this date */}
                   <div className="divide-y divide-gray-50">
-                    {tasks.map((task, index) => (
-                      <div key={task.id} className="p-4">
-                        <div className="flex items-start space-x-3">
-                          {/* Task indicator */}
-                          <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getTeamColor(task.team)} shadow-sm`}></div>
-                          
-                          {/* Task content */}
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-1.5">
-                              {task.title}
-                            </h4>
+                    {tasks.filter(task => selectedCategories.includes(task.category || 'works')).map((task, index) => {
+                      const config = getCategoryConfig(task.category || 'works');
+                      const Icon = config.icon;
+                      
+                      return (
+                        <div key={task.id} className="p-4">
+                          <div className="flex items-start space-x-3">
+                            {/* Category indicator with icon */}
+                            <div className={`${config.lightColor} p-1.5 rounded-lg mt-0.5 flex-shrink-0 shadow-sm`}>
+                              <Icon className={`h-3 w-3 ${config.textColor}`} />
+                            </div>
                             
-                            {/* Task meta */}
-                            <div className="flex items-center space-x-3">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                                task.team === 'creative'
-                                  ? 'bg-purple-100 text-purple-700'
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}>
-                                {task.team === 'creative' ? 'Creative' : 'Web'} Team
-                              </span>
+                            {/* Task content */}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-1.5">
+                                {task.title}
+                              </h4>
                               
-                              {task.client_name && (
-                                <div className="flex items-center space-x-1 text-gray-500">
-                                  <Building className="h-2.5 w-2.5" />
-                                  <span className="text-xs font-medium">{task.client_name}</span>
-                                </div>
-                              )}
+                              {/* Task meta */}
+                              <div className="flex items-center space-x-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.lightColor} ${config.textColor}`}>
+                                  {config.label}
+                                </span>
+                                
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                  task.team === 'creative'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {task.team === 'creative' ? 'Creative' : 'Web'} Team
+                                </span>
+                                
+                                {task.client_name && (
+                                  <div className="flex items-center space-x-1 text-gray-500">
+                                    <Building className="h-2.5 w-2.5" />
+                                    <span className="text-xs font-medium">{task.client_name}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -426,14 +688,14 @@ const CalendarExport: React.FC = () => {
           /* Calendar View - Enhanced for mobile */
           <Card className={`shadow-lg ${isMobile ? 'rounded-2xl border-0 shadow-xl' : ''}`}>
             <CardHeader className={`${isMobile ? 'bg-gradient-to-r from-blue-600 to-purple-600' : 'bg-gradient-to-r from-blue-600 to-purple-600'} text-white ${isMobile ? 'rounded-t-xl' : 'rounded-t-lg'}`}>
-              <div className="flex items-center justify-center">
+            <div className="flex items-center justify-center">
                 <h2 className={`${isMobile ? 'text-lg' : 'text-2xl'} font-bold`}>
-                  {format(currentDate, 'MMMM yyyy')}
-                </h2>
-              </div>
-            </CardHeader>
+                {format(currentDate, 'MMMM yyyy')}
+              </h2>
+            </div>
+          </CardHeader>
             
-            <CardContent className="p-0">
+          <CardContent className="p-0">
               {/* Week Days Header */}
               <div className="hidden sm:grid grid-cols-7 bg-gray-50 border-b">
                 {weekDays.map(day => (
@@ -469,14 +731,31 @@ const CalendarExport: React.FC = () => {
                         isMobile && !hasNoTasks ? 'cursor-pointer active:bg-gray-100 touch-manipulation hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50' : ''
                       } ${!isMobile ? 'hover:bg-gray-50' : ''}`}
                       onClick={() => handleDayClick(day)}
+                      onMouseEnter={(e) => {
+                        // Reset states when entering a new day
+                        if (hoveredDay && hoveredDay !== format(day, 'yyyy-MM-dd')) {
+                          setHoveredDay(null);
+                          setIsTooltipVisible(false);
+                          setIsTooltipHovered(false);
+                        }
+                        handleDayMouseEnter(day, e);
+                        setIsDayHovered(true);
+                      }}
+                      onMouseLeave={() => {
+                        handleDayMouseLeave();
+                        setIsDayHovered(false);
+                      }}
                       style={isMobile && !hasNoTasks ? { minHeight: '100px' } : {}}
                     >
                       {/* Date Header */}
                       <div className="flex items-center justify-between mb-1 sm:mb-2">
                         <span className={`${isMobile ? 'text-sm font-bold' : 'text-xs sm:text-sm font-medium'} ${
                           isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
-                        } ${isCurrentDay ? (isMobile ? 'text-blue-700' : 'text-blue-600 font-bold') : ''}`}>
+                        } ${isCurrentDay ? (isMobile ? 'text-blue-700 bg-blue-100 px-2 py-1 rounded-full' : 'text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded-full') : ''}`}>
                           {format(day, 'd')}
+                          {isCurrentDay && (
+                            <span className="ml-1 text-xs text-blue-500 font-normal">Today</span>
+                          )}
                         </span>
                         
                         {/* Enhanced task count indicator on mobile */}
@@ -497,16 +776,24 @@ const CalendarExport: React.FC = () => {
                         )}
                       </div>
                       
-                      {/* Tasks - Enhanced Mobile Display */}
+                      {/* Tasks - Enhanced Mobile Display with Category Colors */}
                       {isMobile ? (
-                        <div className="space-y-1">
+                      <div className="space-y-1">
                           {dayTasks.length > 0 && (
                             <>
-                              <div className={`text-xs p-1.5 rounded-lg text-white font-medium shadow-sm ${getTeamColor(dayTasks[0].team)}`}>
-                                <div className="truncate">
-                                  {dayTasks[0].title.length > 10 ? dayTasks[0].title.substring(0, 10) + '...' : dayTasks[0].title}
-                                </div>
-                              </div>
+                              {(() => {
+                                const config = getCategoryConfig(dayTasks[0].category || 'works');
+                                return (
+                                  <div className={`text-xs p-1.5 rounded-lg font-medium shadow-sm ${config.color} text-white`}>
+                                    <div className="flex items-center space-x-1">
+                                      <config.icon className="h-2.5 w-2.5 flex-shrink-0" />
+                                      <div className="truncate">
+                                        {dayTasks[0].title.length > 8 ? dayTasks[0].title.substring(0, 8) + '...' : dayTasks[0].title}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                               {dayTasks.length > 1 && (
                                 <div className="text-xs text-gray-600 font-medium bg-gradient-to-r from-gray-100 to-gray-200 px-1.5 py-0.5 rounded-lg text-center border">
                                   +{dayTasks.length - 1} more
@@ -516,24 +803,28 @@ const CalendarExport: React.FC = () => {
                           )}
                         </div>
                       ) : (
-                        /* Desktop Tasks Display */
+                        /* Desktop Tasks Display with Category Colors */
                         <div className="hidden sm:block space-y-1">
-                          {dayTasks.slice(0, 4).map(task => (
-                            <div
-                              key={task.id}
-                              className={`text-xs p-1.5 rounded text-white truncate ${getTeamColor(task.team)}`}
-                              title={task.title}
-                            >
-                              {task.title}
-                            </div>
-                          ))}
-                          
-                          {dayTasks.length > 4 && (
-                            <div className="text-xs text-gray-500 font-medium pl-1.5">
-                              +{dayTasks.length - 4} more
-                            </div>
-                          )}
+                      {dayTasks.slice(0, 4).map(task => {
+                        const config = getCategoryConfig(task.category || 'works');
+                        return (
+                          <div
+                            key={task.id}
+                            className={`text-xs p-1.5 rounded flex items-center space-x-1 ${config.color} text-white`}
+                            title={`${config.label}: ${task.title}`}
+                          >
+                            <config.icon className="h-2.5 w-2.5 flex-shrink-0" />
+                            <span className="truncate">{task.title}</span>
+                          </div>
+                        );
+                      })}
+                      
+                      {dayTasks.length > 4 && (
+                        <div className="text-xs text-gray-500 font-medium pl-1.5">
+                          +{dayTasks.length - 4} more
                         </div>
+                      )}
+                      </div>
                       )}
 
                       {/* Enhanced Mobile touch indicator */}
@@ -545,9 +836,9 @@ const CalendarExport: React.FC = () => {
                     </div>
                   );
                 })}
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
         )}
 
         {/* Statistics */}
@@ -567,7 +858,7 @@ const CalendarExport: React.FC = () => {
                   </div>
                   
                   <div className="text-center p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg">
-                    <div className="text-lg font-bold text-purple-600 mb-0.5 truncate">{getTeamLabel(exportData.team).split(' ')[0]}</div>
+                    <div className="text-sm sm:text-2xl font-bold text-purple-600 truncate">{getTeamLabel(exportData.team).split(' ')[0]}</div>
                     <div className="text-xs text-purple-700 font-medium uppercase tracking-wide">Team</div>
                   </div>
                   
@@ -583,37 +874,37 @@ const CalendarExport: React.FC = () => {
           ) : (
             /* Desktop Statistics */
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              <Card>
+          <Card>
                 <CardContent className="p-3 sm:p-4">
-                  <div className="text-center">
+              <div className="text-center">
                     <div className="text-lg sm:text-2xl font-bold text-blue-600">{exportData.tasks.length}</div>
                     <div className="text-xs sm:text-sm text-gray-600">Total Tasks</div>
-                  </div>
-                </CardContent>
-              </Card>
-                
-              <Card>
+          </div>
+            </CardContent>
+          </Card>
+            
+          <Card>
                 <CardContent className="p-3 sm:p-4">
-                  <div className="text-center">
+              <div className="text-center">
                     <div className="text-sm sm:text-2xl font-bold text-purple-600 truncate">{getTeamLabel(exportData.team)}</div>
                     <div className="text-xs sm:text-sm text-gray-600">Team</div>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card>
+                        </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
                 <CardContent className="p-3 sm:p-4">
-                  <div className="text-center">
+              <div className="text-center">
                     <div className="text-lg sm:text-2xl font-bold text-green-600">
-                      {format(parseISO(exportData.expires_at), 'MMM d')}
-                    </div>
+                  {format(parseISO(exportData.expires_at), 'MMM d')}
+                </div>
                     <div className="text-xs sm:text-sm text-gray-600">Expires</div>
-                  </div>
-                </CardContent>
-              </Card>
+            </div>
+            </CardContent>
+          </Card>
             </div>
           )}
-        </div>
+          </div>
 
         {/* Footer */}
         <div className={`mt-6 text-center ${isMobile ? 'px-4 pb-6' : ''}`}>
@@ -657,14 +948,127 @@ const CalendarExport: React.FC = () => {
             </div>
           ) : (
             <div className="text-sm text-gray-500">
-              <p>This is a shared calendar view from Marketlube PM Tool</p>
-              <p className="mt-1">
-                Generated on {format(parseISO(exportData.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
-              </p>
+          <p>This is a shared calendar view from Marketlube PM Tool</p>
+          <p className="mt-1">
+            Generated on {format(parseISO(exportData.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
+          </p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Hover Tooltip for Desktop - Shows overflow tasks */}
+      {isTooltipVisible && hoveredDay && !isMobile && (
+        <div
+          className="fixed z-50 pointer-events-auto"
+          style={{
+            left: tooltipPosition.x,
+            top: tooltipPosition.y,
+            transform: 'translate(-50%, -100%)'
+          }}
+          onMouseEnter={handleTooltipMouseEnter}
+          onMouseLeave={handleTooltipMouseLeave}
+        >
+          {/* Arrow pointing down */}
+          <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
+            <div className="w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-white"></div>
+            <div className="w-0 h-0 border-l-[9px] border-r-[9px] border-t-[9px] border-l-transparent border-r-transparent border-t-gray-200 absolute -top-[1px] left-1/2 transform -translate-x-1/2"></div>
+          </div>
+          
+          {/* Main popup card */}
+          <div className="bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden max-w-sm w-80 mb-2">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3">
+              <div className="flex items-center justify-between text-white">
+                <h4 className="font-semibold text-sm">
+                  {format(parseISO(hoveredDay), 'MMMM d, yyyy')}
+                </h4>
+                <span className="text-xs bg-white/20 px-2 py-1 rounded-full">
+                  {getTasksForDate(parseISO(hoveredDay)).length} tasks
+                </span>
+              </div>
+            </div>
+            
+            {/* Task list */}
+            <div className="max-h-80 overflow-y-auto">
+              <div className="p-3 space-y-2">
+                {/* Show first 4 tasks as summary */}
+                {getTasksForDate(parseISO(hoveredDay)).slice(0, 4).map((task, index) => {
+                  const categoryConfig = getCategoryConfig(task.category || 'works');
+                  return (
+                    <div key={`summary-${task.id}`} className="flex items-center space-x-2 text-xs text-gray-600 border-b border-gray-100 pb-1">
+                      <div className={`w-2 h-2 rounded-full ${categoryConfig.color.replace('bg-', 'bg-')}`}></div>
+                      <categoryConfig.icon className="h-3 w-3 text-gray-500" />
+                      <span className="truncate">{task.title}</span>
+                      <span className="text-xs text-gray-500">({categoryConfig.label})</span>
+                    </div>
+                  );
+                })}
+                
+                {getTasksForDate(parseISO(hoveredDay)).length > 4 && (
+                  <div className="border-t border-gray-200 pt-2 mt-2">
+                    <h5 className="text-xs font-medium text-gray-700 mb-2">Additional Tasks:</h5>
+                  </div>
+                )}
+                
+                {/* Show the overflow tasks with better styling */}
+                {getTasksForDate(parseISO(hoveredDay)).slice(4).map((task, index) => {
+                  const categoryConfig = getCategoryConfig(task.category || 'works');
+                  return (
+                    <div
+                      key={task.id}
+                      className={`group relative rounded-md border p-3 transition-all duration-200 hover:shadow-md cursor-default ${
+                        categoryConfig.lightColor} ${categoryConfig.borderColor || 'border-gray-200'
+                      } hover:${categoryConfig.lightColor.replace('bg-', 'bg-').replace('-100', '-200')}`}
+                    >
+                      {/* Category indicator stripe */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${
+                        categoryConfig.color
+                      }`}></div>
+                      
+                      {/* Task content */}
+                      <div className="pl-2">
+                        <div className="flex items-start justify-between mb-2">
+                          <h6 className="font-semibold text-sm text-gray-900 leading-tight">
+                            {task.title}
+                          </h6>
+                        </div>
+                        
+                        {/* Task meta */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              categoryConfig.lightColor} ${categoryConfig.textColor
+                            }`}>
+                              <categoryConfig.icon className="h-3 w-3 mr-1" />
+                              {categoryConfig.label}
+                            </span>
+                            
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              task.team === 'creative'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {task.team === 'creative' ? 'Creative' : 'Web'} Team
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {task.client_name && (
+                          <div className="flex items-center space-x-1 mt-2">
+                            <Building className="h-3 w-3 text-gray-500" />
+                            <span className="text-xs text-gray-600 font-medium">{task.client_name}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Day Tasks Popup Modal */}
       {isDayPopupOpen && selectedDay && (
