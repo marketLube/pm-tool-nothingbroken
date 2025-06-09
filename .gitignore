@@ -26,7 +26,7 @@ dist-ssr
 # Environment files (contains sensitive API keys)
 # Note: .env file exists and contains Supabase credentials
 # Use .env.example as template for local development
-# .env  # TEMPORARILY COMMENTED OUT FOR DEVELOPMENT - REMEMBER TO UNCOMMENT BEFORE GIT PUSH!
+.env
 # Keep .env.local for local overrides
 .env.local
 # Production environment files

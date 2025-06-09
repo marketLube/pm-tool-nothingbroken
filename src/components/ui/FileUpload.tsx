@@ -52,16 +52,23 @@ const FileUpload: React.FC<FileUploadProps> = ({
     }
     
     // Create preview URL for image
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
-    
-    // Pass the file to parent component
-    onChange(file);
-    
-    // Clean up the object URL when component unmounts
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewUrl(objectUrl);
+      
+      // Pass the file to parent component
+      onChange(file);
+      
+      // Clean up the object URL when component unmounts
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+    } catch (error) {
+      console.error('Error creating blob URL:', error);
+      // Fall back to no preview if blob URL creation fails
+      setPreviewUrl(null);
+      onChange(file);
+    }
   };
 
   const handleRemoveFile = () => {
