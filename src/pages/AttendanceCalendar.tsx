@@ -299,7 +299,13 @@ const AttendanceCalendar: React.FC = () => {
       const blob = await pdf(pdfDoc).toBlob();
       
       // Create download link
-      const url = URL.createObjectURL(blob);
+      let url: string;
+      try {
+        url = URL.createObjectURL(blob);
+      } catch (error) {
+        console.error('Failed to create object URL for PDF download:', error);
+        throw new Error('Failed to prepare download. Please try again.');
+      }
       const link = document.createElement('a');
       link.href = url;
       

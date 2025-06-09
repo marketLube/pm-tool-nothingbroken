@@ -24,7 +24,13 @@ export function useAvatarManager() {
     // If there's a new file, create an object URL
     // In a real app, you would upload to a server and get a URL back
     if (file) {
-      avatarUrl = URL.createObjectURL(file);
+      try {
+        avatarUrl = URL.createObjectURL(file);
+      } catch (error) {
+        console.warn('Failed to create object URL for avatar:', error);
+        // Fallback: use a default avatar or the existing one
+        avatarUrl = user.avatar || '';
+      }
     }
 
     // Create the updated user object with all properties
