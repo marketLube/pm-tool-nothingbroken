@@ -549,8 +549,16 @@ const UserModal: React.FC<{
       if (user) {
         // Update existing user
         const updateData = { ...formData };
-        delete updateData.password; // Don't include password in user update
         
+        // Handle password update separately if password was changed
+        if (formData.password && formData.password.trim()) {
+          console.log('🔐 Updating user password via custom input');
+          await updateUserPassword(user.id, formData.password.trim());
+          console.log('✅ Custom password updated successfully');
+        }
+        
+        // Remove password from user update to avoid conflicts
+        delete updateData.password;
         updatedUser = await updateUser({ ...user, ...updateData } as User);
       } else {
         // Create new user
