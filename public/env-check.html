@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Environment Variables Check</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        .code { background: #f4f4f4; padding: 10px; border-radius: 5px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Environment Variables Diagnostic</h1>
+    <p><strong>Checking if production environment variables are configured...</strong></p>
+    
+    <div id="results"></div>
+    
+    <script>
+        function checkEnvironmentVariables() {
+            const results = document.getElementById('results');
+            let html = '';
+            
+            // Check if we're in development or production
+            const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            html += `<p><strong>Environment:</strong> ${isDev ? 'Development (localhost)' : 'Production'}</p>`;
+            
+            // Check Supabase URL
+            const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || 'undefined';
+            html += `<h3>Supabase URL:</h3>`;
+            if (supabaseUrl && supabaseUrl !== 'undefined') {
+                html += `<p class="success">✅ VITE_SUPABASE_URL: ${supabaseUrl}</p>`;
+            } else {
+                html += `<p class="error">❌ VITE_SUPABASE_URL: Not configured</p>`;
+            }
+            
+            // Check Supabase Anon Key
+            const supabaseKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || 'undefined';
+            html += `<h3>Supabase Anon Key:</h3>`;
+            if (supabaseKey && supabaseKey !== 'undefined') {
+                html += `<p class="success">✅ VITE_SUPABASE_ANON_KEY: ${supabaseKey.substring(0, 20)}... (truncated)</p>`;
+            } else {
+                html += `<p class="error">❌ VITE_SUPABASE_ANON_KEY: Not configured</p>`;
+            }
+            
+            // Overall status
+            html += `<h3>Overall Status:</h3>`;
+            if (supabaseUrl !== 'undefined' && supabaseKey !== 'undefined') {
+                html += `<p class="success">✅ Environment variables are configured correctly!</p>`;
+            } else {
+                html += `<p class="error">❌ Environment variables are missing or incorrect!</p>`;
+                html += `<div class="code">
+                    <h4>Required Environment Variables:</h4>
+                    <p>VITE_SUPABASE_URL=https://ysfknpujqivkudhnhezx.supabase.co</p>
+                    <p>VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</p>
+                </div>`;
+            }
+            
+            // Instructions
+            html += `<h3>🔧 How to Fix:</h3>`;
+            html += `<ol>
+                <li><strong>For Vercel:</strong> Go to Project Settings → Environment Variables</li>
+                <li><strong>For GitHub Actions:</strong> Go to Repository Settings → Secrets → Actions</li>
+                <li>Add both VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY</li>
+                <li>Redeploy the application</li>
+            </ol>`;
+            
+            results.innerHTML = html;
+        }
+        
+        // Run the check when page loads
+        checkEnvironmentVariables();
+    </script>
+</body>
+</html> 
