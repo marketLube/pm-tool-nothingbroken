@@ -292,25 +292,49 @@ const SocialCalendar: React.FC = () => {
     }
 
     try {
-      console.log('Updating tasks without categories to have "works" category...');
-      
-      // Update any tasks where category is null or empty to have 'works' category
-      const { data, error } = await supabase
+      // First check if the table exists by doing a simple select
+      const { error: testError } = await supabase
         .from('social_calendar_tasks')
-        .update({ category: 'works' })
-        .or('category.is.null,category.eq.')
-        .select('id');
+        .select('id')
+        .limit(1);
 
-      if (error) {
-        console.error('Error updating task categories:', error);
+      if (testError) {
+        if (testError.message.includes('does not exist')) {
+          console.log('social_calendar_tasks table does not exist, skipping category update');
+          return;
+        }
+        console.error('Error testing social_calendar_tasks table:', testError);
         return;
       }
 
-      if (data && data.length > 0) {
-        console.log(`Successfully updated ${data.length} tasks to have "works" category`);
-      } else {
-        console.log('No tasks needed category updates');
+      console.log('Updating tasks without categories to have "works" category...');
+      
+      // Update tasks with null category first
+      const { data: nullData, error: nullError } = await supabase
+        .from('social_calendar_tasks')
+        .update({ category: 'works' })
+        .is('category', null)
+        .select('id');
+
+      if (nullError) {
+        console.error('Error updating null categories:', nullError);
+      } else if (nullData && nullData.length > 0) {
+        console.log(`Successfully updated ${nullData.length} tasks with null categories`);
       }
+
+      // Update tasks with empty string category
+      const { data: emptyData, error: emptyError } = await supabase
+        .from('social_calendar_tasks')
+        .update({ category: 'works' })
+        .eq('category', '')
+        .select('id');
+
+      if (emptyError) {
+        console.error('Error updating empty categories:', emptyError);
+      } else if (emptyData && emptyData.length > 0) {
+        console.log(`Successfully updated ${emptyData.length} tasks with empty categories`);
+      }
+
     } catch (err) {
       console.error('Failed to update task categories:', err);
     }
@@ -397,14 +421,14 @@ const SocialCalendar: React.FC = () => {
     }
   }, [selectedClientId, selectedTeam]);
 
-  // Run category update once on component mount
-  useEffect(() => {
-    const initializeCategories = async () => {
-      await ensureTasksHaveCategory();
-    };
-    
-    initializeCategories();
-  }, []); // Run only once on mount
+  // Run category update once on component mount - DISABLED to prevent taskboard issues
+  // useEffect(() => {
+  //   const initializeCategories = async () => {
+  //     await ensureTasksHaveCategory();
+  //   };
+  //   
+  //   initializeCategories();
+  // }, []); // Run only once on mount
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
