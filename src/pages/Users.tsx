@@ -458,12 +458,24 @@ const UserModal: React.FC<{
     
     try {
       await copyToClipboard(formData.password);
-      setPasswordState(prev => ({ ...prev, copied: true }));
+      setPasswordState(prev => ({ ...prev, copied: true, persistentDisplay: true }));
       
-      // Reset copied state after 2 seconds
+      // Show "Password Copied" message for 3 seconds, then auto-hide password
       setTimeout(() => {
         setPasswordState(prev => ({ ...prev, copied: false }));
-      }, 2000);
+        
+        // Auto-hide password after showing copy confirmation
+        setTimeout(() => {
+          setPasswordState(prev => ({ 
+            ...prev, 
+            persistentDisplay: false,
+            generated: false,
+            saved: false
+          }));
+          setShowPassword(false);
+          setFormData(prev => ({ ...prev, password: '' }));
+        }, 1000); // 1 second delay after copy message disappears
+      }, 3000); // Show "copied" message for 3 seconds
     } catch (error) {
       console.error('Failed to copy password:', error);
     }
@@ -918,6 +930,16 @@ const UserModal: React.FC<{
               )}
               
               {/* Enhanced Password Status Messages */}
+              {passwordState.copied && (
+                <div className="bg-green-50 border border-green-200 rounded-md p-3 mt-3">
+                  <div className="flex items-center">
+                    <Check className="h-4 w-4 text-green-600 mr-2" />
+                    <span className="text-sm text-green-700 font-medium">Password Copied!</span>
+                    <span className="text-xs text-green-600 ml-2">Password will be hidden automatically...</span>
+                  </div>
+                </div>
+              )}
+              
               {passwordState.saving && (
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-3">
                   <div className="flex items-center">
