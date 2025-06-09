@@ -174,28 +174,81 @@ export const checkUserCredentials = async (email: string, password: string): Pro
   }
 
   try {
-    // First try to get the user with credentials
+    console.log(`🔐 Attempting authentication for: ${email}`);
+    
+    // First, try the new flexible authentication function if available
+    try {
+      const { data: authResult, error: authError } = await supabase
+        .rpc('authenticate_user', {
+          user_email: email.toLowerCase(),
+          user_password: password
+        });
+
+      if (!authError && authResult && authResult.length > 0) {
+        const authData = authResult[0];
+        console.log(`✅ Authentication successful via ${authData.auth_method} method`);
+        
+        // Convert to User format
+        return {
+          id: authData.user_id,
+          name: authData.user_name,
+          email: authData.email,
+          role: authData.role as Role,
+          team: authData.team as TeamType,
+          isActive: authData.is_active,
+          joinDate: new Date().toISOString().split('T')[0], // Placeholder
+          allowedStatuses: [],
+          password: '' // Never return the actual password
+        };
+      }
+    } catch (rpcError) {
+      console.log('📝 RPC authentication method not available, falling back to direct query');
+    }
+
+    // Fallback: Direct database query for backward compatibility
+    console.log('🔄 Trying direct password comparison...');
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email.toLowerCase()) // Case insensitive email
-      .eq('password', password)
+      .eq('password', password) // Exact match for plaintext passwords
       .eq('is_active', true)
-      .limit(1); // Only get one result
+      .limit(1);
 
     if (error) {
       console.error(`Authentication error for ${email}:`, error.message);
       return null;
     }
 
-    // If no data or empty array, invalid credentials
-    if (!data || data.length === 0) {
-      console.error(`Invalid credentials for email ${email}`);
-      return null;
+    if (data && data.length > 0) {
+      console.log('✅ Authentication successful via plaintext comparison');
+      return mapFromDbUser(data[0]);
     }
 
-    // Return the first (and should be only) user
-    return mapFromDbUser(data[0]);
+    // Try to get user without password check to see if user exists
+    const { data: userCheck } = await supabase
+      .from('users')
+      .select('email, password')
+      .eq('email', email.toLowerCase())
+      .eq('is_active', true)
+      .limit(1);
+
+    if (userCheck && userCheck.length > 0) {
+      const userPassword = userCheck[0].password;
+      
+      // Check if password is hashed (starts with $2)
+      if (userPassword && userPassword.startsWith('$2')) {
+        console.log('⚠️ User has hashed password but bcrypt verification not available in frontend');
+        console.log('💡 Suggestion: Use the database authenticate_user function or implement bcrypt on frontend');
+        return null;
+      } else {
+        console.log('❌ Password mismatch for plaintext password');
+        return null;
+      }
+    }
+
+    console.log(`❌ User not found or inactive: ${email}`);
+    return null;
 
   } catch (error) {
     console.error(`Error checking credentials for ${email}:`, error);
@@ -436,12 +489,17 @@ export const updateUserPassword = async (userId: string, newPassword: string): P
       throw new Error('Password must be at least 6 characters long');
     }
 
-    console.log('Updating password for user:', userId);
+    console.log('🔐 Updating password for user:', userId);
 
+    // Store password in plaintext to maintain compatibility with current auth system
+    // This ensures both auto-generated and custom passwords work the same way
     const { data, error } = await supabase
       .from('users')
       .update({ 
-        password: newPassword.trim()
+        password: newPassword.trim(),
+        // Clear any existing password_hash to avoid confusion
+        password_hash: null,
+        updated_at: new Date().toISOString()
       })
       .eq('id', userId)
       .select()
@@ -459,7 +517,7 @@ export const updateUserPassword = async (userId: string, newPassword: string): P
       throw new Error('Failed to update password: No data returned');
     }
 
-    console.log('Password updated successfully for user:', userId);
+    console.log('✅ Password updated successfully for user:', userId);
     return mapFromDbUser(data);
   } catch (error) {
     console.error('Error updating user password:', error);
