@@ -1,7 +1,7 @@
 import { Role, TeamType, User } from '../../types';
 
-export type ResourceType = 'task' | 'user' | 'client' | 'report' | 'team' | 'status';
-export type ActionType = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'update' | 'approve';
+export type ResourceType = 'task' | 'user' | 'client' | 'report' | 'team' | 'status' | 'modules' | 'super_admin';
+export type ActionType = 'view' | 'create' | 'edit' | 'delete' | 'manage' | 'update' | 'approve' | 'promote' | 'manage_roles' | 'access';
 
 export interface Permission {
   resource: ResourceType;
@@ -13,17 +13,69 @@ export interface Permission {
 
 /**
  * Get all permissions for a user based on their role and team
- * @param role The user's role (admin, manager, employee)
+ * @param role The user's role (super_admin, admin, manager, employee)
  * @param userTeam The user's team (creative, web)
  * @param allowedStatuses Optional array of status IDs the user has permission to access
+ * @param modulePermissions Optional array of module names the user has access to (for Admins)
  * @returns Array of permissions the user has
  */
 export const getPermissions = (
   role: Role, 
   userTeam: TeamType,
-  allowedStatuses?: string[]
+  allowedStatuses?: string[],
+  modulePermissions?: string[]
 ): Permission[] => {
-  // Admin has full access to everything
+  // Super Admin has universal access to everything
+  if (role === 'super_admin') {
+    return [
+      // Task permissions
+      { resource: 'task', action: 'view', team: 'all' },
+      { resource: 'task', action: 'create', team: 'all' },
+      { resource: 'task', action: 'edit', team: 'all' },
+      { resource: 'task', action: 'delete', team: 'all' },
+      { resource: 'task', action: 'approve', team: 'all' },
+      
+      // User permissions (including role management)
+      { resource: 'user', action: 'view', team: 'all' },
+      { resource: 'user', action: 'create', team: 'all' },
+      { resource: 'user', action: 'edit', team: 'all' },
+      { resource: 'user', action: 'update', team: 'all' },
+      { resource: 'user', action: 'delete', team: 'all' },
+      { resource: 'user', action: 'manage', team: 'all' },
+      { resource: 'user', action: 'promote', team: 'all' },
+      { resource: 'user', action: 'manage_roles', team: 'all' },
+      
+      // Client permissions
+      { resource: 'client', action: 'view', team: 'all' },
+      { resource: 'client', action: 'create', team: 'all' },
+      { resource: 'client', action: 'edit', team: 'all' },
+      { resource: 'client', action: 'delete', team: 'all' },
+      
+      // Report permissions
+      { resource: 'report', action: 'view', team: 'all' },
+      { resource: 'report', action: 'create', team: 'all' },
+      { resource: 'report', action: 'edit', team: 'all' },
+      { resource: 'report', action: 'approve', team: 'all' },
+      
+      // Team permissions
+      { resource: 'team', action: 'view', team: 'all' },
+      { resource: 'team', action: 'manage', team: 'all' },
+      
+      // Status permissions
+      { resource: 'status', action: 'view', team: 'all' },
+      { resource: 'status', action: 'create', team: 'all' },
+      { resource: 'status', action: 'edit', team: 'all' },
+      { resource: 'status', action: 'delete', team: 'all' },
+      { resource: 'status', action: 'manage', team: 'all' },
+      
+      // Super Admin exclusive permissions
+      { resource: 'modules', action: 'view', team: 'all' },
+      { resource: 'modules', action: 'manage', team: 'all' },
+      { resource: 'super_admin', action: 'access', team: 'all' },
+    ];
+  }
+  
+  // Admin has full access to everything (same as before)
   if (role === 'admin') {
     return [
       // Task permissions

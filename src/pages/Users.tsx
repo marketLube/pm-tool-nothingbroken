@@ -15,7 +15,7 @@ import { useStatus } from '../contexts/StatusContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAvatarManager } from '../utils/avatar';
 import { User, Role, TeamType } from '../types';
-import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff, UserCheck, UserX, Calendar, Mail, Phone, MapPin, Building, Shield, ChevronDown, Loader2, AlertCircle, CheckCircle, User as UserIcon, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Users, Search, Palette, Code, UserPlus, Check, X, UserCog, Key, Copy, RefreshCw, Eye, EyeOff, UserCheck, UserX, Calendar, Mail, Phone, MapPin, Building, Shield, ChevronDown, Loader2, AlertCircle, CheckCircle, User as UserIcon, Trash2, AlertTriangle, BarChart3, CreditCard, Bell, Plug, Database, Settings, Package } from 'lucide-react';
 import { format } from 'date-fns';
 import { isValidEmail } from '../utils/validation';
 import { generateUserFriendlyPassword, copyToClipboard } from '../utils/passwordGenerator';
@@ -159,7 +159,10 @@ const UserModal: React.FC<{
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'basic' | 'password' | 'permissions'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'password' | 'permissions' | 'modules'>('basic');
+  
+  // Module permissions state
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
   
   // Enhanced password generation state with persistent display
   const [passwordState, setPasswordState] = useState({
@@ -172,6 +175,18 @@ const UserModal: React.FC<{
     displayTimer: null as NodeJS.Timeout | null,
     persistentDisplay: false
   });
+
+  // Define available modules
+  const availableModules = [
+    { name: 'insights', displayName: 'Insights', description: 'Access to dashboards, analytics, and reports', icon: BarChart3 },
+    { name: 'accounts', displayName: 'Accounts', description: 'Financial settings, billing, and invoicing', icon: CreditCard },
+    { name: 'notifications', displayName: 'Notifications', description: 'Notification management and settings', icon: Bell },
+    { name: 'integrations', displayName: 'Integrations', description: 'Third-party integrations and API access', icon: Plug },
+    { name: 'audit_logs', displayName: 'Audit Logs', description: 'System audit logs and security monitoring', icon: Shield },
+    { name: 'api_access', displayName: 'API Access', description: 'API keys and programmatic access', icon: Code },
+    { name: 'system_settings', displayName: 'System Settings', description: 'Advanced system configuration', icon: Settings },
+    { name: 'backup_restore', displayName: 'Backup & Restore', description: 'Database backup and restore operations', icon: Database }
+  ];
 
   // Reset form when user changes or modal opens/closes
   useEffect(() => {
@@ -186,9 +201,11 @@ const UserModal: React.FC<{
           const webStatuses = getStatusesByTeam('web');
           const allStatuses = [...creativeStatuses, ...webStatuses].map(s => s.id);
           userData.allowedStatuses = allStatuses;
+          // Keep the existing team value for admin users
         }
         
         setFormData(userData);
+        setSelectedModules(userData.modulePermissions || []);
         setShowPassword(false);
         setActiveTab('basic');
       } else {
@@ -203,6 +220,7 @@ const UserModal: React.FC<{
           joinDate: getIndiaDate(),
           password: ''
         });
+        setSelectedModules([]);
         setShowPassword(false);
         setActiveTab('basic');
       }
@@ -247,22 +265,40 @@ const UserModal: React.FC<{
   
   // Get statuses for the selected team or all statuses for admin
   const teamStatuses = useMemo(() => {
+    // Handle admin users - they get all statuses regardless of team
     if (formData.role === 'admin') {
-      // Admins get all statuses from both teams
       const creativeStatuses = getStatusesByTeam('creative');
       const webStatuses = getStatusesByTeam('web');
       return [...creativeStatuses, ...webStatuses];
     }
     
-    if (!formData.team) return [];
-    return getStatusesByTeam(formData.team as TeamType);
+    // Handle specific team selections for non-admin users
+    if (formData.team === 'creative' || formData.team === 'web') {
+      return getStatusesByTeam(formData.team);
+    }
+    
+    // Default fallback
+    return [];
   }, [formData.team, formData.role, getStatusesByTeam]);
+
+  // Determine when to show modules tab (only for admin users)
+  const showModulesTab = formData.role === 'admin';
+  
+  // Determine when to show status permissions (non-admin users)
+  const showStatusPermissions = formData.role !== 'admin' && formData.role !== 'super_admin';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     setFormData(prev => {
       const updated = { ...prev, [name]: value };
+      
+      // Special handling for team selection
+      if (name === 'team' && value === 'all') {
+        // Don't store 'all' in the database, keep the current team or default to 'creative'
+        updated.team = prev.team || 'creative';
+        return updated; // Exit early to avoid other team logic
+      }
       
       // Special handling for admin role
       if (name === 'role' && value === 'admin') {
@@ -271,7 +307,7 @@ const UserModal: React.FC<{
         const webStatuses = getStatusesByTeam('web');
         const allStatuses = [...creativeStatuses, ...webStatuses].map(s => s.id);
         
-        updated.team = 'creative'; // Set a default team (though admin can access both)
+        updated.team = prev.team || 'creative'; // Keep existing team or default to creative
         updated.allowedStatuses = allStatuses;
       } else if (name === 'role' && value !== 'admin') {
         // Non-admin users: reset to current team's statuses only
@@ -293,7 +329,7 @@ const UserModal: React.FC<{
           updated.allowedStatuses = defaultStatuses.length > 0 ? defaultStatuses : teamStatuses.slice(0, 3).map(s => s.id);
         } else {
           // For existing users, only reset statuses for non-admin users when team changes
-        updated.allowedStatuses = [];
+          updated.allowedStatuses = [];
         }
       }
       
@@ -447,6 +483,19 @@ const UserModal: React.FC<{
     });
   };
 
+  const handleModuleToggle = (moduleName: string) => {
+    const currentModules = [...selectedModules];
+    const index = currentModules.indexOf(moduleName);
+    
+    if (index > -1) {
+      currentModules.splice(index, 1);
+    } else {
+      currentModules.push(moduleName);
+    }
+    
+    setSelectedModules(currentModules);
+  };
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     
@@ -558,17 +607,25 @@ const UserModal: React.FC<{
   };
 
   const roleOptions = [
+    { value: 'super_admin', label: 'Super Admin' },
     { value: 'admin', label: 'Admin' },
     { value: 'manager', label: 'Manager' },
     { value: 'employee', label: 'Employee' }
   ];
   
+  // For admin users, show "All Teams" but store 'creative' as the value
+  const getTeamDisplayValue = () => {
+    if (formData.role === 'admin') {
+      return 'all'; // Display "All Teams" for admin users
+    }
+    return formData.team || 'creative';
+  };
+
   const teamOptions = [
+    ...(formData.role === 'admin' ? [{ value: 'all', label: 'All Teams' }] : []),
     { value: 'creative', label: 'Creative Team' },
     { value: 'web', label: 'Web Team' }
   ];
-
-  const showStatusPermissions = formData.role !== 'admin';
 
   return (
     <Modal
@@ -618,6 +675,20 @@ const UserModal: React.FC<{
               >
                 <Shield className="h-4 w-4 inline mr-1" />
                 Permissions
+              </button>
+            )}
+            {showModulesTab && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('modules')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'modules'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Package className="h-4 w-4 inline mr-1" />
+                Modules
               </button>
             )}
           </nav>
@@ -683,7 +754,7 @@ const UserModal: React.FC<{
                     label="Team"
                     name="team"
                     options={teamOptions}
-                    value={formData.team as string || ''}
+                    value={getTeamDisplayValue()}
                     onChange={handleChange}
                     required
                     fullWidth
@@ -1019,6 +1090,77 @@ const UserModal: React.FC<{
             )}
           </div>
         )}
+
+        {activeTab === 'modules' && showModulesTab && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-900 flex items-center">
+                  <Package className="h-4 w-4 mr-2" />
+                  Module Permissions
+                </h3>
+                <div className="text-xs text-gray-500">
+                  {selectedModules.length} of {availableModules.length} selected
+                </div>
+              </div>
+              
+              <p className="text-xs text-gray-600 mb-4">
+                Select which modules this Admin can access. Admins have full team access by default.
+              </p>
+              
+              <div className="grid grid-cols-1 gap-3 max-h-64 overflow-y-auto">
+                {availableModules.map(module => {
+                  const IconComponent = module.icon;
+                  return (
+                    <label 
+                      key={module.name} 
+                      className={`flex items-center p-3 rounded-lg border transition-all cursor-pointer ${
+                        selectedModules.includes(module.name)
+                          ? 'border-blue-200 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <Checkbox
+                        id={`module-${module.name}`}
+                        checked={selectedModules.includes(module.name)}
+                        onChange={() => handleModuleToggle(module.name)}
+                      />
+                      <div className="flex items-start ml-3 flex-1">
+                        <IconComponent className="h-5 w-5 text-gray-600 mr-3 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-900 block">{module.displayName}</span>
+                          <span className="text-xs text-gray-500 mt-1 block">{module.description}</span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              
+              <div className="flex items-center justify-between pt-3 border-t border-gray-200 mt-4">
+                <div className="flex space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedModules(availableModules.map(m => m.name))}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedModules([])}
+                    className="text-xs text-gray-600 hover:text-gray-800 font-medium"
+                  >
+                    Clear All
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500">
+                  Super Admins have access to all modules automatically
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Form Error */}
         {errors.form && (
@@ -1199,13 +1341,13 @@ const UsersPage: React.FC = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!userToDelete) return;
+    if (!userToDelete || !currentUser) return;
     
     try {
       setIsDeletingUser(true);
       console.log(`🗑️ Deleting user: ${userToDelete.name}`);
       
-      await deleteUser(userToDelete.id);
+      await deleteUser(userToDelete.id, currentUser.id);
       
       // Refresh user list
       const filters = {
@@ -1225,7 +1367,7 @@ const UsersPage: React.FC = () => {
       setUserActiveTasks(0);
     } catch (error) {
       console.error('Failed to delete user:', error);
-      showToast('Failed to delete user', 'error');
+      showToast(error instanceof Error ? error.message : 'Failed to delete user', 'error');
     } finally {
       setIsDeletingUser(false);
     }
@@ -1235,6 +1377,27 @@ const UsersPage: React.FC = () => {
     setDeleteModalOpen(false);
     setUserToDelete(null);
     setUserActiveTasks(0);
+  };
+
+  // Check if current user can delete the target user
+  const canDeleteUser = (targetUser: User): boolean => {
+    if (!currentUser) return false;
+    
+    const currentUserRole = currentUser.role;
+    const targetUserRole = targetUser.role;
+    
+    // Super Admin can delete anyone except other Super Admins (to prevent accidental self-lock)
+    if (currentUserRole === 'super_admin') {
+      return true; // Allow Super Admin to delete anyone for now
+    }
+    
+    // Admin can delete anyone except Super Admins
+    if (currentUserRole === 'admin') {
+      return targetUserRole !== 'super_admin';
+    }
+    
+    // Other roles cannot delete users
+    return false;
   };
 
   return (
@@ -1431,14 +1594,22 @@ const UsersPage: React.FC = () => {
                       <div className="space-y-1">
                         <Badge
                           variant={
+                            user.role === 'super_admin' ? 'warning' :
                             user.role === 'admin' ? 'primary' :
                             user.role === 'manager' ? 'info' : 'default'
                           }
                         >
-                          {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                          {user.role === 'super_admin' ? 'Super Admin' : 
+                           user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                         </Badge>
                         <div className="text-sm text-gray-500 flex items-center">
-                          {user.role === 'admin' ? (
+                          {user.role === 'super_admin' ? (
+                            <>
+                              <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
+                              <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
+                              Universal Access
+                            </>
+                          ) : user.role === 'admin' ? (
                             <>
                               <Palette className="h-3.5 w-3.5 mr-1 text-purple-500" />
                               <Code className="h-3.5 w-3.5 mr-1 text-blue-500" />
@@ -1470,7 +1641,9 @@ const UsersPage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {user.role === 'admin' ? (
+                        {user.role === 'super_admin' ? (
+                          <span className="text-yellow-600 font-medium">Super Admin Access</span>
+                        ) : user.role === 'admin' ? (
                           <span className="text-blue-600 font-medium">Full Access</span>
                         ) : user.allowedStatuses && user.allowedStatuses.length > 0 ? (
                           <span>{user.allowedStatuses.length} Status{user.allowedStatuses.length !== 1 ? 'es' : ''}</span>
@@ -1507,16 +1680,29 @@ const UsersPage: React.FC = () => {
                         </PermissionGuard>
                         
                         <PermissionGuard resource="user" action="delete">
-                          <Button
-                            variant="danger"
-                            size="xs"
-                            icon={Trash2}
-                            onClick={() => handleDeleteUser(user)}
-                            className="bg-red-600 hover:bg-red-700 text-white"
-                            title="Delete this user permanently"
-                          >
-                            Delete
-                          </Button>
+                          {canDeleteUser(user) ? (
+                            <Button
+                              variant="danger"
+                              size="xs"
+                              icon={Trash2}
+                              onClick={() => handleDeleteUser(user)}
+                              className="bg-red-600 hover:bg-red-700 text-white"
+                              title="Delete this user permanently"
+                            >
+                              Delete
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="danger"
+                              size="xs"
+                              icon={Trash2}
+                              disabled
+                              className="bg-gray-300 cursor-not-allowed"
+                              title={`Cannot delete ${user.role === 'super_admin' ? 'Super Admin' : 'this'} user`}
+                            >
+                              Delete
+                            </Button>
+                          )}
                         </PermissionGuard>
                       </div>
                     </td>

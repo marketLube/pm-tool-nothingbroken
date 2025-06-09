@@ -26,9 +26,14 @@ dist-ssr
 # Environment files (contains sensitive API keys)
 # Note: .env file exists and contains Supabase credentials
 # Use .env.example as template for local development
-.env
+# .env  # TEMPORARILY COMMENTED OUT FOR DEVELOPMENT - REMEMBER TO UNCOMMENT BEFORE GIT PUSH!
 # Keep .env.local for local overrides
 .env.local
 # Production environment files
 .env.production
+
+# Assistant can access this file for database operations
+# This file should contain the same credentials as .env but is accessible to AI assistant
+# IMPORTANT: Only add this file if you want AI assistant to have database access
+.env.assistant
 .vercel

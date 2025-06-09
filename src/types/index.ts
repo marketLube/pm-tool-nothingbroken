@@ -53,7 +53,7 @@ export type StatusString = StatusCode;
 
 export type Priority = 'low' | 'medium' | 'high';
 export type TeamType = 'creative' | 'web';
-export type Role = 'admin' | 'manager' | 'employee';
+export type Role = 'super_admin' | 'admin' | 'manager' | 'employee';
 
 export interface User {
   id: string;
@@ -66,6 +66,33 @@ export interface User {
   isActive: boolean;
   allowedStatuses?: string[]; // Array of status IDs the user has permission to use
   password?: string; // Password for the user (only used for login)
+  modulePermissions?: string[]; // Array of module names the user has access to (for Admins)
+}
+
+export interface Module {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  icon: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ModulePermission {
+  id: string;
+  userId: string;
+  moduleId: string;
+  moduleName: string;
+  moduleDisplayName: string;
+  moduleIcon: string;
+  grantedBy: string;
+  grantedByName: string;
+  grantedAt: string;
+  revokedAt?: string;
+  isActive: boolean;
+  metadata?: Record<string, any>;
 }
 
 export interface Team {

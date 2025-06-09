@@ -8,6 +8,7 @@ interface AuthContextType {
   currentUser: User | null;
   isLoggedIn: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   userTeam: string | undefined;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
@@ -173,7 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       // Check status-based permissions for non-admin users
-      if (user.role !== 'admin') {
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
         if (!user.allowedStatuses || user.allowedStatuses.length === 0) {
           console.log('❌ User has no status permissions assigned');
           alert('Your account has no permissions assigned. Please contact an administrator to set up your access permissions.');
@@ -182,7 +183,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         console.log(`✅ User has ${user.allowedStatuses.length} status permission(s) assigned`);
       } else {
-        console.log('✅ Admin user - has full access');
+        console.log(`✅ ${user.role === 'super_admin' ? 'Super Admin' : 'Admin'} user - has full access`);
       }
 
       // Method 1: Try Supabase authentication first
@@ -306,7 +307,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setCurrentUser(updatedUser);
   };
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isAdmin = currentUser?.role === 'admin' || isSuperAdmin;
   const userTeam = currentUser?.team;
 
   const checkPermission = (resource: ResourceType, action: ActionType, resourceTeam?: TeamType): boolean => {
@@ -316,7 +318,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const userPermissions = getPermissions(
       currentUser.role, 
       currentUser.team, 
-      currentUser.allowedStatuses
+      currentUser.allowedStatuses,
+      currentUser.modulePermissions
     );
     
     // Check if user has the required permission
@@ -327,6 +330,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     currentUser,
     isLoggedIn,
     isAdmin,
+    isSuperAdmin,
     userTeam,
     login,
     logout,

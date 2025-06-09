@@ -42,38 +42,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requireAuth = true,
   redirectPath = '/'
 }) => {
-  const { isLoggedIn, currentUser, isLoading } = useAuth();
+  const { isLoggedIn, currentUser, isLoading, checkPermission } = useAuth();
   const location = useLocation();
 
-  // Simple permission check function
-  const checkPermission = (resource: ResourceType, action: ActionType, resourceTeam?: TeamType): boolean => {
-    if (!currentUser) return false;
-    
-    // Admin has all permissions
-    if (currentUser.role === 'admin') return true;
-    
-    // Basic permission logic based on role (admin already handled above)
-    switch (resource) {
-      case 'user':
-        return false; // Only admin can manage users
-      case 'status':
-        return false; // Only admin can manage statuses
-      case 'team':
-        if (action === 'manage') return false; // Only admin can manage teams
-        if (action === 'view') {
-          if (resourceTeam) {
-            return currentUser.team === resourceTeam;
-          }
-          return true;
-        }
-        return false;
-      case 'report':
-        if (action === 'approve') return currentUser.role === 'manager';
-        return true; // Everyone can view reports
-      default:
-        return true;
-    }
-  };
+  // Using checkPermission from AuthContext which handles Super Admin correctly
 
   // Show loading spinner while checking authentication state
   if (isLoading) {

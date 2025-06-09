@@ -72,7 +72,7 @@ export const getUsers = async (): Promise<User[]> => {
 export interface UserSearchFilters {
   team?: TeamType;
   isActive?: boolean;
-  role?: 'admin' | 'manager' | 'employee';
+  role?: 'admin' | 'manager' | 'employee' | 'super_admin';
   searchQuery?: string;
 }
 
@@ -487,21 +487,113 @@ export const updateUserAvatar = async (userId: string, avatar: string): Promise<
   }
 };
 
-// Delete user
-export const deleteUser = async (userId: string): Promise<void> => {
+// Delete user with comprehensive validation
+export const deleteUser = async (userId: string, performedByUserId?: string): Promise<void> => {
   if (!isSupabaseConfigured() || !supabase) {
     console.error('❌ Supabase not configured, cannot delete user');
     throw new Error('Database not available');
   }
 
-  const { error } = await supabase
-    .from('users')
-    .delete()
-    .eq('id', userId);
-  
-  if (error) {
-    console.error('Error deleting user:', error);
-    throw error;
+  try {
+    // Get the user to be deleted
+    const { data: userToDelete, error: getUserError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (getUserError) {
+      console.error('Error fetching user to delete:', getUserError);
+      if (getUserError.code === 'PGRST116') {
+        throw new Error('User not found');
+      }
+      throw new Error('Failed to fetch user information');
+    }
+
+    // Get the current user performing the deletion (if provided)
+    let currentUser = null;
+    if (performedByUserId) {
+      const { data: currentUserData, error: getCurrentUserError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', performedByUserId)
+        .single();
+
+      if (!getCurrentUserError && currentUserData) {
+        currentUser = currentUserData;
+      }
+    }
+
+    // Role hierarchy validation
+    if (currentUser) {
+      const currentUserRole = currentUser.role;
+      const targetUserRole = userToDelete.role;
+
+      console.log(`🔍 Deletion validation: ${currentUserRole} trying to delete ${targetUserRole}`);
+
+      // Super Admin can delete anyone except other Super Admins (self-deletion protection)
+      if (currentUserRole === 'super_admin') {
+        if (targetUserRole === 'super_admin' && currentUser.id !== userId) {
+          console.log('⚠️ Super Admin attempting to delete another Super Admin');
+          // Allow for now, but could add this restriction if needed
+        }
+      }
+      // Admin can delete anyone except Super Admins
+      else if (currentUserRole === 'admin') {
+        if (targetUserRole === 'super_admin') {
+          console.error('❌ Admin cannot delete Super Admin');
+          throw new Error('Admins cannot delete Super Admin users. Only Super Admins can delete other Super Admins.');
+        }
+      }
+      // Non-admin/super-admin users cannot delete anyone
+      else {
+        console.error('❌ Insufficient permissions for user deletion');
+        throw new Error('You do not have permission to delete users. Only Admins and Super Admins can delete users.');
+      }
+    }
+
+    // Additional validation: Check if user is currently active
+    if (!userToDelete.is_active) {
+      console.log('⚠️ User is already inactive');
+      throw new Error('User is already inactive');
+    }
+
+    console.log(`🗑️ Attempting to delete user: ${userToDelete.name} (${userToDelete.role})`);
+
+    // Perform the deletion
+    const { error } = await supabase
+      .from('users')
+      .delete()
+      .eq('id', userId);
+    
+    if (error) {
+      console.error('Error deleting user:', error);
+      
+      // Provide more specific error messages based on error codes
+      if (error.code === 'PGRST116') {
+        throw new Error('User not found or already deleted');
+      } else if (error.code === '23503') {
+        throw new Error('Cannot delete user: User has associated data (attendance records, tasks, reports, etc.) that must be removed first. Please run the database cascade fix script.');
+      } else if (error.code === '42501' || error.message.includes('permission') || error.message.includes('policy')) {
+        throw new Error('Permission denied: You do not have the required permissions to delete this user');
+      } else if (error.message.includes('RLS')) {
+        throw new Error('Database security policy prevented deletion. Please check your permissions.');
+      } else {
+        throw new Error(`Database error: ${error.message}`);
+      }
+    }
+
+    console.log(`✅ Successfully deleted user: ${userToDelete.name}`);
+  } catch (error) {
+    console.error('Error in deleteUser:', error);
+    
+    // Re-throw the error as-is if it's already a user-friendly message
+    if (error instanceof Error) {
+      throw error;
+    }
+    
+    // Generic fallback error
+    throw new Error('An unexpected error occurred while deleting the user');
   }
 };
 

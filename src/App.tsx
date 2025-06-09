@@ -25,6 +25,7 @@ import Users from './pages/Users';
 import Clients from './pages/Clients';
 import Settings from './pages/Settings';
 import Status from './pages/Status';
+import SuperAdminModules from './pages/SuperAdminModules';
 import Attendance from './pages/Attendance';
 import AttendanceCalendar from './pages/AttendanceCalendar';
 import SocialCalendar from './pages/SocialCalendar';
@@ -91,6 +92,18 @@ function App() {
                         }
                       >
                         <Route path="status" element={<Status />} />
+                      </Route>
+                      
+                      {/* Super Admin Modules - Super Admin only */}
+                      <Route 
+                        element={
+                          <ProtectedRoute 
+                            resource="super_admin" 
+                            action="access" 
+                          />
+                        }
+                      >
+                        <Route path="super-admin/modules" element={<SuperAdminModules />} />
                       </Route>
                       
                       {/* Team Pages - Team-specific permissions */}

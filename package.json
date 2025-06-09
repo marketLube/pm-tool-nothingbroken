@@ -11,6 +11,9 @@
     "setup": "./scripts/setup-env.sh",
     "setup-env": "./scripts/setup-env.sh",
     "check-env": "echo '🔍 Checking environment...' && cat .env 2>/dev/null | grep -v '^#' | grep -v '^$' | sed 's/=.*/=***HIDDEN***/' || echo '❌ .env file not found'",
+    "security-check": "node scripts/security-check.js",
+    "secure-env": "node scripts/security-check.js --fix",
+    "pre-commit": "npm run security-check && echo '✅ Security check passed'",
     "type-check": "tsc --noEmit",
     "dev:clean": "rm -rf node_modules/.vite && npm run dev",
     "start": "npm run dev"

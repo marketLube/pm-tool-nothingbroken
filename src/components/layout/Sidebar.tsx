@@ -24,7 +24,7 @@ import { useData } from '../../contexts/DataContext';
 
 const Sidebar: React.FC = () => {
   const location = useLocation();
-  const { isAdmin, userTeam, logout } = useAuth();
+  const { isAdmin, isSuperAdmin, userTeam, logout } = useAuth();
   
   // Add error boundary protection for useData
   let creativeTasks: any[] = [];
@@ -117,13 +117,13 @@ const Sidebar: React.FC = () => {
       name: 'Status',
       path: '/status',
       icon: Tag,
-      show: isAdmin
+      show: isAdmin || isSuperAdmin
     },
     {
       name: 'Users',
       path: '/users',
       icon: Users,
-      show: isAdmin
+      show: isAdmin || isSuperAdmin
     },
     {
       name: 'Settings',
@@ -143,7 +143,7 @@ const Sidebar: React.FC = () => {
       textColor: 'text-purple-700',
       bgColor: 'bg-purple-50',
       activeTasks: activeCreativeTasks,
-      show: isAdmin || userTeam === 'creative'
+      show: isAdmin || isSuperAdmin || userTeam === 'creative'
     },
     {
       name: 'Web Team',
@@ -153,7 +153,7 @@ const Sidebar: React.FC = () => {
       textColor: 'text-blue-700',
       bgColor: 'bg-blue-50',
       activeTasks: activeWebTasks,
-      show: isAdmin || userTeam === 'web'
+      show: isAdmin || isSuperAdmin || userTeam === 'web'
     }
   ];
 
