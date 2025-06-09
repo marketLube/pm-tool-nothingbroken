@@ -29,7 +29,7 @@ const TaskBoard: React.FC = () => {
   const { refreshTasks, isConnected, pausePolling, resumePolling } = useSimpleRealtime();
   
   // Get DataContext for user/client lookups and tasks
-  const { getUserById, getClientById, tasks } = useData();
+  const { getUserById, getClientById, tasks, isLoading } = useData();
 
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -349,7 +349,7 @@ const TaskBoard: React.FC = () => {
     };
   }, [newTaskModalOpen, pausePolling, resumePolling]);
 
-  if (tasks.length === 0) {
+  if (isLoading) {
     return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
