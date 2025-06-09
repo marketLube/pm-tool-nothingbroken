@@ -493,24 +493,35 @@ export const updateUserPassword = async (userId: string, newPassword: string): P
 
     // Store password in plaintext to maintain compatibility with current auth system
     // This ensures both auto-generated and custom passwords work the same way
+    console.log('🔄 Attempting to update password for user ID:', userId);
+    console.log('🔄 New password length:', newPassword.trim().length);
+
     const { data, error } = await supabase
       .from('users')
       .update({ 
-        password: newPassword.trim(),
-        // Clear any existing password_hash to avoid confusion
-        password_hash: null,
-        updated_at: new Date().toISOString()
+        password: newPassword.trim()
       })
       .eq('id', userId)
       .select()
       .single();
 
     if (error) {
-      console.error('Error updating user password:', error);
+      console.error('❌ Database error updating user password:', error);
+      console.error('❌ Error code:', error.code);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error details:', error.details);
+      
       if (error.code === 'PGRST116') {
         throw new Error('User not found');
       }
-      throw new Error(`Failed to update password: ${error.message}`);
+      if (error.code === '42703') {
+        throw new Error('Database column error - password field not found');
+      }
+      if (error.code === '42501') {
+        throw new Error('Permission denied - insufficient database permissions');
+      }
+      
+      throw new Error(`Failed to update password: ${error.message || 'Unknown database error'}`);
     }
     
     if (!data) {
