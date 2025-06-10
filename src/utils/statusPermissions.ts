@@ -7,8 +7,8 @@ import { User, Status } from '../types';
  * @returns boolean whether the user has permission to the status
  */
 export const canUserAccessStatus = (user: User, statusId: string): boolean => {
-  // Admins can access all statuses
-  if (user.role === 'admin') return true;
+  // Admins and Super Admins can access all statuses
+  if (user.role === 'admin' || user.role === 'super_admin') return true;
   
   // Check if user has specific status permissions
   if (user.allowedStatuses && user.allowedStatuses.includes(statusId)) {
@@ -25,8 +25,8 @@ export const canUserAccessStatus = (user: User, statusId: string): boolean => {
  * @returns Array of statuses the user can access
  */
 export const getAccessibleStatuses = (user: User, allStatuses: Status[]): Status[] => {
-  // Admins can access all statuses
-  if (user.role === 'admin') return allStatuses;
+  // Admins and Super Admins can access all statuses
+  if (user.role === 'admin' || user.role === 'super_admin') return allStatuses;
   
   // Filter statuses based on user permissions
   if (user.allowedStatuses) {
@@ -92,7 +92,7 @@ export const getUsersWithStatusAccess = (
   // Apply team filter if provided
   if (teamFilter && teamFilter !== 'all') {
     filteredUsers = filteredUsers.filter(user => 
-      user.team === teamFilter || user.role === 'admin'
+      user.team === teamFilter || user.role === 'admin' || user.role === 'super_admin'
     );
   }
   

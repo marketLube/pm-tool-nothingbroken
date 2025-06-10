@@ -132,7 +132,8 @@ const Attendance: React.FC = () => {
 
   // Apply additional filters (team and employee)
   const filteredUsers = filteredUsersByRole.filter(user => {
-    if (selectedTeam !== 'all' && user.team !== selectedTeam && user.role !== 'admin') return false;
+    // For team filtering: Admins and Super Admins can see all teams, others are restricted to their own team
+    if (selectedTeam !== 'all' && user.team !== selectedTeam && user.role !== 'admin' && user.role !== 'super_admin') return false;
     if (selectedEmployee !== 'all' && user.id !== selectedEmployee) return false;
     return true;
   });

@@ -110,7 +110,15 @@ interface DataProviderProps {
 
 export function DataProvider({ children }: DataProviderProps) {
   const { isLoggedIn, currentUser } = useAuth();
-  const realtimeHook = useRealtime();
+  
+  // Make useRealtime optional to prevent crashes
+  let realtimeHook;
+  try {
+    realtimeHook = useRealtime();
+  } catch (error: any) {
+    console.warn('⚠️ [DataContext] useRealtime not available:', error?.message || 'Unknown error');
+    realtimeHook = null;
+  }
 
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -225,14 +233,10 @@ export function DataProvider({ children }: DataProviderProps) {
                 console.log(`📊 [DataContext] Recalculating analytics after INSERT`);
                 updateTaskAnalytics(updatedTasks);
               }
-              // 🔥 NEW: Multiple force update mechanisms
+              // Gentle update mechanism
               setTimeout(() => {
                 forceUpdate();
-                // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
-                window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
-                  detail: { type: 'INSERT', task: event.new } 
-                }));
-              }, 50);
+              }, 100);
               return updatedTasks;
             }
             console.log(`⏭️ [DataContext] Skipping duplicate task ${event.new!.id}`);
@@ -256,14 +260,10 @@ export function DataProvider({ children }: DataProviderProps) {
               console.log(`📊 [DataContext] Recalculating analytics after UPDATE`);
               updateTaskAnalytics(updated);
             }
-            // 🔥 NEW: Multiple force update mechanisms
+            // Gentle update mechanism
             setTimeout(() => {
               forceUpdate();
-              // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
-              window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
-                detail: { type: 'UPDATE', task: event.new } 
-              }));
-            }, 50);
+            }, 100);
             return updated;
           });
         }
@@ -280,14 +280,10 @@ export function DataProvider({ children }: DataProviderProps) {
               console.log(`📊 [DataContext] Recalculating analytics after DELETE`);
               updateTaskAnalytics(filtered);
             }
-            // 🔥 NEW: Multiple force update mechanisms
+            // Gentle update mechanism
             setTimeout(() => {
               forceUpdate();
-              // 🔥 AGGRESSIVE: Dispatch window event to force global re-renders
-              window.dispatchEvent(new CustomEvent('taskDataUpdated', { 
-                detail: { type: 'DELETE', task: event.old } 
-              }));
-            }, 50);
+            }, 100);
             return filtered;
           });
         }

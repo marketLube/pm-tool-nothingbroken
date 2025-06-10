@@ -381,7 +381,7 @@ export const clearTodayAttendanceForAllUsers = async (userIds: string[]): Promis
 /**
  * Gets filtered user list based on role and team permissions
  * For normal users: Only their own data
- * For admins: All users
+ * For admins and super_admins: All users
  */
 export const getFilteredUsersForAttendance = (
   allUsers: any[],
@@ -389,9 +389,9 @@ export const getFilteredUsersForAttendance = (
   currentUserTeam: string,
   currentUserId: string
 ): any[] => {
-  if (currentUserRole === 'admin') {
-    // Admins can see all users
-    console.log(`🔐 Admin access: Showing all ${allUsers.length} users`);
+  if (currentUserRole === 'admin' || currentUserRole === 'super_admin') {
+    // Admins and Super Admins can see all users
+    console.log(`🔐 ${currentUserRole === 'super_admin' ? 'Super Admin' : 'Admin'} access: Showing all ${allUsers.length} users`);
     return allUsers;
   } else {
     // Normal users can ONLY see themselves

@@ -184,7 +184,9 @@ export const checkUserCredentials = async (email: string, password: string): Pro
           user_password: password
         });
 
-      if (!authError && authResult && authResult.length > 0) {
+      console.log('🔍 RPC Response:', { authResult, authError });
+
+      if (!authError && authResult && Array.isArray(authResult) && authResult.length > 0) {
         const authData = authResult[0];
         console.log(`✅ Authentication successful via ${authData.auth_method} method`);
         
@@ -200,9 +202,12 @@ export const checkUserCredentials = async (email: string, password: string): Pro
           allowedStatuses: [],
           password: '' // Never return the actual password
         };
+      } else {
+        console.log('📝 RPC authentication failed or returned empty, falling back to direct query');
       }
     } catch (rpcError) {
-      console.log('📝 RPC authentication method not available, falling back to direct query');
+      console.log('📝 RPC authentication method error:', rpcError);
+      console.log('📝 Falling back to direct query');
     }
 
     // Fallback: Direct database query for backward compatibility

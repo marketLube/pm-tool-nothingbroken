@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useData } from '../contexts/DataContext';
-import { getAttendanceStatus } from '../services/attendanceService';
+import { getAttendanceStatus, getFilteredUsersForAttendance } from '../services/attendanceService';
 import { getCompletedTasksForDay } from '../services/dailyReportService';
 import IndividualAttendanceExportModal from '../components/modals/IndividualAttendanceExportModal';
 import IndividualAttendanceReportPDF from '../components/pdf/IndividualAttendanceReportPDF';
@@ -76,14 +76,22 @@ const AttendanceCalendar: React.FC = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Filter users based on selected team
-  const filteredUsers = users.filter(user => {
-    if (selectedTeam !== 'all' && user.team !== selectedTeam && user.role !== 'admin') return false;
+  // Get filtered users based on role permissions (same logic as Attendance page)
+  const filteredUsersByRole = currentUser ? getFilteredUsersForAttendance(
+    users,
+    currentUser.role,
+    currentUser.team || 'creative',
+    currentUser.id
+  ) : [];
+
+  // Apply team filter
+  const filteredUsers = filteredUsersByRole.filter(user => {
+    if (selectedTeam !== 'all' && user.team !== selectedTeam && user.role !== 'admin' && user.role !== 'super_admin') return false;
     return true;
   });
 
-  // Check if current user can view other users (admin/manager)
-  const canViewAllUsers = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  // Check if current user can view other users (admin/super_admin/manager)
+  const canViewAllUsers = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'manager';
 
   // Set default user based on permissions
   useEffect(() => {

@@ -281,7 +281,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({
 
   // Filter users based on team selection
   const teamUsers = users.filter(user => 
-    user.team === formData.team || user.role === 'admin'
+    user.team === formData.team || user.role === 'admin' || user.role === 'super_admin'
   );
   
   // Filter users who have access to the selected status

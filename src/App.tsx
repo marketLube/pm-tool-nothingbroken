@@ -49,10 +49,10 @@ function App() {
   return (
     <NotificationProvider>
       <AuthProvider>
-        <SimpleRealtimeProvider>
-          <RealtimeProvider>
-          <DataProvider>
-            <StatusProvider>
+        <StatusProvider>
+          <SimpleRealtimeProvider>
+            <RealtimeProvider>
+              <DataProvider>
               <UserSyncComponent />
               <SessionIndicator />
               <Router>
@@ -197,11 +197,11 @@ function App() {
                   {/* Redirect root to login if not authenticated */}
                   <Route path="*" element={<Navigate to="/login" replace />} />
                 </Routes>
-              </Router>
-            </StatusProvider>
-          </DataProvider>
-          </RealtimeProvider>
-        </SimpleRealtimeProvider>
+                              </Router>
+              </DataProvider>
+            </RealtimeProvider>
+          </SimpleRealtimeProvider>
+        </StatusProvider>
       </AuthProvider>
     </NotificationProvider>
   );

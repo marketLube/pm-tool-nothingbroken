@@ -209,7 +209,7 @@ const Reports: React.FC = () => {
   // Get team-specific users when team filter is applied
   const filteredUsers = teamFilter === 'all' 
     ? activeUsers 
-    : activeUsers.filter(user => user.team === teamFilter || user.role === 'admin');
+    : activeUsers.filter(user => user.team === teamFilter || user.role === 'admin' || user.role === 'super_admin');
 
   // Reset employee filter when team filter changes
   useEffect(() => {

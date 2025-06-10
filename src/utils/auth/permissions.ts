@@ -236,8 +236,8 @@ export const hasPermission = (
  * @returns boolean whether the user has permission to the status
  */
 export const canAccessStatus = (user: User, statusId: string): boolean => {
-  // Admins can access all statuses
-  if (user.role === 'admin') return true;
+  // Admins and Super Admins can access all statuses
+  if (user.role === 'admin' || user.role === 'super_admin') return true;
   
   // Check if user has specific status permissions
   if (user.allowedStatuses && user.allowedStatuses.includes(statusId)) {

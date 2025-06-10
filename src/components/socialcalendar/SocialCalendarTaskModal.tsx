@@ -99,7 +99,7 @@ const SocialCalendarTaskModal: React.FC<SocialCalendarTaskModalProps> = ({
   // Filter clients and users based on selected team
   const teamClients = clients.filter(client => client.team === formData.team);
   const teamUsers = users.filter(user => 
-    user.isActive && (user.team === formData.team || user.role === 'admin')
+    user.isActive && (user.team === formData.team || user.role === 'admin' || user.role === 'super_admin')
   );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
