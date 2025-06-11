@@ -15,6 +15,9 @@ const SimpleRealtimeContext = createContext<SimpleRealtimeContextType | null>(nu
 // Global callback registry - shared across all instances
 const globalCallbacks = new Set<() => void>();
 
+// Export globalCallbacks for DataContext subscription
+export { globalCallbacks };
+
 // Global operation tracking to prevent polling during critical operations
 const activeOperations = new Set<string>();
 let isPaused = false;

@@ -15,6 +15,7 @@ import { updateUserPassword } from '../services/authService';
 import { getIndiaDateTime, getIndiaDate } from '../utils/timezone';
 import { useRealtime } from './RealtimeContext';
 import { useStatus } from './StatusContext';
+import { globalCallbacks } from './SimpleRealtimeContext';
 
 // Import TaskRealtimeEvent type
 interface TaskRealtimeEvent {
@@ -373,6 +374,44 @@ export function DataProvider({ children }: DataProviderProps) {
 
     loadData();
   }, [isLoggedIn]); // 🔥 REMOVED updateTaskAnalytics - it's memoized with empty deps
+
+  // 🔥 NEW: Subscribe to SimpleRealtime refresh callbacks for data sync
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const refreshCallback = async () => {
+      if (isDragOperationActiveRef.current) {
+        console.log('⏸️ [DataContext] Skipping refresh during drag operation');
+        return;
+      }
+
+      try {
+        console.log('🔄 [DataContext] Refreshing data from SimpleRealtime callback');
+        const freshTasks = await taskService.getTasks();
+        setTasks(prevTasks => {
+          // Only update if tasks have actually changed
+          if (JSON.stringify(prevTasks) !== JSON.stringify(freshTasks)) {
+            console.log('📊 [DataContext] Tasks changed, updating state');
+            updateTaskAnalytics(freshTasks);
+            return freshTasks;
+          }
+          return prevTasks;
+        });
+      } catch (error) {
+        console.error('Error refreshing tasks:', error);
+      }
+    };
+
+    // Subscribe to globalCallbacks from SimpleRealtime
+    globalCallbacks.add(refreshCallback);
+    console.log('✅ [DataContext] Subscribed to SimpleRealtime callbacks');
+
+    // Cleanup
+    return () => {
+      globalCallbacks.delete(refreshCallback);
+      console.log('🗑️ [DataContext] Unsubscribed from SimpleRealtime callbacks');
+    };
+  }, [isLoggedIn]);
 
   // Re-sync on realtime reconnection - only when status changes
   useEffect(() => {

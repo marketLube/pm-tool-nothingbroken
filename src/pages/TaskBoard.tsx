@@ -10,7 +10,6 @@ import { useNotification } from '../contexts/NotificationContext';
 import { useSimpleRealtime } from '../contexts/SimpleRealtimeContext';
 import { Task, StatusCode, TeamType } from '../types';
 import { Plus, Wifi, WifiOff, ChevronLeft, ChevronRight, Search, Users, Building2, X, ChevronDown } from 'lucide-react';
-import * as taskService from '../services/taskService';
 import { useData } from '../contexts/DataContext';
 
 interface Column {
@@ -26,10 +25,10 @@ const TaskBoard: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { getStatusesByTeam } = useStatus();
   const { showError, showSuccess } = useNotification();
-  const { refreshTasks, isConnected, pausePolling, resumePolling } = useSimpleRealtime();
+  const { isConnected, pausePolling, resumePolling } = useSimpleRealtime();
   
   // Get DataContext for user/client lookups and tasks
-  const { getUserById, getClientById, tasks, isLoading } = useData();
+  const { getUserById, getClientById, tasks, isLoading, updateTaskStatus, deleteTask: deleteTaskFromContext } = useData();
 
   const [newTaskModalOpen, setNewTaskModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -286,19 +285,17 @@ const TaskBoard: React.FC = () => {
     try {
       console.log(`🔄 [TaskBoard] Moving task ${task.id} to ${targetColumn.status}`);
       
-      await taskService.updateTaskStatus(task.id, targetColumn.status);
+      // Use DataContext updateTaskStatus which updates local state immediately
+      await updateTaskStatus(task.id, targetColumn.status);
       
       console.log(`✅ [TaskBoard] Task moved successfully`);
       showSuccess(`Task moved to ${targetColumn.name}`);
-      
-      // Trigger refresh
-      refreshTasks();
       
     } catch (error) {
       console.error('Failed to update task status:', error);
       showError('Failed to update task status. Please try again.');
     }
-  }, [tasks, columns, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, refreshTasks, getUserById]);
+  }, [tasks, columns, isAdmin, currentUser?.allowedStatuses, showError, showSuccess, updateTaskStatus, getUserById]);
 
   const handleTaskClick = useCallback((task: Task) => {
     setSelectedTask(task);
@@ -309,14 +306,14 @@ const TaskBoard: React.FC = () => {
   const handleTaskDelete = useCallback(async (taskId: string) => {
     try {
       console.log(`🗑️ [TaskBoard] Deleting task: ${taskId}`);
-      await taskService.deleteTask(taskId);
+      // Use DataContext deleteTask which updates local state immediately
+      await deleteTaskFromContext(taskId);
       showSuccess('Task deleted successfully');
-      refreshTasks();
     } catch (error) {
       console.error('Error deleting task:', error);
       showError('Failed to delete task');
     }
-  }, [showSuccess, showError, refreshTasks]);
+  }, [showSuccess, showError, deleteTaskFromContext]);
 
   const handleNewTaskInStatus = useCallback((statusId: StatusCode) => {
     setSelectedTask(null);
